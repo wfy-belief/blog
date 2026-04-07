@@ -1,0 +1,111 @@
+/* 1. 定义全局网格颜色变量 */
+:root {
+    --grid-line-color: rgba(0, 0, 0, 0.05); /* 亮色模式：浅黑 */
+}
+
+/* 2. 暗黑模式下覆写颜色变量 */
+[data-theme="dark"] {
+    --grid-line-color: rgba(255, 255, 255, 0.08); /* 暗黑模式：浅白 */
+}
+
+/* 3. 统一渲染网格 */
+body::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: linear-gradient(0deg, transparent 24%, var(--grid-line-color) 25%, var(--grid-line-color) 26%, transparent 27%, transparent 74%, var(--grid-line-color) 75%, var(--grid-line-color) 76%, transparent 77%, transparent),
+    linear-gradient(90deg, transparent 24%, var(--grid-line-color) 25%, var(--grid-line-color) 26%, transparent 27%, transparent 74%, var(--grid-line-color) 75%, var(--grid-line-color) 76%, transparent 77%, transparent);
+    background-size: 50px 50px;
+    pointer-events: none;
+    z-index: -1;
+}
+
+
+/* 文章页H1-H6图标样式效果 */
+h1::before, h2::before, h3::before, h4::before, h5::before, h6::before {
+    -webkit-animation: ccc 1.6s linear infinite;
+    animation: ccc 1.6s linear infinite;
+}
+
+@-webkit-keyframes ccc {
+    0% {
+        -webkit-transform: rotate(0deg);
+        transform: rotate(0deg)
+    }
+    to {
+        -webkit-transform: rotate(-1turn);
+        transform: rotate(-1turn)
+    }
+}
+
+@keyframes ccc {
+    0% {
+        -webkit-transform: rotate(0deg);
+        transform: rotate(0deg)
+    }
+    to {
+        -webkit-transform: rotate(-1turn);
+        transform: rotate(-1turn)
+    }
+}
+
+#content-inner.layout h1::before {
+    color: #ef50a8;
+    /*margin-left: -1.55rem;*/
+    font-size: 1.3rem;
+    margin-top: -0.23rem;
+}
+
+#content-inner.layout h2::before {
+    color: #fb7061;
+    /*margin-left: -1.35rem;*/
+    font-size: 1.1rem;
+    margin-top: -0.12rem;
+}
+
+#content-inner.layout h3::before {
+    color: #ffbf00;
+    /*margin-left: -1.22rem;*/
+    font-size: 0.95rem;
+    margin-top: -0.09rem;
+}
+
+#content-inner.layout h4::before {
+    color: #a9e000;
+    /*margin-left: -1.05rem;*/
+    font-size: 0.8rem;
+    margin-top: -0.09rem;
+}
+
+#content-inner.layout h5::before {
+    color: #57c850;
+    /*margin-left: -0.9rem;*/
+    font-size: 0.7rem;
+    margin-top: 0.0rem;
+}
+
+#content-inner.layout h6::before {
+    color: #5ec1e0;
+    /*margin-left: -0.9rem;*/
+    font-size: 0.66rem;
+    margin-top: 0.0rem;
+}
+
+#content-inner.layout h1:hover, #content-inner.layout h2:hover, #content-inner.layout h3:hover, #content-inner.layout h4:hover, #content-inner.layout h5:hover, #content-inner.layout h6:hover {
+    color: #49b1f5;
+}
+
+#content-inner.layout h1:hover::before, #content-inner.layout h2:hover::before, #content-inner.layout h3:hover::before, #content-inner.layout h4:hover::before, #content-inner.layout h5:hover::before, #content-inner.layout h6:hover::before {
+    color: #49b1f5;
+    -webkit-animation: ccc 3.2s linear infinite;
+    animation: ccc 3.2s linear infinite;
+}
+
+/* 页面设置icon转动速度调整 */
+#rightside_config i.fas.fa-cog.fa-spin {
+    animation: fa-spin 5s linear infinite;
+}
+
