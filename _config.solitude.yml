@@ -739,7 +739,9 @@ css_prefix: true
 extends:
   # Insert in head
   # 插入到 head
+  # https://blog.guole.fun/posts/butterfly-custom/
   head:
+    - <link rel="stylesheet" href="/css/custom.css">
 
   #  - <script src="https://cdn.bootcdn.net/ajax/libs/pace/1.2.4/pace.min.js"></script>
 
