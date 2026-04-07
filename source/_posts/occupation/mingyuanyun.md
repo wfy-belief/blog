@@ -2,7 +2,10 @@
 aside: false
 title: 源起性空
 abbrlink: 1
+layout: page
 date: 2026-04-07 15:30:52
+top_img: /img/posts/occupation/post.1.1.png
+cover: /img/posts/occupation/post.1.1.png
 tags:
   - 公司
   - 毕业
