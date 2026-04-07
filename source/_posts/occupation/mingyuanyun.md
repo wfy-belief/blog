@@ -7,7 +7,7 @@ date: 2026-04-07 15:30:52
 cover: https://cdn.jsdelivr.net/gh/wfy-belief/blog@main/source/img/posts/occupation/post.1.1.f.png
 tags:
   - 公司
-  - 毕业
+  - 总结
 categories:
   - 工作
 description: 是结束也是开始
