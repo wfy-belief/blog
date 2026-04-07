@@ -4,8 +4,7 @@ title: 源起性空
 abbrlink: 1
 layout: page
 date: 2026-04-07 15:30:52
-top_img: /img/posts/occupation/post.1.1.png
-cover: /img/posts/occupation/post.1.1.png
+cover: https://cdn.jsdelivr.net/gh/wfy-belief/blog@main/source/img/posts/occupation/post.1.1.f.png
 tags:
   - 公司
   - 毕业
@@ -14,6 +13,8 @@ categories:
 description: 是结束也是开始
 ai_text: "这是王飞宇写给明源云及同事林兄的两封离别赠文，均为文言抒情风格，饱含职场岁月感慨与离别情谊。写给明源云全体的书信中，作者回顾自壬寅七月入职，四年间承蒙公司与同事、恩师关照，虽尽心履职、无愧于心，却感慨少年意气渐消、壮志未酬，遂决定辞去冗务，暂别职场以自省自新、追寻心之所向，文末寄寓对昔日共事时光的感念与重逢期许。致林兄的书信里，作者忆及二人同期入职、三载共事，曾一同钻研难题、惺惺相惜的难忘经历，赞叹林兄才思与胸襟，祝愿其在岗位上施展抱负，同时表达了对离别不舍与日后再聚的期盼。"
 ---
+
+![GPT](https://cdn.jsdelivr.net/gh/wfy-belief/blog@main/source/img/posts/occupation/post.1.1.f.png "img")
 
 # 赠明源
 
