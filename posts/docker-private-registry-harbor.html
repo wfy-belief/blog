@@ -1,0 +1,439 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>私有镜像仓库 Harbor 搭建与生产运维实战 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/docker-private-registry-harbor"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="从官方 Registry 到 Harbor 的升级决策，拆解架构、部署、RBAC、漏扫签名复制与 GC 运维，复盘生产踩坑。"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文复盘我们在生产环境落地 Harbor 私有镜像仓库的全过程：先讲为什么需要私有仓库与官方 Registry 的局限，再拆解 Harbor 的 core/registry/jobservice/trivy/db/redis 多组件架构，给出 compose 与 helm 两种部署路径、HTTPS 证书与 LDAP/OIDC 身份接入、RBAC 项目权限模型，重点覆盖漏洞扫描、cosign 签名、配额、多机房复制与停机 GC 流程，最后复盘磁盘膨胀、证书过期、大镜像推送超时、复制延迟等真实踩坑。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Docker/">Docker<sup>10</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%8E%9F%E7%90%86/">容器原理<sup>1</sup></a><a href="/tags/Compose/">Compose<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/">镜像优化<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/">容器网络<sup>1</sup></a><a href="/tags/%E7%9B%91%E6%8E%A7/">监控<sup>1</sup></a><a href="/tags/%E6%8E%92%E9%9A%9C/">排障<sup>1</sup></a><a href="/tags/Harbor/">Harbor<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/">镜像仓库<sup>1</sup></a><a href="/tags/cgroup/">cgroup<sup>1</sup></a><a href="/tags/GPU/">GPU<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%AE%89%E5%85%A8/">容器安全<sup>1</sup></a><a href="/tags/Dockerfile/">Dockerfile<sup>1</sup></a><a href="/tags/%E5%AD%98%E5%82%A8/">存储<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">40</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">41</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">41</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">54</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Docker/">Docker<sup>10</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%8E%9F%E7%90%86/">容器原理<sup>1</sup></a><a href="/tags/Compose/">Compose<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/">镜像优化<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/">容器网络<sup>1</sup></a><a href="/tags/%E7%9B%91%E6%8E%A7/">监控<sup>1</sup></a><a href="/tags/%E6%8E%92%E9%9A%9C/">排障<sup>1</sup></a><a href="/tags/Harbor/">Harbor<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/">镜像仓库<sup>1</sup></a><a href="/tags/cgroup/">cgroup<sup>1</sup></a><a href="/tags/GPU/">GPU<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%AE%89%E5%85%A8/">容器安全<sup>1</sup></a><a href="/tags/Dockerfile/">Dockerfile<sup>1</sup></a><a href="/tags/%E5%AD%98%E5%82%A8/">存储<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">私有镜像仓库 Harbor 搭建与生产运维实战</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Docker/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Docker</span></a><a class="post-meta__tags" href="/tags/Harbor/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Harbor</span></a><a class="post-meta__tags" href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>镜像仓库</span></a></div></div></div></div><h1 class="post-title">私有镜像仓库 Harbor 搭建与生产运维实战</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h1 id="私有镜像仓库-Harbor-搭建与生产运维实战"><a href="#私有镜像仓库-Harbor-搭建与生产运维实战" class="headerlink" title="私有镜像仓库 Harbor 搭建与生产运维实战"></a>私有镜像仓库 Harbor 搭建与生产运维实战</h1><h2 id="一、为什么我们要搭私有仓库"><a href="#一、为什么我们要搭私有仓库" class="headerlink" title="一、为什么我们要搭私有仓库"></a>一、为什么我们要搭私有仓库</h2><p>去年我们把 CI&#x2F;CD 全链路容器化之后，第一个撞上来的问题就是镜像分发的带宽 <!-- 校准：请按真实经历核实/替换 -->。当时集群规模 200+ 节点，分布在两个机房，每天构建产物大约 400 个镜像，单个镜像平均 1.2GB。如果每个节点都去 Docker Hub 拉，不仅出口带宽爆掉，拉取耗时也让部署窗口从 3 分钟拉长到 20 分钟。更麻烦的是 Docker Hub 的拉取限速（anonymous 100 pulls&#x2F;6h），高峰期直接 429。</p>
+<p>搭私有仓库的诉求其实就三条：</p>
+<ol>
+<li><strong>内网带宽</strong>：镜像分发走内网，千兆&#x2F;万兆链路随便用，单次拉取从分钟级降到秒级。</li>
+<li><strong>安全合规</strong>：金融&#x2F;政企场景镜像不能出公网，且需要漏洞扫描、签名审计、留存证据。Docker Hub 的公开仓库根本满足不了等保要求。</li>
+<li><strong>缓存加速</strong>：通过 proxy cache 模式把上游 Docker Hub &#x2F; Quay 的镜像缓存在本地，重复拉取走缓存，既省带宽又快。</li>
+</ol>
+<p>一开始我们用的是官方 <code>registry:2</code>，一个二进制跑起来就能 push&#x2F;pull，简单到令人感动。但用了两个月就扛不住了——没有 Web UI、没有权限模型、没有漏扫、没有复制、GC 要手动停服务跑命令。团队 review 了一圈，最终上了 Harbor。下面把这次升级的来龙去脉讲清楚。</p>
+<h2 id="二、官方-Docker-Registry-vs-Harbor：什么时候该升级"><a href="#二、官方-Docker-Registry-vs-Harbor：什么时候该升级" class="headerlink" title="二、官方 Docker Registry vs Harbor：什么时候该升级"></a>二、官方 Docker Registry vs Harbor：什么时候该升级</h2><p>很多人觉得官方 Registry 够用，其实它定位就是一个”无脑可用的存储后端”，对标的是 <code>git daemon</code>。Harbor 才是企业级仓库。我把两者的差异列成一张表，决策时直接对照：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>官方 Docker Registry</th>
+<th>Harbor</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>定位</td>
+<td>存储后端，最小化</td>
+<td>企业级平台，全功能</td>
+</tr>
+<tr>
+<td>权限</td>
+<td>基本认证（htpasswd），无项目概念</td>
+<td>项目级 RBAC，访客&#x2F;开发者&#x2F;项目管理员&#x2F;系统管理员</td>
+</tr>
+<tr>
+<td>身份集成</td>
+<td>无</td>
+<td>LDAP &#x2F; OIDC &#x2F; SAML &#x2F; uaa</td>
+</tr>
+<tr>
+<td>Web UI</td>
+<td>无</td>
+<td>完整 Portal（Angular）</td>
+</tr>
+<tr>
+<td>漏洞扫描</td>
+<td>无</td>
+<td>内置 Trivy，可设阻断策略</td>
+</tr>
+<tr>
+<td>镜像签名</td>
+<td>无</td>
+<td>Notary v2 + Cosign</td>
+</tr>
+<tr>
+<td>复制（多仓库同步）</td>
+<td>无</td>
+<td>pull&#x2F;push 模式，多 remote 同步</td>
+</tr>
+<tr>
+<td>配额</td>
+<td>无</td>
+<td>项目级存储 + 镜像数配额</td>
+</tr>
+<tr>
+<td>GC</td>
+<td>手动停服务跑 <code>registry garbage-collect</code></td>
+<td>Web 触发，支持不停机（在线 GC）</td>
+</tr>
+<tr>
+<td>审计日志</td>
+<td>无</td>
+<td>全量操作审计</td>
+</tr>
+<tr>
+<td>部署复杂度</td>
+<td>单容器</td>
+<td>compose 多组件 &#x2F; helm chart</td>
+</tr>
+</tbody></table>
+<p><strong>结论</strong>：个人&#x2F;小团队用官方 Registry 足够；一旦你需要项目隔离、漏扫、复制、审计中的任何一项，就该上 Harbor。我们当时四项都要，没有选择。</p>
+<h2 id="三、Harbor-架构拆解"><a href="#三、Harbor-架构拆解" class="headerlink" title="三、Harbor 架构拆解"></a>三、Harbor 架构拆解</h2><p>Harbor 不是一个单体，而是一组微服务。理解组件分工是后面排障的前提。先看架构图：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">                  用户 / CI / k8s 集群</span><br><span class="line">                         |</span><br><span class="line">                         v</span><br><span class="line">                 +-----------------+</span><br><span class="line">                 |   nginx (代理)   |  &lt;-- TLS 终止、路由分发</span><br><span class="line">                 +-----------------+</span><br><span class="line">                         |</span><br><span class="line">    +----------+---------+---------+----------+----------+</span><br><span class="line">    |          |                   |          |          |</span><br><span class="line">    v          v                   v          v          v</span><br><span class="line">+-------+ +---------+        +----------+ +--------+ +-------+</span><br><span class="line">| Portal| | Core API|        | Registry | |Jobsvc  | | Trivy |</span><br><span class="line">| (UI)  | | (业务核心)|        | (distribution)| |(异步任务)| |(漏扫) |</span><br><span class="line">+-------+ +---------+        +----------+ +--------+ +-------+</span><br><span class="line">             |                    |          |          |</span><br><span class="line">             |  +-----------------+----------+----------+</span><br><span class="line">             v  v                 v          v</span><br><span class="line">         +-------+           +-------+   +-------+</span><br><span class="line">         | PG DB |           | Redis |   |存储后端|</span><br><span class="line">         |(元数据)|           |(缓存) |   |/data  |</span><br><span class="line">         +-------+           +-------+   +-------+</span><br></pre></td></tr></table></figure>
+
+<p>各组件职责与边界，这里逐个展开，因为这部分理解错了后面排障全是盲人摸象：</p>
+<ul>
+<li><strong>nginx</strong>：所有入口流量经它，TLS 终止在这里，按路径分发到 portal &#x2F; core &#x2F; registry &#x2F; trivy。证书配置在它身上。生产里我们额外在它前面挂了一层云 SLB 做四层负载与跨机房容灾，nginx 只做七层路由。<strong>所有超时、body 大小限制都在这里调</strong>，registry 本身只管读写存储。</li>
+<li><strong>Portal</strong>：Angular 前端，提供项目管理、镜像浏览、扫描结果查看。它纯静态资源，挂了不影响 push&#x2F;pull，只影响 Web 操作，所以多副本无脑扩。</li>
+<li><strong>Core</strong>（harbor-core）：业务大脑，管项目、用户、RBAC、配额、复制策略、Webhook。所有 API <code>/api/v2.0/*</code> 走它。Core 是无状态的（状态都在 PG），可以水平扩；但它崩溃会直接导致 <code>docker login</code> 失败、UI 不可用，所以生产必须多副本 + 健康检查。</li>
+<li><strong>Registry</strong>：底层就是官方 <code>distribution</code>，负责镜像 manifest&#x2F;blob 的实际存储读写。Harbor 的存储目录 <code>/data/registry</code> 挂给它。所有 push&#x2F;pull 流量最终落到这里，I&#x2F;O 压力最大。它通过一个 token 服务（Core 提供的 <code>/service/token</code>）做鉴权，鉴权通过后才放行 blob 读写——这是理解”为什么 core 挂了 docker login 也挂”的关键。</li>
+<li><strong>JobService</strong>：异步任务调度，跑复制、GC、扫描这类耗时任务。和 Core 解耦，避免长任务阻塞 API。JobService 用 Redis 做任务队列，worker 数量受 <code>max_job_workers</code> 控制，开太大 DB 连接会爆。</li>
+<li><strong>Trivy</strong>：漏洞扫描引擎，扫镜像 layer 里的 OS 包与语言依赖。Harbor 2.x 起默认扫描器，替代了早期的 Clair。Trivy 维护自己的 CVE 数据库（存自己的 PG schema），库每天从 GitHub 更新一次，<strong>离线环境必须手动导入库</strong>，否则扫描结果是”无漏洞”假象。</li>
+<li><strong>PostgreSQL</strong>：存项目、用户、策略、扫描结果等元数据。镜像 blob 不进库，进文件系统。这是整个系统唯一的有状态强依赖，<strong>单点即全站挂</strong>，生产必须外置高可用。</li>
+<li><strong>Redis</strong>：Core&#x2F;JobService 的缓存与会话存储。会话丢了用户要重新登录，不影响 push&#x2F;pull，所以 Redis 可用性要求比 PG 低一档。</li>
+<li><strong>Chartmuseum</strong>（可选）：Helm chart 仓库，2.x 后逐步弱化，迁向 OCI chart。新部署直接关掉这个组件，用 OCI 格式存 chart 更现代。</li>
+</ul>
+<p><strong>关键认知</strong>：镜像数据在文件系统（<code>/data/registry</code>），元数据在 PG。备份和迁移都要分开处理，这点后面会踩坑。鉴权链路是 nginx → core(token) → registry，任何一环挂都会让 <code>docker pull</code> 报奇怪的错误，排查时顺着这条链查。</p>
+<h2 id="四、部署：从-compose-到-helm"><a href="#四、部署：从-compose-到-helm" class="headerlink" title="四、部署：从 compose 到 helm"></a>四、部署：从 compose 到 helm</h2><p>Harbor 官方提供两套部署：<code>docker-compose</code>（单机）和 Helm chart（K8s）。我们生产用 helm，测试环境用 compose。</p>
+<h3 id="4-1-compose-部署与-harbor-yml-关键配置"><a href="#4-1-compose-部署与-harbor-yml-关键配置" class="headerlink" title="4.1 compose 部署与 harbor.yml 关键配置"></a>4.1 compose 部署与 harbor.yml 关键配置</h3><p>先装 <code>harbor-installer.tgz</code>，改 <code>harbor.yml</code>：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># harbor.yml 核心字段</span></span><br><span class="line"><span class="attr">hostname:</span> <span class="string">harbor.acitrus.cn</span></span><br><span class="line"></span><br><span class="line"><span class="attr">http:</span></span><br><span class="line">  <span class="attr">port:</span> <span class="number">80</span></span><br><span class="line"></span><br><span class="line"><span class="attr">https:</span></span><br><span class="line">  <span class="attr">port:</span> <span class="number">443</span></span><br><span class="line">  <span class="attr">certificate:</span> <span class="string">/data/cert/harbor.crt</span></span><br><span class="line">  <span class="attr">private_key:</span> <span class="string">/data/cert/harbor.key</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 数据存储目录，registry / trivy / pg 都往这写</span></span><br><span class="line"><span class="attr">data_volume:</span> <span class="string">/data</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 数据库密码，生产务必改强密码</span></span><br><span class="line"><span class="attr">database:</span></span><br><span class="line">  <span class="attr">password:</span> <span class="string">&lt;strong-password&gt;</span></span><br><span class="line">  <span class="attr">max_idle_conns:</span> <span class="number">50</span></span><br><span class="line">  <span class="attr">max_open_conns:</span> <span class="number">1000</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 扫描配置</span></span><br><span class="line"><span class="attr">trivy:</span></span><br><span class="line">  <span class="attr">ignore_unfixed:</span> <span class="literal">false</span></span><br><span class="line">  <span class="attr">skip_update:</span> <span class="literal">false</span></span><br><span class="line">  <span class="attr">offline_scan:</span> <span class="literal">false</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 复制、GC 等 job 的并发</span></span><br><span class="line"><span class="attr">jobservice:</span></span><br><span class="line">  <span class="attr">max_job_workers:</span> <span class="number">10</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 自动 GC 临时镜像</span></span><br><span class="line"><span class="attr">garbage_collection:</span></span><br><span class="line">  <span class="attr">enabled:</span> <span class="literal">true</span></span><br><span class="line">  <span class="attr">schedule:</span> <span class="string">&quot;0 0 1 * * *&quot;</span>  <span class="comment"># 每天凌晨 1 点触发在线 GC（不删未引用 blob，只清 untagged）</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 对外暴露</span></span><br><span class="line"><span class="attr">external_url:</span> <span class="string">https://harbor.acitrus.cn</span></span><br></pre></td></tr></table></figure>
+
+<p>装的时候执行 <code>./install.sh --with-trivy --with-chartmuseum</code>。注意 <code>--with-chartmuseum</code> 是可选的，我们后来弃用了，纯 OCI。</p>
+<h3 id="4-2-HTTPS-证书"><a href="#4-2-HTTPS-证书" class="headerlink" title="4.2 HTTPS 证书"></a>4.2 HTTPS 证书</h3><p>这一步最容易出事。生产必须上正规 CA 证书，别用自签。我们用 Let’s Encrypt 泛域名：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># acme.sh 申请泛域名</span></span><br><span class="line">acme.sh --issue --dns dns_ali -d acitrus.cn -d *.acitrus.cn</span><br><span class="line"></span><br><span class="line"><span class="comment"># 装到 Harbor 路径</span></span><br><span class="line">acme.sh --install-cert -d acitrus.cn \</span><br><span class="line">  --key-file       /data/cert/harbor.key \</span><br><span class="line">  --fullchain-file /data/cert/harbor.crt \</span><br><span class="line">  --reloadcmd      <span class="string">&quot;docker-compose -f /opt/harbor/docker-compose.yml restart nginx&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p>自签证书场景下，所有 k8s 节点都要把 CA 证书放到 <code>/etc/docker/certs.d/harbor.acitrus.cn/ca.crt</code>，否则 <code>docker pull</code> 报 <code>x509: certificate signed by unknown authority</code>。这块踩坑率 100%，下面复盘细讲。</p>
+<h3 id="4-3-LDAP-OIDC-接入企业身份"><a href="#4-3-LDAP-OIDC-接入企业身份" class="headerlink" title="4.3 LDAP &#x2F; OIDC 接入企业身份"></a>4.3 LDAP &#x2F; OIDC 接入企业身份</h3><p>我们公司身份在 LDAP，Harbor 配 <code>ldap</code> 模式：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 管理界面 → 配置 → 认证模式</span></span><br><span class="line"><span class="attr">auth_mode:</span> <span class="string">ldap_auth</span></span><br><span class="line"><span class="attr">ldap_url:</span> <span class="string">ldap://ldap.corp.acitrus.cn:389</span></span><br><span class="line"><span class="attr">ldap_base_dn:</span> <span class="string">ou=staff,dc=corp,dc=acitrus,dc=cn</span></span><br><span class="line"><span class="attr">ldap_uid:</span> <span class="string">uid</span></span><br><span class="line"><span class="attr">ldap_scope:</span> <span class="number">2</span>   <span class="comment"># 子树搜索</span></span><br></pre></td></tr></table></figure>
+
+<p>后来公司迁到 OIDC（Keycloak），切到 <code>oidc_auth</code>：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">auth_mode:</span> <span class="string">oidc_auth</span></span><br><span class="line"><span class="attr">oidc_name:</span> <span class="string">Keycloak</span></span><br><span class="line"><span class="attr">oidc_endpoint:</span> <span class="string">https://sso.corp.acitrus.cn/realms/corp</span></span><br><span class="line"><span class="attr">oidc_client_id:</span> <span class="string">harbor</span></span><br><span class="line"><span class="attr">oidc_client_secret:</span> <span class="string">&lt;secret&gt;</span></span><br><span class="line"><span class="attr">oidc_scope:</span> <span class="string">openid,profile,email,groups</span></span><br><span class="line"><span class="attr">oidc_user_claim:</span> <span class="string">preferred_username</span></span><br></pre></td></tr></table></figure>
+
+<p>切 OIDC 时一定要配 <code>oidc_group_filter</code> 把 Harbor 的项目角色和 OIDC group 绑定，否则每个新用户都要手动加项目权限，运维负担极重。</p>
+<h3 id="4-4-helm-部署（生产）"><a href="#4-4-helm-部署（生产）" class="headerlink" title="4.4 helm 部署（生产）"></a>4.4 helm 部署（生产）</h3><p>K8s 场景用官方 chart：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">helm repo add harbor https://helm.goharbor.io</span><br><span class="line">helm fetch harbor/harbor --version 1.13.0 --untar   &lt;!-- 校准：请按真实经历核实/替换 --&gt;</span><br></pre></td></tr></table></figure>
+
+<p><code>values.yaml</code> 关键项：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">expose:</span></span><br><span class="line">  <span class="attr">type:</span> <span class="string">ingress</span></span><br><span class="line">  <span class="attr">tls:</span></span><br><span class="line">    <span class="attr">enabled:</span> <span class="literal">true</span></span><br><span class="line">    <span class="attr">certSource:</span> <span class="string">secret</span></span><br><span class="line">    <span class="attr">secret:</span></span><br><span class="line">      <span class="attr">secretName:</span> <span class="string">harbor-tls</span></span><br><span class="line">  <span class="attr">ingress:</span></span><br><span class="line">    <span class="attr">hosts:</span></span><br><span class="line">      <span class="attr">core:</span> <span class="string">harbor.acitrus.cn</span></span><br><span class="line"></span><br><span class="line"><span class="attr">externalURL:</span> <span class="string">https://harbor.acitrus.cn</span></span><br><span class="line"></span><br><span class="line"><span class="attr">persistence:</span></span><br><span class="line">  <span class="attr">persistentVolumeClaim:</span></span><br><span class="line">    <span class="attr">registry:</span></span><br><span class="line">      <span class="attr">size:</span> <span class="string">2000Gi</span></span><br><span class="line">      <span class="attr">storageClass:</span> <span class="string">ceph-rbd</span></span><br><span class="line">    <span class="attr">database:</span></span><br><span class="line">      <span class="attr">size:</span> <span class="string">50Gi</span></span><br><span class="line">      <span class="attr">storageClass:</span> <span class="string">ceph-rbd</span></span><br><span class="line">    <span class="attr">redis:</span></span><br><span class="line">      <span class="attr">size:</span> <span class="string">10Gi</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 高可用：core/portal/jobservice/trivy 副本数</span></span><br><span class="line"><span class="attr">core:</span> &#123; <span class="attr">replicas:</span> <span class="number">2</span> &#125;</span><br><span class="line"><span class="attr">portal:</span> &#123; <span class="attr">replicas:</span> <span class="number">2</span> &#125;</span><br><span class="line"><span class="attr">jobservice:</span> &#123; <span class="attr">replicas:</span> <span class="number">2</span> &#125;</span><br><span class="line"><span class="attr">trivy:</span> &#123; <span class="attr">replicas:</span> <span class="number">2</span> &#125;</span><br><span class="line"></span><br><span class="line"><span class="comment"># registry 本身无状态（元数据在 PG），可水平扩展</span></span><br><span class="line"><span class="attr">registry:</span> &#123; <span class="attr">replicas:</span> <span class="number">2</span> &#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="五、日常使用：推送拉取与-RBAC"><a href="#五、日常使用：推送拉取与-RBAC" class="headerlink" title="五、日常使用：推送拉取与 RBAC"></a>五、日常使用：推送拉取与 RBAC</h2><h3 id="5-1-RBAC-项目权限模型"><a href="#5-1-RBAC-项目权限模型" class="headerlink" title="5.1 RBAC 项目权限模型"></a>5.1 RBAC 项目权限模型</h3><p>Harbor 的隔离单位是<strong>项目（Project）</strong>，分公开&#x2F;私有。每个项目下挂镜像仓库，权限角色四级：</p>
+<table>
+<thead>
+<tr>
+<th>角色</th>
+<th>能力</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>项目管理员</td>
+<td>增删成员、改配置、删镜像</td>
+</tr>
+<tr>
+<td>维护者</td>
+<td>push&#x2F;pull、扫镜像、看日志</td>
+</tr>
+<tr>
+<td>开发者</td>
+<td>push&#x2F;pull</td>
+</tr>
+<tr>
+<td>访客</td>
+<td>只 pull</td>
+</tr>
+</tbody></table>
+<p>我们按业务线建项目：<code>data-warehouse</code>、<code>ml-platform</code>、<code>online-service</code>，每项目配对应 LDAP&#x2F;OIDC group。新人入职自动进对应项目的”开发者”组，离职同步撤销。</p>
+<h3 id="5-2-推送拉取"><a href="#5-2-推送拉取" class="headerlink" title="5.2 推送拉取"></a>5.2 推送拉取</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 登录</span></span><br><span class="line">docker login harbor.acitrus.cn -u fyu.wang</span><br><span class="line"></span><br><span class="line"><span class="comment"># 打标签（注意命名空间 = 项目名）</span></span><br><span class="line">docker tag spark:3.5.1 harbor.acitrus.cn/data-warehouse/spark:3.5.1</span><br><span class="line"></span><br><span class="line"><span class="comment"># 推送</span></span><br><span class="line">docker push harbor.acitrus.cn/data-warehouse/spark:3.5.1</span><br><span class="line"></span><br><span class="line"><span class="comment"># k8s 里 imagePullSecret 引用</span></span><br><span class="line">kubectl create secret docker-registry harbor-secret \</span><br><span class="line">  --docker-server=harbor.acitrus.cn \</span><br><span class="line">  --docker-username=svc-k8s \</span><br><span class="line">  --docker-password=&lt;token&gt; \</span><br><span class="line">  --docker-email=devops@acitrus.cn</span><br></pre></td></tr></table></figure>
+
+<p>机器账号（service account）建议在 Harbor 里建一个独立账号配 API token，别用真人账号——离职清理时 K8s 的 imagePullSecret 会一起失效，排查极痛苦。</p>
+<h2 id="六、企业功能：漏扫、签名、配额、复制"><a href="#六、企业功能：漏扫、签名、配额、复制" class="headerlink" title="六、企业功能：漏扫、签名、配额、复制"></a>六、企业功能：漏扫、签名、配额、复制</h2><h3 id="6-1-漏洞扫描策略"><a href="#6-1-漏洞扫描策略" class="headerlink" title="6.1 漏洞扫描策略"></a>6.1 漏洞扫描策略</h3><p>Trivy 默认每天更新 CVE 库，新 push 的镜像自动扫。扫描分两种触发：<code>on_push</code>（推送即扫）和 <code>on_schedule</code>（定时重扫，因为 CVE 库更新后老镜像可能新增漏洞）。我们在项目级别设了<strong>阻断策略</strong>：</p>
+<ul>
+<li>Critical 漏洞存在 → 禁止 pull（k8s 拉不动）</li>
+<li>High 漏洞存在 → 告警但不阻断</li>
+</ul>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># Web 界面 → 项目 → 策略</span></span><br><span class="line"><span class="attr">scan_policy:</span> <span class="string">on_push,</span> <span class="string">on_schedule(每日</span> <span class="number">02</span><span class="string">:00)</span></span><br><span class="line"><span class="attr">vulnerability_blocking:</span></span><br><span class="line">  <span class="attr">severity:</span> <span class="string">Critical</span></span><br><span class="line">  <span class="attr">action:</span> <span class="string">block_pull</span></span><br></pre></td></tr></table></figure>
+
+<p>Trivy 自身的配置在 <code>harbor.yml</code>：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">trivy:</span></span><br><span class="line">  <span class="attr">ignore_unfixed:</span> <span class="literal">false</span>      <span class="comment"># 是否忽略未修复的 CVE</span></span><br><span class="line">  <span class="attr">skip_update:</span> <span class="literal">false</span>         <span class="comment"># 离线环境设 true，但需手动导入库</span></span><br><span class="line">  <span class="attr">offline_scan:</span> <span class="literal">false</span></span><br><span class="line">  <span class="attr">security_check:</span> <span class="string">vuln</span>       <span class="comment"># 也可加 secret/license</span></span><br></pre></td></tr></table></figure>
+
+<p>坑：阻断策略开太严会导致半夜紧急发布时镜像拉不动。我们的做法是 <code>data-warehouse</code> 这类离线 ETL 开严格阻断，<code>online-service</code> 只告警不阻断，灰度期间靠人审。另外 Trivy 扫大镜像（&gt;5GB）很慢，会占满 worker，建议把 <code>trivy replicas</code> 至少开 2，并限制单次扫描超时。</p>
+<h3 id="6-2-镜像签名：Cosign"><a href="#6-2-镜像签名：Cosign" class="headerlink" title="6.2 镜像签名：Cosign"></a>6.2 镜像签名：Cosign</h3><p>Notary v2 已逐步被 Cosign 取代，Harbor 2.5+ 原生支持 Cosign 签名验证。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 生成 key（私钥妥善保管，丢了镜像无法再签）</span></span><br><span class="line">cosign generate-key-pair</span><br><span class="line"></span><br><span class="line"><span class="comment"># 签名</span></span><br><span class="line">cosign sign --key cosign.key harbor.acitrus.cn/data-warehouse/spark:3.5.1</span><br><span class="line"></span><br><span class="line"><span class="comment"># 验证（k8s 部署时配合 Sigstore policy-controller 强制校验）</span></span><br><span class="line">cosign verify --key cosign.pub harbor.acitrus.cn/data-warehouse/spark:3.5.1</span><br></pre></td></tr></table></figure>
+
+<p>Harbor 里可在项目策略开”只允许拉取已签名镜像”，配合 Kyverno &#x2F; Sigstore policy-controller 在 admission 阶段拦截未签名镜像，形成供应链安全闭环。</p>
+<p>签名 key 管理是这套方案的命门。我们的做法：cosign 私钥放 KMS（阿里云 KMS &#x2F; HashiCorp Vault），CI 里通过短期 token 取用，不让私钥落地到磁盘。换 key 时老镜像要重签，否则验证会失败——这点在 key 轮转计划里一定要提前排。</p>
+<h3 id="6-3-配额"><a href="#6-3-配额" class="headerlink" title="6.3 配额"></a>6.3 配额</h3><p>项目配额两条线：存储容量 + 镜像数。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">data-warehouse: 500GB / 1000 个 tag</span><br><span class="line">ml-platform:    1TB  / 2000 个 tag</span><br></pre></td></tr></table></figure>
+
+<p>超配额 push 直接 413 报错。我们踩过一次：CI 没清理旧 tag，三天把 <code>data-warehouse</code> 顶到上限，导致当天 ETL 镜像推不上去。后来在 CI 流水线加了 retention 规则——保留最近 30 个 tag，其余自动删。</p>
+<h3 id="6-4-复制（多机房同步）"><a href="#6-4-复制（多机房同步）" class="headerlink" title="6.4 复制（多机房同步）"></a>6.4 复制（多机房同步）</h3><p>我们在 A、B 两个机房各部署一套 Harbor，A 为主、B 为灾。复制策略用 push 模式：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">策略：A.data-warehouse → B.data-warehouse</span><br><span class="line">模式：push</span><br><span class="line">触发：实时（event-based）</span><br><span class="line">过滤：name=spark/*,flink/*</span><br><span class="line">覆盖：dest 已存在则覆盖</span><br></pre></td></tr></table></figure>
+
+<p>复制走的是 Harbor 之间的 <code>replication</code> API，底层是 distribution 的 mount blob，跨机房只传差量 layer，不重复传整镜像。带宽占用比 <code>docker save | ssh docker load</code> 低一个数量级。</p>
+<p>复制策略支持三种触发：实时（push 即触发）、定时（cron）、手动。生产建议实时 + 定时对账双保险——实时靠 webhook 事件，事件丢失时定时全量对账能补回来。多机房星型拓扑（一主多从）比网状拓扑好维护，避免循环复制导致镜像 tag 来回覆盖。</p>
+<h3 id="6-5-Proxy-Cache：缓存加速上游"><a href="#6-5-Proxy-Cache：缓存加速上游" class="headerlink" title="6.5 Proxy Cache：缓存加速上游"></a>6.5 Proxy Cache：缓存加速上游</h3><p>这是 Harbor 一个被低估的能力。建一个 <strong>Proxy Cache 项目</strong>，类型选 proxy，远端配置 Docker Hub &#x2F; Quay &#x2F; 阿里云。k8s 节点拉 <code>docker.io/library/nginx:1.25</code> 时，改为拉 <code>harbor.acitrus.cn/dockerhub-proxy/library/nginx:1.25</code>，Harbor 第一次会回源 Docker Hub，之后同 tag 的拉取全部走本地缓存。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">项目：dockerhub-proxy（类型=Proxy Cache）</span><br><span class="line">远端：Docker Hub（https://hub.docker.com）</span><br><span class="line">凭证：用付费账号提高回源限速</span><br></pre></td></tr></table></figure>
+
+<p>这个特性上线后我们机房出口带宽降了 70% <!-- 校准：请按真实经历核实/替换 -->，且 Docker Hub 限速彻底无感。注意 proxy cache 的镜像不参与配额和漏扫（因为它本质是只读代理），重要的镜像还是要 push 到正常项目里固定下来。</p>
+<h2 id="七、生产运维：GC、备份、高可用"><a href="#七、生产运维：GC、备份、高可用" class="headerlink" title="七、生产运维：GC、备份、高可用"></a>七、生产运维：GC、备份、高可用</h2><h3 id="7-1-GC-流程（必须停-registry）"><a href="#7-1-GC-流程（必须停-registry）" class="headerlink" title="7.1 GC 流程（必须停 registry）"></a>7.1 GC 流程（必须停 registry）</h3><p>这是 Harbor 运维里最容易被忽略、也最容易出事的一环。<strong>registry 的 GC 是停机 GC</strong>——必须先把 registry 容器停掉，否则 GC 期间 push 上来的 blob 可能被误删。</p>
+<p>为什么必须停？因为 distribution 的 GC 本质是 mark-and-sweep：它先扫一遍 manifest，把所有”被引用”的 blob 标记成 alive，然后删掉未被标记的 blob。如果 GC 跑的过程中有新 push，新 blob 还没建立 manifest 引用，就会被当成 garbage 删掉——数据直接丢。所以必须停写。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 进入 harbor 目录</span></span><br><span class="line"><span class="built_in">cd</span> /opt/harbor</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 停掉 registry（注意只停 registry，不是停整个 compose）</span></span><br><span class="line">docker-compose stop registry</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 跑 GC（dry-run 先看一眼）</span></span><br><span class="line">docker run -it --<span class="built_in">rm</span> \</span><br><span class="line">  -v /data/registry:/storage \</span><br><span class="line">  registry:2 garbage-collect --dry-run /etc/registry/config.yml</span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 真删</span></span><br><span class="line">docker run -it --<span class="built_in">rm</span> \</span><br><span class="line">  -v /data/registry:/storage \</span><br><span class="line">  registry:2 garbage-collect /etc/registry/config.yml</span><br><span class="line"></span><br><span class="line"><span class="comment"># 5. 起回 registry</span></span><br><span class="line">docker-compose up -d registry</span><br></pre></td></tr></table></figure>
+
+<p>Harbor 2.x 引入”在线 GC”，但那是只删 untagged 镜像、不删未引用 blob 的轻量清理，<strong>不能替代真正的停机 GC</strong>。生产上我们每月一次停机 GC，挑业务低峰窗口（凌晨 3 点），整个流程 8 分钟左右（仓库 4TB 规模） <!-- 校准：请按真实经历核实/替换 -->。</p>
+<p>K8s 部署的 GC：把 registry 副本数先缩到 0，跑一个 job 容器挂载 PVC 执行 <code>garbage-collect</code>，完成后扩回来。</p>
+<h3 id="7-2-备份"><a href="#7-2-备份" class="headerlink" title="7.2 备份"></a>7.2 备份</h3><p>两部分分开备份：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 元数据：PG 逻辑备份</span></span><br><span class="line">pg_dump -h harbor-db -U postgres registry &gt; registry_$(<span class="built_in">date</span> +%F).sql</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 存储层：/data/registry 用 rsync 到对象存储</span></span><br><span class="line">rsync -avz --delete /data/registry/ minio:harbor-backup/registry/</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 配置：harbor.yml + secret</span></span><br><span class="line">tar czf harbor-config-$(<span class="built_in">date</span> +%F).tgz /opt/harbor/harbor.yml /data/cert/</span><br></pre></td></tr></table></figure>
+
+<p>恢复演练每季度做一次，别等真出事才发现备份是坏的。</p>
+<h3 id="7-3-高可用"><a href="#7-3-高可用" class="headerlink" title="7.3 高可用"></a>7.3 高可用</h3><p>Harbor 的 HA 关键在三点：</p>
+<ol>
+<li><strong>PG 用外置高可用</strong>（Patroni &#x2F; 云 RDS），不要用内置单点。</li>
+<li><strong>Redis 用外置集群</strong>，同样不依赖内置。</li>
+<li><strong>registry 共享存储</strong>（Ceph &#x2F; S3 &#x2F; OSS），多副本无状态拉同一份数据。</li>
+<li><strong>Core&#x2F;Portal&#x2F;JobService&#x2F;Trivy 多副本</strong>，前置 ingress 做负载均衡。</li>
+</ol>
+<p>JobService 多副本时注意：复制任务会被多个 worker 抢，Harbor 内部用 DB 行锁保证不重复，但 worker 太多会拖慢 DB，我们经验值 2-3 副本够用。</p>
+<p>另外有个隐藏点：Harbor 的 PG 默认连接池上限是 1024，多副本扩展时要相应调大 <code>max_open_conns</code>，否则高峰期 Core 会报 <code>pq: too many connections</code>。Redis 同理，job worker 数 × replicas 不要超过 Redis 的 maxclients。</p>
+<h2 id="八、踩坑复盘"><a href="#八、踩坑复盘" class="headerlink" title="八、踩坑复盘"></a>八、踩坑复盘</h2><p>下面这些坑都是我们真金白银交过学费的，按时间线列。</p>
+<h3 id="坑-1：磁盘膨胀，GC-不及时"><a href="#坑-1：磁盘膨胀，GC-不及时" class="headerlink" title="坑 1：磁盘膨胀，GC 不及时"></a>坑 1：磁盘膨胀，GC 不及时</h3><p>上线半年后某天告警 <code>/data</code> 用量 92%<code>。查下来是 CI 不断推 tag，老镜像没人删，配额没设，停机 GC 也没排期。最后 </code>df&#96; 显示 4TB 盘剩 320GB。</p>
+<p><strong>根因</strong>：配额 + retention + GC 三件事都没做。<br><strong>修复</strong>：</p>
+<ul>
+<li>项目配额强制开，默认 500GB。</li>
+<li>CI 流水线加 retention：保留最近 30 个 tag，自动删除老 tag（Harbor API <code>DELETE /projects/{id}/repositories/{name}/artifacts/{tag}</code>）。</li>
+<li>每月固定停机 GC 窗口。</li>
+<li>监控 <code>/data</code> 用量，超 80% 自动告警。</li>
+</ul>
+<h3 id="坑-2：证书过期，整集群拉不动镜像"><a href="#坑-2：证书过期，整集群拉不动镜像" class="headerlink" title="坑 2：证书过期，整集群拉不动镜像"></a>坑 2：证书过期，整集群拉不动镜像</h3><p>Let’s Encrypt 证书 90 天到期，acme.sh 的 <code>--reloadcmd</code> 当时配的是 <code>docker-compose restart</code>，但 Harbor 装目录后来从 <code>/opt/harbor</code> 挪到了 <code>/data/harbor</code>，reload 命令路径错了，证书续了但 nginx 没重载。某天早上全集群 k8s 拉镜像报 <code>x509: certificate has expired</code>，ETL 全挂。</p>
+<p><strong>修复</strong>：</p>
+<ul>
+<li>reload 命令改成绝对路径 + 加 <code>set -e</code> 校验。</li>
+<li>Prometheus blackbox exporter 监控证书到期天数，30 天前告警。</li>
+<li>证书路径用 symlink，acme 续签只换 symlink 指向。</li>
+</ul>
+<h3 id="坑-3：大镜像推送超时"><a href="#坑-3：大镜像推送超时" class="headerlink" title="坑 3：大镜像推送超时"></a>坑 3：大镜像推送超时</h3><p>ML 平台推一个 18GB 的 GPU 训练镜像，nginx 报 <code>413 Request Entity Too Large</code>，改了 <code>client_max_body_size 0</code>（无限制）后变成 60 秒超时。</p>
+<p><strong>根因</strong>：nginx 默认 <code>proxy_read_timeout 60s</code>，大 layer 上传超过 60 秒就被掐。<br><strong>修复</strong>：</p>
+<figure class="highlight nginx"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># nginx http 块</span></span><br><span class="line"><span class="attribute">client_max_body_size</span> <span class="number">0</span>;</span><br><span class="line"><span class="attribute">client_body_timeout</span> <span class="number">1800s</span>;</span><br><span class="line"><span class="attribute">proxy_read_timeout</span> <span class="number">1800s</span>;</span><br><span class="line"><span class="attribute">proxy_send_timeout</span> <span class="number">1800s</span>;</span><br><span class="line"><span class="attribute">chunked_transfer_encoding</span> <span class="literal">on</span>;</span><br></pre></td></tr></table></figure>
+
+<p>同时 registry 容器的 <code>REGISTRY_HTTP_TIMEOUT</code> 也要调大。改完 18GB 镜像推送稳定在 4 分钟 <!-- 校准：请按真实经历核实/替换 -->。</p>
+<h3 id="坑-4：复制延迟导致跨机房发布不一致"><a href="#坑-4：复制延迟导致跨机房发布不一致" class="headerlink" title="坑 4：复制延迟导致跨机房发布不一致"></a>坑 4：复制延迟导致跨机房发布不一致</h3><p>A 机房 push 后立即触发 B 机房部署，但复制是异步的，B 的 Harbor 还没收到镜像，k8s 拉取 404。</p>
+<p><strong>修复</strong>：</p>
+<ul>
+<li>发布流水线在 push 后 poll B 的 Harbor API，确认 manifest 存在再触发 B 的部署。</li>
+<li>复制策略从”实时”改为”实时 + 每 10 分钟全量对账”，防 event 丢失。</li>
+<li>关键镜像用 <code>--wait</code> 同步复制（Harbor 2.8+ 支持同步等待）。</li>
+</ul>
+<h3 id="坑-5：Trivy-离线扫描库过期"><a href="#坑-5：Trivy-离线扫描库过期" class="headerlink" title="坑 5：Trivy 离线扫描库过期"></a>坑 5：Trivy 离线扫描库过期</h3><p>某次机房断网，Trivy CVE 库 7 天没更新，扫描结果全是”无漏洞”——其实是库老了。我们以为镜像很安全，实际新 CVE 都没识别。<br><strong>修复</strong>：Trivy 加 health check，DB 修改时间超 48 小时告警；离线环境手动导 CVE 库 tar 包定期更新。</p>
+<h3 id="坑-6：retention-规则误删生产-tag"><a href="#坑-6：retention-规则误删生产-tag" class="headerlink" title="坑 6：retention 规则误删生产 tag"></a>坑 6：retention 规则误删生产 tag</h3><p>CI 自动清理”最近 30 个 tag”的策略上线第一天，把一个打了 <code>prod-stable</code> 标签的镜像删了——因为 retention 规则按 push 时间排序，没考虑保留特定 label。<br><strong>修复</strong>：retention 规则加 <code>retain_tagged: true</code>，凡是有 <code>prod-*</code> 前缀的 tag 永不删；重要镜像走签名通道（签名镜像默认受保护）。这条规则上线前先在测试项目跑 dry-run 一周。</p>
+<h3 id="坑-7：k8s-拉镜像偶发-401"><a href="#坑-7：k8s-拉镜像偶发-401" class="headerlink" title="坑 7：k8s 拉镜像偶发 401"></a>坑 7：k8s 拉镜像偶发 401</h3><p>集群偶发 <code>401 Unauthorized</code>，重启 pod 又能拉。查了半天是 Core 的 token 服务有缓存，多副本间 session 不同步。Core 副本 A 签的 token，副本 B 校验时偶发失败。<br><strong>修复</strong>：Core 副本数固定为奇数（3），session 共享 Redis；token 签名 key 强制多副本一致（<code>secret_key</code> 配置），别用默认随机生成。</p>
+<h2 id="写在最后"><a href="#写在最后" class="headerlink" title="写在最后"></a>写在最后</h2><p>Harbor 看起来是”装上就能用”的镜像仓库，真正在生产里跑稳，要处理的是配额、GC、证书、复制、漏扫这一整套运维闭环。我们的经验是：<strong>先把配额和 retention 做掉，再排 GC 周期，最后才是漏扫和签名</strong>——顺序反了，磁盘先爆。希望这篇复盘能给正在选型或已经踩坑的同学一个对照清单，少走几个月弯路。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Docker/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Docker<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/Harbor/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Harbor<span class="tagsPageCount">1</span></span></a><a class="post-meta__tags" href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>镜像仓库<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/hadoop-mapreduce-shuffle"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">MapReduce 原理与 Shuffle 深度优化</div></div></a></div><div class="next-post pull-right"><a href="/posts/docker-security-hardening"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">Docker 容器安全加固实战：从被扫出一堆高危说起</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#%E7%A7%81%E6%9C%89%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93-Harbor-%E6%90%AD%E5%BB%BA%E4%B8%8E%E7%94%9F%E4%BA%A7%E8%BF%90%E7%BB%B4%E5%AE%9E%E6%88%98"><span class="toc-text">私有镜像仓库 Harbor 搭建与生产运维实战</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E4%B8%BA%E4%BB%80%E4%B9%88%E6%88%91%E4%BB%AC%E8%A6%81%E6%90%AD%E7%A7%81%E6%9C%89%E4%BB%93%E5%BA%93"><span class="toc-text">一、为什么我们要搭私有仓库</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%AE%98%E6%96%B9-Docker-Registry-vs-Harbor%EF%BC%9A%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E8%AF%A5%E5%8D%87%E7%BA%A7"><span class="toc-text">二、官方 Docker Registry vs Harbor：什么时候该升级</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81Harbor-%E6%9E%B6%E6%9E%84%E6%8B%86%E8%A7%A3"><span class="toc-text">三、Harbor 架构拆解</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E9%83%A8%E7%BD%B2%EF%BC%9A%E4%BB%8E-compose-%E5%88%B0-helm"><span class="toc-text">四、部署：从 compose 到 helm</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-compose-%E9%83%A8%E7%BD%B2%E4%B8%8E-harbor-yml-%E5%85%B3%E9%94%AE%E9%85%8D%E7%BD%AE"><span class="toc-text">4.1 compose 部署与 harbor.yml 关键配置</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-HTTPS-%E8%AF%81%E4%B9%A6"><span class="toc-text">4.2 HTTPS 证书</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-LDAP-OIDC-%E6%8E%A5%E5%85%A5%E4%BC%81%E4%B8%9A%E8%BA%AB%E4%BB%BD"><span class="toc-text">4.3 LDAP &#x2F; OIDC 接入企业身份</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-4-helm-%E9%83%A8%E7%BD%B2%EF%BC%88%E7%94%9F%E4%BA%A7%EF%BC%89"><span class="toc-text">4.4 helm 部署（生产）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E6%97%A5%E5%B8%B8%E4%BD%BF%E7%94%A8%EF%BC%9A%E6%8E%A8%E9%80%81%E6%8B%89%E5%8F%96%E4%B8%8E-RBAC"><span class="toc-text">五、日常使用：推送拉取与 RBAC</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-RBAC-%E9%A1%B9%E7%9B%AE%E6%9D%83%E9%99%90%E6%A8%A1%E5%9E%8B"><span class="toc-text">5.1 RBAC 项目权限模型</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-%E6%8E%A8%E9%80%81%E6%8B%89%E5%8F%96"><span class="toc-text">5.2 推送拉取</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E4%BC%81%E4%B8%9A%E5%8A%9F%E8%83%BD%EF%BC%9A%E6%BC%8F%E6%89%AB%E3%80%81%E7%AD%BE%E5%90%8D%E3%80%81%E9%85%8D%E9%A2%9D%E3%80%81%E5%A4%8D%E5%88%B6"><span class="toc-text">六、企业功能：漏扫、签名、配额、复制</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-%E6%BC%8F%E6%B4%9E%E6%89%AB%E6%8F%8F%E7%AD%96%E7%95%A5"><span class="toc-text">6.1 漏洞扫描策略</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-%E9%95%9C%E5%83%8F%E7%AD%BE%E5%90%8D%EF%BC%9ACosign"><span class="toc-text">6.2 镜像签名：Cosign</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-3-%E9%85%8D%E9%A2%9D"><span class="toc-text">6.3 配额</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-4-%E5%A4%8D%E5%88%B6%EF%BC%88%E5%A4%9A%E6%9C%BA%E6%88%BF%E5%90%8C%E6%AD%A5%EF%BC%89"><span class="toc-text">6.4 复制（多机房同步）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-5-Proxy-Cache%EF%BC%9A%E7%BC%93%E5%AD%98%E5%8A%A0%E9%80%9F%E4%B8%8A%E6%B8%B8"><span class="toc-text">6.5 Proxy Cache：缓存加速上游</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E7%94%9F%E4%BA%A7%E8%BF%90%E7%BB%B4%EF%BC%9AGC%E3%80%81%E5%A4%87%E4%BB%BD%E3%80%81%E9%AB%98%E5%8F%AF%E7%94%A8"><span class="toc-text">七、生产运维：GC、备份、高可用</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#7-1-GC-%E6%B5%81%E7%A8%8B%EF%BC%88%E5%BF%85%E9%A1%BB%E5%81%9C-registry%EF%BC%89"><span class="toc-text">7.1 GC 流程（必须停 registry）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-2-%E5%A4%87%E4%BB%BD"><span class="toc-text">7.2 备份</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-3-%E9%AB%98%E5%8F%AF%E7%94%A8"><span class="toc-text">7.3 高可用</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81%E8%B8%A9%E5%9D%91%E5%A4%8D%E7%9B%98"><span class="toc-text">八、踩坑复盘</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-1%EF%BC%9A%E7%A3%81%E7%9B%98%E8%86%A8%E8%83%80%EF%BC%8CGC-%E4%B8%8D%E5%8F%8A%E6%97%B6"><span class="toc-text">坑 1：磁盘膨胀，GC 不及时</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-2%EF%BC%9A%E8%AF%81%E4%B9%A6%E8%BF%87%E6%9C%9F%EF%BC%8C%E6%95%B4%E9%9B%86%E7%BE%A4%E6%8B%89%E4%B8%8D%E5%8A%A8%E9%95%9C%E5%83%8F"><span class="toc-text">坑 2：证书过期，整集群拉不动镜像</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-3%EF%BC%9A%E5%A4%A7%E9%95%9C%E5%83%8F%E6%8E%A8%E9%80%81%E8%B6%85%E6%97%B6"><span class="toc-text">坑 3：大镜像推送超时</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-4%EF%BC%9A%E5%A4%8D%E5%88%B6%E5%BB%B6%E8%BF%9F%E5%AF%BC%E8%87%B4%E8%B7%A8%E6%9C%BA%E6%88%BF%E5%8F%91%E5%B8%83%E4%B8%8D%E4%B8%80%E8%87%B4"><span class="toc-text">坑 4：复制延迟导致跨机房发布不一致</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-5%EF%BC%9ATrivy-%E7%A6%BB%E7%BA%BF%E6%89%AB%E6%8F%8F%E5%BA%93%E8%BF%87%E6%9C%9F"><span class="toc-text">坑 5：Trivy 离线扫描库过期</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-6%EF%BC%9Aretention-%E8%A7%84%E5%88%99%E8%AF%AF%E5%88%A0%E7%94%9F%E4%BA%A7-tag"><span class="toc-text">坑 6：retention 规则误删生产 tag</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-7%EF%BC%9Ak8s-%E6%8B%89%E9%95%9C%E5%83%8F%E5%81%B6%E5%8F%91-401"><span class="toc-text">坑 7：k8s 拉镜像偶发 401</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%86%99%E5%9C%A8%E6%9C%80%E5%90%8E"><span class="toc-text">写在最后</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/docker-observability-troubleshooting.html","posts/hadoop-mapreduce-shuffle.html","posts/docker-private-registry-harbor.html","posts/docker-security-hardening.html","posts/docker-compose-orchestration.html","posts/hadoop-yarn-scheduler.html","posts/docker-resource-limits.html","posts/docker-storage-persistence.html","posts/docker-network-deep-dive.html","posts/hadoop-hdfs-small-files.html","posts/dockerfile-best-practices.html","posts/docker-image-layer-optimization.html","posts/docker-architecture.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

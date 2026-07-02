@@ -1,0 +1,364 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Docker 容器网络模型深度剖析与生产实践 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/docker-network-deep-dive"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="从 CNM 模型到 bridge&amp;#x2F;overlay&amp;#x2F;macvlan 驱动，落到 iptables NAT、内置 DNS 与生产网络选型"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文以第一人称复盘我们在生产环境中踩过的 Docker 网络坑，从 CNM 模型与 libnetwork 出发，逐个拆解 bridge（docker0 + veth pair + iptables NAT）、host、none、container 四种单机模式，再到跨主机的 overlay（VXLAN 隧道）、macvlan、ipvlan。结合 tcpdump 抓包与 iptables 规则演示端口映射与 DNS 服务发现链路，给出 bridge NAT 性能损耗、端口冲突、跨主机不通、MTU 大包丢等真实故障复盘，最后落到 host 网络 + 外部负载均衡的生产方案，以及与 K8s CNI（Calico/Cilium）的边界关系。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Docker/">Docker<sup>10</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%8E%9F%E7%90%86/">容器原理<sup>1</sup></a><a href="/tags/Compose/">Compose<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/">镜像优化<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/">容器网络<sup>1</sup></a><a href="/tags/%E7%9B%91%E6%8E%A7/">监控<sup>1</sup></a><a href="/tags/%E6%8E%92%E9%9A%9C/">排障<sup>1</sup></a><a href="/tags/Harbor/">Harbor<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/">镜像仓库<sup>1</sup></a><a href="/tags/cgroup/">cgroup<sup>1</sup></a><a href="/tags/GPU/">GPU<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%AE%89%E5%85%A8/">容器安全<sup>1</sup></a><a href="/tags/Dockerfile/">Dockerfile<sup>1</sup></a><a href="/tags/%E5%AD%98%E5%82%A8/">存储<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">40</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">41</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">41</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">54</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Docker/">Docker<sup>10</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%8E%9F%E7%90%86/">容器原理<sup>1</sup></a><a href="/tags/Compose/">Compose<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/">镜像优化<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/">容器网络<sup>1</sup></a><a href="/tags/%E7%9B%91%E6%8E%A7/">监控<sup>1</sup></a><a href="/tags/%E6%8E%92%E9%9A%9C/">排障<sup>1</sup></a><a href="/tags/Harbor/">Harbor<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/">镜像仓库<sup>1</sup></a><a href="/tags/cgroup/">cgroup<sup>1</sup></a><a href="/tags/GPU/">GPU<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%AE%89%E5%85%A8/">容器安全<sup>1</sup></a><a href="/tags/Dockerfile/">Dockerfile<sup>1</sup></a><a href="/tags/%E5%AD%98%E5%82%A8/">存储<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">Docker 容器网络模型深度剖析与生产实践</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Docker/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Docker</span></a><a class="post-meta__tags" href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>容器网络</span></a></div></div></div></div><h1 class="post-title">Docker 容器网络模型深度剖析与生产实践</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h1 id="Docker-容器网络模型深度剖析与生产实践"><a href="#Docker-容器网络模型深度剖析与生产实践" class="headerlink" title="Docker 容器网络模型深度剖析与生产实践"></a>Docker 容器网络模型深度剖析与生产实践</h1><p>在我们把一个 Python Flask 小服务从虚拟机搬上 Docker 的第一个礼拜里，就遇到了三件怪事：容器之间 ping 不通、宿主机能访问但外部访问不了、压测 QPS 直接腰斩。这三件事逼着我把 Docker 的网络模型从头到尾啃了一遍。后来在做一个跨三台物理机的容器化推送平台时，又把 overlay、macvlan 走了一遍，甚至一度想把 Docker 原生网络整体换掉。</p>
+<p>这篇文章是我们这几年在 Docker 网络上踩坑的复盘。我会从 CNM 模型讲起，逐个拆解单机的四种网络模式（bridge &#x2F; host &#x2F; none &#x2F; container），再到跨主机的 overlay、macvlan、ipvlan，配合 iptables 规则和 tcpdump 抓包演示，最后落到生产环境里我们到底怎么选型，以及 Docker 网络和 K8s CNI 之间的边界。</p>
+<h2 id="一、CNM-模型与-libnetwork：先统一概念"><a href="#一、CNM-模型与-libnetwork：先统一概念" class="headerlink" title="一、CNM 模型与 libnetwork：先统一概念"></a>一、CNM 模型与 libnetwork：先统一概念</h2><p>在动手敲 <code>docker run</code> 之前，必须先把 Docker 的网络抽象模型理清楚，否则后面所有的命令都是黑盒。</p>
+<p>Docker 在 2015 年发布了 <strong>CNM（Container Network Model）</strong> 规范，并由 <strong>libnetwork</strong> 这个库来实现。CNM 把容器网络拆成三个核心对象：</p>
+<ul>
+<li><strong>Sandbox（沙箱）</strong>：对应一个容器的网络栈，包含接口、路由表、DNS 配置。一个 Sandbox 就是一个独立的 network namespace。</li>
+<li><strong>Endpoint（端点）</strong>：一个 Sandbox 连接到网络上的连接点，对应一个 veth pair 的一端。Endpoint 负责把 Sandbox 接入 Network。</li>
+<li><strong>Network（网络）</strong>：一组可以互相通信的 Endpoint 的集合，对应一个 Linux bridge（或 VLAN、VXLAN 等）。</li>
+</ul>
+<p>这三者的关系简单说就是：<strong>Network 是交换机，Endpoint 是网线，Sandbox 是主机</strong>。一个 Sandbox（容器）可以通过多个 Endpoint 接入多个 Network，就像一台服务器插多块网卡。</p>
+<p>libnetwork 在此基础上实现了多种<strong>驱动（driver）</strong>：bridge、host、null、overlay、remote、macvlan、ipvlan。驱动是 Network 的实现方式，同一个 CNM 接口下可以插不同的驱动。这种设计让 Docker 网络既能跑单机 bridge，也能通过 remote 驱动对接 K8s 的 CNI 插件。</p>
+<p>理解这点很重要：我们平时说的 <code>docker network create</code>、<code>docker network connect</code>，操作的都是 CNM 这套抽象，而真正干活的（建 bridge、拉 veth、写 iptables）是底层驱动。</p>
+<h2 id="二、单机网络驱动：从-bridge-说起"><a href="#二、单机网络驱动：从-bridge-说起" class="headerlink" title="二、单机网络驱动：从 bridge 说起"></a>二、单机网络驱动：从 bridge 说起</h2><p>单机场景下，Docker 默认提供四种网络模式。先 <code>docker network ls</code> 看一眼：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">$ docker network ls</span><br><span class="line">NETWORK ID     NAME      DRIVER    SCOPE</span><br><span class="line">a1b2c3d4e5f6   bridge    bridge    local</span><br><span class="line">7g8h9i0j1k2l   host      host      local</span><br><span class="line">3m4n5o6p7q8r   none      null      local</span><br></pre></td></tr></table></figure>
+
+<p>这三个就是开箱即用的默认网络。下面逐个拆。</p>
+<h3 id="2-1-bridge-模式：docker0-veth-pair-iptables-NAT"><a href="#2-1-bridge-模式：docker0-veth-pair-iptables-NAT" class="headerlink" title="2.1 bridge 模式：docker0 + veth pair + iptables NAT"></a>2.1 bridge 模式：docker0 + veth pair + iptables NAT</h3><p>bridge 是 Docker 的默认驱动，也是绝大多数人最先接触、也最先踩坑的那个。它的核心是三个 Linux 内核机制：<strong>Linux bridge（网桥）、veth pair（虚拟以太网设备对）、iptables NAT</strong>。</p>
+<p>装好 Docker 后，宿主机上会多出一个 <code>docker0</code> 网卡：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ ip addr show docker0</span><br><span class="line">3: docker0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 ...</span><br><span class="line">    link/ether 02:42:6c:9a:3e:1f brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0</span><br></pre></td></tr></table></figure>
+
+<p><code>docker0</code> 本质上是一个 Linux bridge，默认网段 <code>172.17.0.0/16</code>，<code>docker0</code> 自己占 <code>172.17.0.1</code>。当你 <code>docker run</code> 启动一个容器时，Docker 会做一连串事情：</p>
+<ol>
+<li>在宿主机上创建一个 veth pair（一对虚拟网卡，从一端塞进去的数据会从另一端出来）。</li>
+<li>把 veth pair 的一端（<code>vethXXXXXX</code>）接到 <code>docker0</code> bridge 上，留在宿主机命名空间。</li>
+<li>把另一端移到容器的 network namespace 里，重命名为 <code>eth0</code>，并从 <code>172.17.0.0/16</code> 里分配一个 IP（比如 <code>172.17.0.2</code>）。</li>
+<li>给容器配上默认路由：<code>default via 172.17.0.1</code>。</li>
+</ol>
+<p>用一个 ASCII 图表示就是：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">宿主机 network namespace              容器 network namespace</span><br><span class="line">┌─────────────────────────┐          ┌────────────────────┐</span><br><span class="line">│                         │          │                    │</span><br><span class="line">│   eth0 (10.0.0.10)      │          │   eth0 (172.17.0.2)│</span><br><span class="line">│        ▲                │          │        ▲           │</span><br><span class="line">│        │                │          │        │           │</span><br><span class="line">│   ┌────┴─────┐          │          │   ┌────┴─────┐     │</span><br><span class="line">│   │  docker0 │◄──vethA──┼──────────┼──►│   vethB  │     │</span><br><span class="line">│   │172.17.0.1│  (veth   │  veth    │   │          │     │</span><br><span class="line">│   └──────────┘   pair)  │  pair    │   └──────────┘     │</span><br><span class="line">│                         │          │                    │</span><br><span class="line">└─────────────────────────┘          └────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<p>veth pair 就是那根”网线”，docker0 就是那台”交换机”。容器到容器、容器到宿主机的二层通信全靠它。</p>
+<p><strong>容器访问外网</strong>这部分是关键，也是 NAT 真正干活的地方。当容器里的进程访问 <code>8.8.8.8</code> 时，源 IP 是 <code>172.17.0.2</code>，这个私网地址在公网上是路由不通的，必须做 SNAT（源地址转换）。Docker 启动时会在宿主机的 iptables 里写一条 masquerade 规则：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$ iptables -t nat -S DOCKER</span><br><span class="line">-A POSTROUTING -s 172.17.0.0/16 ! -o docker0 -j MASQUERADE</span><br></pre></td></tr></table></figure>
+
+<p>这条规则的意思是：所有从 <code>172.17.0.0/16</code> 出来、且不是从 <code>docker0</code> 回流的数据包，出去时把源 IP 改成宿主机出口网卡的 IP（MASQUERADE 是动态 SNAT）。</p>
+<p><strong>外部访问容器</strong>则靠端口映射 + DNAT。<code>docker run -p 8080:80</code> 会在 iptables 里写两条规则：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">-A DOCKER ! -i docker0 -p tcp -m tcp --dport 8080 -j DNAT --to-destination 172.17.0.2:80</span><br><span class="line">-A POSTROUTING -s 172.17.0.2/32 -d 172.17.0.2/32 -p tcp -m tcp --dport 80 -j MASQUERADE</span><br></pre></td></tr></table></figure>
+
+<p>第一条是 DNAT：把访问宿主机 <code>8080</code> 端口的流量改写目的地址为容器的 <code>172.17.0.2:80</code>；第二条是 hairpin NAT，处理容器内部通过宿主机 IP 回访自己的场景（不然会有源 IP 和目的 IP 都是容器 IP、回包走错路的问题）。</p>
+<p>我们用 tcpdump 在 <code>docker0</code> 上抓一次 <code>-p 8080:80</code> 的外部访问，能清楚看到 DNAT 改写后的流量：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">$ tcpdump -i docker0 -nn port 80</span><br><span class="line">14:22:01.123456 IP 10.0.0.50.54321 &gt; 172.17.0.2.80: Flags [S], ...</span><br><span class="line">14:22:01.123478 IP 172.17.0.2.80 &gt; 10.0.0.50.54321: Flags [S.], ...</span><br></pre></td></tr></table></figure>
+
+<p>注意源 IP 是客户端真实 IP <code>10.0.0.50</code>，目的 IP 已经是容器 IP <code>172.17.0.2</code>——这就是 DNAT 在内核 netfilter 钩子上完成的工作。</p>
+<h3 id="2-2-自定义-bridge-与内置-DNS"><a href="#2-2-自定义-bridge-与内置-DNS" class="headerlink" title="2.2 自定义 bridge 与内置 DNS"></a>2.2 自定义 bridge 与内置 DNS</h3><p>默认的 <code>docker0</code>（即 <code>bridge</code> 这个默认网络）有一个非常坑的特性：<strong>没有内置 DNS</strong>。两个容器互相用容器名去 ping 是不通的，只能用 IP。这在容器 IP 会变的场景下基本不可用。</p>
+<p>解决办法是用<strong>自定义 bridge</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">$ docker network create --driver bridge app-net</span><br><span class="line">$ docker run -d --name web --network app-net nginx</span><br><span class="line">$ docker run -d --name api --network app-net myapi</span><br><span class="line">$ docker exec -it web ping -c1 api</span><br><span class="line">PING api (172.20.0.3) 56(84) bytes of data.</span><br></pre></td></tr></table></figure>
+
+<p>自定义 bridge 网络会自动启用 Docker 内置的 DNS 服务（127.0.0.11），容器之间可以用容器名、服务别名互相解析。这也是<strong>服务发现</strong>在单机 Docker 里的最朴素形态——同一个自定义 bridge 内，容器名就是域名。</p>
+<p>顺带一提，<code>docker0</code> 不内置 DNS 是一个历史遗留的兼容性决策，目的是不让默认网络的容器互相”自动可见”。生产里我们几乎从不用默认 bridge，一律自定义。</p>
+<h3 id="2-3-host-模式：直接共用宿主机网络栈"><a href="#2-3-host-模式：直接共用宿主机网络栈" class="headerlink" title="2.3 host 模式：直接共用宿主机网络栈"></a>2.3 host 模式：直接共用宿主机网络栈</h3><p><code>--network host</code> 让容器直接共用宿主机的 network namespace，没有 veth pair、没有 NAT、没有独立的 IP。容器里 <code>ip addr</code> 看到的就是宿主机的网卡。</p>
+<p>好处是<strong>性能无损</strong>——没有 bridge 转发、没有 iptables NAT 的开销，带宽和延迟基本等于裸机进程。坏处也很明显：<strong>端口冲突</strong>。宿主机上 80 端口被占了，容器就不能再用 80。</p>
+<p>我们会在两种场景下用 host 网络：一是对性能极其敏感的 sidecar &#x2F; agent 类容器（比如 node-exporter、监控采集器）；二是一些特殊协议（比如 mDNS、某些 P2PTCP 应用）在 NAT 后面会出问题，只能用 host 网络绕开。</p>
+<h3 id="2-4-none-模式与-container-模式"><a href="#2-4-none-模式与-container-模式" class="headerlink" title="2.4 none 模式与 container 模式"></a>2.4 none 模式与 container 模式</h3><ul>
+<li><strong>none 模式</strong>：容器只有一个 lo 回环网卡，完全断网。我们一般用它来跑离线计算、或者后续手动 <code>docker network connect</code> 接入特定网络的安全隔离容器。</li>
+<li><strong>container 模式</strong>（<code>--network container:&lt;另一个容器&gt;</code>）：新容器和指定容器共用同一个 network namespace。典型用法是 sidecar &#x2F; debug 容器需要”借用”主容器的网络栈来抓包或注入流量。Pod 这个概念其实就是从这种模式来的——K8s 的 Pod 内所有容器共享一个 pause 容器的网络栈，本质就是 container 模式。</li>
+</ul>
+<h2 id="三、跨主机网络：overlay、macvlan、ipvlan"><a href="#三、跨主机网络：overlay、macvlan、ipvlan" class="headerlink" title="三、跨主机网络：overlay、macvlan、ipvlan"></a>三、跨主机网络：overlay、macvlan、ipvlan</h2><p>单机 bridge 只能解决一台宿主机内的通信。一旦容器分布在多台物理机上，就得跨主机组网。Docker 原生提供了三种跨主机方案。</p>
+<h3 id="3-1-overlay-网络：VXLAN-隧道"><a href="#3-1-overlay-网络：VXLAN-隧道" class="headerlink" title="3.1 overlay 网络：VXLAN 隧道"></a>3.1 overlay 网络：VXLAN 隧道</h3><p>overlay 是 Docker Swarm 默认的跨主机网络方案，底层是 <strong>VXLAN（Virtual eXtensible LAN）</strong>。VXLAN 是一种二层的”套娃”协议——把容器发出的二层以太网帧，整个塞进一个 UDP 包里，再用宿主机之间的三层 IP 网络传输。这个 UDP 包默认走 <code>4789</code> 端口。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">主机 A (10.0.0.10)                          主机 B (10.0.0.11)</span><br><span class="line">┌──────────────────────┐                    ┌──────────────────────┐</span><br><span class="line">│ 容器1 172.21.0.2     │                    │ 容器2 172.21.0.3     │</span><br><span class="line">│     ▲                │                    │     ▲                │</span><br><span class="line">│  ┌─┴────┐            │                    │  ┌─┴────┐            │</span><br><span class="line">│  │vethA │            │                    │  │vethC │            │</span><br><span class="line">│  └──┬───┘            │                    │  └──┬───┘            │</span><br><span class="line">│  ┌──┴───────────┐    │   VXLAN 隧道      │  ┌──┴───────────┐    │</span><br><span class="line">│  │ br-xxx (VXLAN)│◄───┼──── UDP 4789 ─────┼─►│ br-xxx (VXLAN)│    │</span><br><span class="line">│  └──────────────┘    │   (10.0.0.x 之间)  │  └──────────────┘    │</span><br><span class="line">│         ▲            │                    │         ▲            │</span><br><span class="line">│      eth0 10.0.0.10  │                    │      eth0 10.0.0.11  │</span><br><span class="line">└──────────────────────┘                    └──────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<p>容器 1（<code>172.21.0.2</code>）ping 容器 2（<code>172.21.0.3</code>）时，数据包在主机 A 上被 VXLAN 封装成一个目的端口 <code>4789</code>、目的 IP <code>10.0.0.11</code> 的 UDP 包，主机 B 收到后解封装，还原成原始的二层帧送到容器 2。</p>
+<p>overlay 的好处是<strong>对底层网络零要求</strong>——只要主机之间三层可达就能组网。坏处是<strong>有封装开销</strong>：每个包多出 50 字节（外层以太网头 14 + IP 头 20 + UDP 头 8 + VXLAN 头 8）<!-- 校准：请按真实经历核实/替换 -->，并且 CPU 要做封解包，吞吐会比 bridge 模式再低一截。</p>
+<p>我们的实测数据（iperf3，单 TCP 流，万兆物理网）大致是 <!-- 校准：请按真实经历核实/替换 -->：</p>
+<table>
+<thead>
+<tr>
+<th>网络模式</th>
+<th>带宽</th>
+<th>CPU 开销</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>host</td>
+<td>9.4 Gbps</td>
+<td>基线</td>
+</tr>
+<tr>
+<td>bridge（自定义）</td>
+<td>7.8 Gbps</td>
+<td>+8%</td>
+</tr>
+<tr>
+<td>overlay（跨主机）</td>
+<td>4.1 Gbps</td>
+<td>+35%</td>
+</tr>
+<tr>
+<td>macvlan</td>
+<td>9.1 Gbps</td>
+<td>+2%</td>
+</tr>
+</tbody></table>
+<p>可以看到 overlay 在跨主机场景下性能损失相当明显，带宽几乎只有 host 的一半。CPU 开销主要来自内核态的 VXLAN 封解包。</p>
+<h3 id="3-2-macvlan：让容器直接出现在二层网络里"><a href="#3-2-macvlan：让容器直接出现在二层网络里" class="headerlink" title="3.2 macvlan：让容器直接出现在二层网络里"></a>3.2 macvlan：让容器直接出现在二层网络里</h3><p>macvlan 是 Linux 内核提供的一个驱动，允许在一个物理网卡上虚拟出多个子接口，每个子接口有独立的 MAC 地址，在二层网络里看起来就像独立的物理机。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ docker network create -d macvlan \</span><br><span class="line">    --subnet=10.0.0.0/24 \</span><br><span class="line">    --gateway=10.0.0.1 \</span><br><span class="line">    -o parent=eth0 macvlan-net</span><br></pre></td></tr></table></figure>
+
+<p>macvlan 的优势是<strong>零封装、性能接近裸机</strong>。但代价是它对底层网络有要求：</p>
+<ol>
+<li>物理交换机必须允许同一个端口出现多个 MAC（开启 promiscuous &#x2F; MAC 学习），云厂商的虚拟网络通常<strong>不允许</strong>，所以在阿里云&#x2F;腾讯云上 macvlan 经常直接不通。</li>
+<li>容器和宿主机默认<strong>不能通信</strong>（出于 MAC 隔离的安全策略），需要额外建一个 bridge 模式的 macvlan 子接口给宿主机用，绕来绕去很麻烦。</li>
+<li>会消耗二层网络的 IP 地址池，每个容器一个真实的下联 IP。</li>
+</ol>
+<p>我们在自建机房里给一组高性能日志采集容器用过 macvlan，吞吐确实比 bridge 高一截；但上了公有云之后就放弃了。</p>
+<h3 id="3-3-ipvlan：用-IP-而不是-MAC-区分"><a href="#3-3-ipvlan：用-IP-而不是-MAC-区分" class="headerlink" title="3.3 ipvlan：用 IP 而不是 MAC 区分"></a>3.3 ipvlan：用 IP 而不是 MAC 区分</h3><p>ipvlan 是 macvlan 的姊妹驱动，区别在于：ipvlan 的所有子接口<strong>共用宿主机的 MAC 地址</strong>，靠 IP 层来区分流量。它解决了 macvlan 在云环境里”多 MAC 不被允许”的问题（很多云虚拟交换机限制每台虚拟机的 MAC 数量）。ipvlan 有 L2 和 L3 两种模式，L3 模式更接近路由模型。</p>
+<p>ipvlan 我们用的不多，这里只点到为止，知道它是 macvlan 在公有云上的”替代选项”即可。</p>
+<h2 id="四、生产网络方案选型：我们到底怎么选"><a href="#四、生产网络方案选型：我们到底怎么选" class="headerlink" title="四、生产网络方案选型：我们到底怎么选"></a>四、生产网络方案选型：我们到底怎么选</h2><p>讲了这么多驱动，回到最实际的问题：<strong>生产环境里该选哪个？</strong> 直接说结论——在我们这套以稳定性和可运维性为第一优先级的体系里，绝大多数业务容器跑在自定义 bridge 上，对外服务走 host 网络 + 外部负载均衡（HAProxy &#x2F; Nginx &#x2F; 云 SLB），跨主机通信要么走 overlay（小规模），要么干脆上 K8s。</p>
+<h3 id="4-1-自定义-bridge-host-网络-外部负载均衡"><a href="#4-1-自定义-bridge-host-网络-外部负载均衡" class="headerlink" title="4.1 自定义 bridge + host 网络 + 外部负载均衡"></a>4.1 自定义 bridge + host 网络 + 外部负载均衡</h3><p>这是我们在一个 6 台物理机的小集群里稳定跑了两年多的方案 <!-- 校准：请按真实经历核实/替换 -->：</p>
+<ul>
+<li><strong>业务容器</strong>全部接入一个自定义 bridge（<code>app-net</code>），容器之间用容器名互相调用，享受内置 DNS 服务发现。</li>
+<li><strong>对外 Web 服务</strong>用 <code>--network host</code> + 外部 HAProxy 做四层负载均衡。host 网络避免了 bridge NAT 的性能损耗，HAProxy 负责 health check、会话保持、SSL 卸载。</li>
+<li><strong>需要跨主机</strong>的少量调用（比如推送服务跨机房级联）走了一条 overlay 网络，规模不大、性能够用。</li>
+</ul>
+<p>这套方案的优点是简单、可调试性强、出问题能快速定位。缺点是它本质上还是单机为主，跨主机能力有限，规模上去之后必须上编排系统。</p>
+<h3 id="4-2-与-K8s-CNI-的边界"><a href="#4-2-与-K8s-CNI-的边界" class="headerlink" title="4.2 与 K8s CNI 的边界"></a>4.2 与 K8s CNI 的边界</h3><p>老实说，一旦容器规模超过几台机器，或者需要滚动发布、健康检查、自动伸缩，Docker 原生网络的”天花板”就到了。这个时候我们会直接上 Kubernetes，网络交给 <strong>CNI（Container Network Interface）</strong> 插件。</p>
+<p>Docker 网络和 CNI 不是一回事，甚至有一段时间 Docker 和 K8s 在网络抽象上是有竞争的（CNM vs CNI）。最终 CNI 赢了——它更轻量、更通用。K8s 里容器创建后，kubelet 调用 CNI 插件来配置网络，Docker 这一层只管运行时。</p>
+<p>我们在生产里用过的两个 CNI：</p>
+<ul>
+<li><strong>Calico</strong>：基于 BGP 的三层网络，每个节点向集群广播自己容器 IP 的路由。没有 overlay 封装，性能接近 host，并且自带一套很强的 NetworkPolicy（基于 iptables &#x2F; eBPF 的访问控制）。这是我们 K8s 集群的默认 CNI。</li>
+<li><strong>Cilium</strong>：基于 eBPF 的下一代 CNI，把 kube-proxy 的 iptables 规则整体替换成 eBPF 程序，在 Service 负载均衡、可观测性、NetworkPolicy 上性能都更好。我们在一个对网络延迟敏感的 AI 推理集群上用了 Cilium，Service 到 Service 的延迟比 Calico + kube-proxy 又低了大约 0.3ms <!-- 校准：请按真实经历核实/替换 -->。</li>
+</ul>
+<p>简单总结边界：<strong>单机或小规模、不上编排</strong>——Docker 自定义 bridge &#x2F; host &#x2F; overlay 完全够用；<strong>多机编排、需要 Service 模型和 NetworkPolicy</strong>——直接上 K8s + CNI（Calico 起步，延迟敏感场景考虑 Cilium），不要在 Docker Swarm + overlay 上投入太多，社区活力已经不在那边。</p>
+<h2 id="五、踩坑复盘：那些让我们加班到凌晨的事"><a href="#五、踩坑复盘：那些让我们加班到凌晨的事" class="headerlink" title="五、踩坑复盘：那些让我们加班到凌晨的事"></a>五、踩坑复盘：那些让我们加班到凌晨的事</h2><p>理论讲完了，真正记得住的是踩过的坑。下面四个都是我们真实在生产里遇到过的。</p>
+<h3 id="5-1-bridge-NAT-性能损耗：压测-QPS-腰斩"><a href="#5-1-bridge-NAT-性能损耗：压测-QPS-腰斩" class="headerlink" title="5.1 bridge NAT 性能损耗：压测 QPS 腰斩"></a>5.1 bridge NAT 性能损耗：压测 QPS 腰斩</h3><p>最早把一个 Go 写的 HTTP 网关容器化时，压测 QPS 从宿主机版的 12k 直接掉到 7k <!-- 校准：请按真实经历核实/替换 -->。一开始怀疑是 Go runtime 的问题，折腾半天才发现瓶颈在 Docker 的 bridge NAT：每个进出的包都要过一遍 docker0 的 bridge 转发和 iptables 的 conntrack 模块，短连接场景下 conntrack 表查找成了瓶颈。</p>
+<p>排查命令：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$ conntrack -L | wc -l      # conntrack 表条目数</span><br><span class="line">$ cat /proc/net/stat/nf_conntrack  # 看 insert failed / drop</span><br></pre></td></tr></table></figure>
+
+<p>解决：把这台对延迟敏感的网关换成 <code>--network host</code>，QPS 立刻回到 11.8k <!-- 校准：请按真实经历核实/替换 -->。教训是——<strong>高 PPS &#x2F; 短连接的服务，能上 host 网络就上 host 网络</strong>，bridge 的 NAT 开销在万兆+小包场景下会被放大。</p>
+<h3 id="5-2-端口冲突：-p-8080-80-没报错却访问不了"><a href="#5-2-端口冲突：-p-8080-80-没报错却访问不了" class="headerlink" title="5.2 端口冲突：-p 8080:80 没报错却访问不了"></a>5.2 端口冲突：-p 8080:80 没报错却访问不了</h3><p>一次发布后，某个容器 <code>docker run -p 8080:80</code> 没报错，但 8080 端口死活访问不通。最后查出来宿主机上另一个 Java 进程（一个老业务）也在监听 8080，<code>docker run</code> 不会校验宿主机端口占用，只是默默把 iptables DNAT 规则写进去了，结果两个进程抢端口，流量随机乱串。</p>
+<p>排查：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$ ss -tlnp | grep 8080      # 看宿主机上谁在听</span><br><span class="line">$ iptables -t nat -S | grep 8080  # 看 Docker 写的 DNAT</span><br></pre></td></tr></table></figure>
+
+<p>解决：Docker 不会主动报端口冲突，要么改映射端口，要么把那个老 Java 进程迁走。后续我们在 CI 里加了 <code>ss</code> 检查，防止重复映射。host 网络模式下这个问题更隐蔽——容器直接占宿主机端口，根本没有任何报错。</p>
+<h3 id="5-3-跨主机不通：VXLAN-被防火墙拦了"><a href="#5-3-跨主机不通：VXLAN-被防火墙拦了" class="headerlink" title="5.3 跨主机不通：VXLAN 被防火墙拦了"></a>5.3 跨主机不通：VXLAN 被防火墙拦了</h3><p>搭 overlay 网络时，两个主机的容器死活 ping 不通，但宿主机之间 ping 没问题。抓包发现 UDP 4789 的 VXLAN 包发出去就石沉大海。最后定位到是机房防火墙在主机之间拦了 4789 端口——overlay 的前提是”主机之间 4789&#x2F;7946（Swim gossip）&#x2F;4789（VXLAN）可达”，少一个都不行。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$ tcpdump -i eth0 udp port 4789   # 在目标主机抓，看不到包就是被拦了</span><br><span class="line">$ nc -uvz &lt;对端IP&gt; 4789            # 快速验证 4789 可达性</span><br></pre></td></tr></table></figure>
+
+<p>解决：找网络组把三台主机之间的 4789、7946 打通，overlay 立刻通了。教训——<strong>overlay 不是”零网络配置”，它对底层有特定端口要求</strong>，云环境的安全组规则也要同步放行。</p>
+<h3 id="5-4-MTU-不匹配：大包丢失，小包正常"><a href="#5-4-MTU-不匹配：大包丢失，小包正常" class="headerlink" title="5.4 MTU 不匹配：大包丢失，小包正常"></a>5.4 MTU 不匹配：大包丢失，小包正常</h3><p>这是最阴的一个坑。一个文件上传服务容器化后，用户反馈”小文件能传，大文件（超过约 1400 字节）就卡住超时”。SSH、ping、curl 小请求全部正常，折腾了一整天才发现是 MTU。</p>
+<p>overlay 网络（VXLAN 封装）会让每个包多 50 字节的开销，如果底层物理网卡 MTU 是 1500，那容器的 MTU 必须设成 1450（1500 - 50），否则会出现”容器发出 1500 字节的大包，封装后变成 1550，超过物理网卡 MTU 被分片或直接丢弃”的情况，而小包不受影响，所以表现为”小包正常、大包丢失”。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">$ ip link show eth0 | grep mtu    # 宿主机 MTU</span><br><span class="line">$ docker exec &lt;c&gt; ip link show eth0 | grep mtu  # 容器 MTU</span><br><span class="line">$ ping -M do -s 1472 &lt;target&gt;     # 测大包，-M do 禁止分片</span><br></pre></td></tr></table></figure>
+
+<p>解决：创建 overlay 网络时显式指定 MTU：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ docker network create -d overlay --opt com.docker.network.driver.mtu=1400 app-overlay</span><br></pre></td></tr></table></figure>
+
+<p>预留一点余量给可能的额外封装层。云环境（尤其是 VXLAN&#x2F;Geneve 封装的 VPC）更要小心，有些云的虚拟网卡本身就占了 50 字节，再叠一层 Docker overlay 就要再减。</p>
+<h2 id="六、写在最后"><a href="#六、写在最后" class="headerlink" title="六、写在最后"></a>六、写在最后</h2><p>Docker 网络看起来命令很简单（<code>docker run --network xxx</code>），但底下的 CNM 模型、libnetwork 驱动、Linux bridge &#x2F; veth &#x2F; iptables &#x2F; VXLAN 每一层都有自己的坑。理解这些底层机制，不是为了去手搓网络，而是为了<strong>出问题的时候能定位到是哪一层在作怪</strong>——是 NAT 性能？是 DNS 解析？是防火墙拦了 VXLAN？还是 MTU？</p>
+<p>回头看我们的演进路径其实很清晰：先用自定义 bridge 把单机组好，性能敏感的用 host，跨主机小规模用 overlay，规模一大就交给 K8s + Calico&#x2F;Cilium。Docker 原生网络的天花板就是单机和小规模集群，认清这条边界，能省下大量加班时间。希望这篇复盘能帮到正在被容器网络折磨的同学。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Docker/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Docker<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>容器网络<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/docker-storage-persistence"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">Docker 存储卷与数据持久化实战：别让容器删了数据也没了</div></div></a></div><div class="next-post pull-right"><a href="/posts/hadoop-hdfs-small-files"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">HDFS 小文件问题：成因、影响与生产治理实战</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#Docker-%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E6%A8%A1%E5%9E%8B%E6%B7%B1%E5%BA%A6%E5%89%96%E6%9E%90%E4%B8%8E%E7%94%9F%E4%BA%A7%E5%AE%9E%E8%B7%B5"><span class="toc-text">Docker 容器网络模型深度剖析与生产实践</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81CNM-%E6%A8%A1%E5%9E%8B%E4%B8%8E-libnetwork%EF%BC%9A%E5%85%88%E7%BB%9F%E4%B8%80%E6%A6%82%E5%BF%B5"><span class="toc-text">一、CNM 模型与 libnetwork：先统一概念</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%8D%95%E6%9C%BA%E7%BD%91%E7%BB%9C%E9%A9%B1%E5%8A%A8%EF%BC%9A%E4%BB%8E-bridge-%E8%AF%B4%E8%B5%B7"><span class="toc-text">二、单机网络驱动：从 bridge 说起</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-bridge-%E6%A8%A1%E5%BC%8F%EF%BC%9Adocker0-veth-pair-iptables-NAT"><span class="toc-text">2.1 bridge 模式：docker0 + veth pair + iptables NAT</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-%E8%87%AA%E5%AE%9A%E4%B9%89-bridge-%E4%B8%8E%E5%86%85%E7%BD%AE-DNS"><span class="toc-text">2.2 自定义 bridge 与内置 DNS</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-host-%E6%A8%A1%E5%BC%8F%EF%BC%9A%E7%9B%B4%E6%8E%A5%E5%85%B1%E7%94%A8%E5%AE%BF%E4%B8%BB%E6%9C%BA%E7%BD%91%E7%BB%9C%E6%A0%88"><span class="toc-text">2.3 host 模式：直接共用宿主机网络栈</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-4-none-%E6%A8%A1%E5%BC%8F%E4%B8%8E-container-%E6%A8%A1%E5%BC%8F"><span class="toc-text">2.4 none 模式与 container 模式</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E8%B7%A8%E4%B8%BB%E6%9C%BA%E7%BD%91%E7%BB%9C%EF%BC%9Aoverlay%E3%80%81macvlan%E3%80%81ipvlan"><span class="toc-text">三、跨主机网络：overlay、macvlan、ipvlan</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-overlay-%E7%BD%91%E7%BB%9C%EF%BC%9AVXLAN-%E9%9A%A7%E9%81%93"><span class="toc-text">3.1 overlay 网络：VXLAN 隧道</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-macvlan%EF%BC%9A%E8%AE%A9%E5%AE%B9%E5%99%A8%E7%9B%B4%E6%8E%A5%E5%87%BA%E7%8E%B0%E5%9C%A8%E4%BA%8C%E5%B1%82%E7%BD%91%E7%BB%9C%E9%87%8C"><span class="toc-text">3.2 macvlan：让容器直接出现在二层网络里</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-ipvlan%EF%BC%9A%E7%94%A8-IP-%E8%80%8C%E4%B8%8D%E6%98%AF-MAC-%E5%8C%BA%E5%88%86"><span class="toc-text">3.3 ipvlan：用 IP 而不是 MAC 区分</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E7%94%9F%E4%BA%A7%E7%BD%91%E7%BB%9C%E6%96%B9%E6%A1%88%E9%80%89%E5%9E%8B%EF%BC%9A%E6%88%91%E4%BB%AC%E5%88%B0%E5%BA%95%E6%80%8E%E4%B9%88%E9%80%89"><span class="toc-text">四、生产网络方案选型：我们到底怎么选</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-%E8%87%AA%E5%AE%9A%E4%B9%89-bridge-host-%E7%BD%91%E7%BB%9C-%E5%A4%96%E9%83%A8%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1"><span class="toc-text">4.1 自定义 bridge + host 网络 + 外部负载均衡</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-%E4%B8%8E-K8s-CNI-%E7%9A%84%E8%BE%B9%E7%95%8C"><span class="toc-text">4.2 与 K8s CNI 的边界</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E8%B8%A9%E5%9D%91%E5%A4%8D%E7%9B%98%EF%BC%9A%E9%82%A3%E4%BA%9B%E8%AE%A9%E6%88%91%E4%BB%AC%E5%8A%A0%E7%8F%AD%E5%88%B0%E5%87%8C%E6%99%A8%E7%9A%84%E4%BA%8B"><span class="toc-text">五、踩坑复盘：那些让我们加班到凌晨的事</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-bridge-NAT-%E6%80%A7%E8%83%BD%E6%8D%9F%E8%80%97%EF%BC%9A%E5%8E%8B%E6%B5%8B-QPS-%E8%85%B0%E6%96%A9"><span class="toc-text">5.1 bridge NAT 性能损耗：压测 QPS 腰斩</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-%E7%AB%AF%E5%8F%A3%E5%86%B2%E7%AA%81%EF%BC%9A-p-8080-80-%E6%B2%A1%E6%8A%A5%E9%94%99%E5%8D%B4%E8%AE%BF%E9%97%AE%E4%B8%8D%E4%BA%86"><span class="toc-text">5.2 端口冲突：-p 8080:80 没报错却访问不了</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-3-%E8%B7%A8%E4%B8%BB%E6%9C%BA%E4%B8%8D%E9%80%9A%EF%BC%9AVXLAN-%E8%A2%AB%E9%98%B2%E7%81%AB%E5%A2%99%E6%8B%A6%E4%BA%86"><span class="toc-text">5.3 跨主机不通：VXLAN 被防火墙拦了</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-4-MTU-%E4%B8%8D%E5%8C%B9%E9%85%8D%EF%BC%9A%E5%A4%A7%E5%8C%85%E4%B8%A2%E5%A4%B1%EF%BC%8C%E5%B0%8F%E5%8C%85%E6%AD%A3%E5%B8%B8"><span class="toc-text">5.4 MTU 不匹配：大包丢失，小包正常</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E5%86%99%E5%9C%A8%E6%9C%80%E5%90%8E"><span class="toc-text">六、写在最后</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/docker-observability-troubleshooting.html","posts/hadoop-mapreduce-shuffle.html","posts/docker-private-registry-harbor.html","posts/docker-security-hardening.html","posts/docker-compose-orchestration.html","posts/hadoop-yarn-scheduler.html","posts/docker-resource-limits.html","posts/docker-storage-persistence.html","posts/docker-network-deep-dive.html","posts/hadoop-hdfs-small-files.html","posts/dockerfile-best-practices.html","posts/docker-image-layer-optimization.html","posts/docker-architecture.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

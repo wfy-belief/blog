@@ -1,0 +1,472 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Docker 存储卷与数据持久化实战：别让容器删了数据也没了 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/docker-storage-persistence"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="从容器可写层的坑到三种挂载方式选型，再到数据库容器化的存储方案与备份恢复实操"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文复盘 Docker 存储持久化的实战经验。从容器的可写层为什么不能放数据讲起（性能差、随容器删除丢失、写放大），对比 volume、bind mount、tmpfs 三种挂载方式的适用场景，重点拆解数据库与有状态服务容器化时的存储落点设计，给出命名卷管理、volume driver、备份迁移恢复的完整命令，并复盘 bind mount 权限 UID/GID 错位、磁盘被日志撑爆、误删 volume 丢数据三类踩坑，最后给出 overlay2/devicemapper/zfs/btrfs 存储驱动的选型建议。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Docker/">Docker<sup>10</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%8E%9F%E7%90%86/">容器原理<sup>1</sup></a><a href="/tags/Compose/">Compose<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/">镜像优化<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/">容器网络<sup>1</sup></a><a href="/tags/%E7%9B%91%E6%8E%A7/">监控<sup>1</sup></a><a href="/tags/%E6%8E%92%E9%9A%9C/">排障<sup>1</sup></a><a href="/tags/Harbor/">Harbor<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/">镜像仓库<sup>1</sup></a><a href="/tags/cgroup/">cgroup<sup>1</sup></a><a href="/tags/GPU/">GPU<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%AE%89%E5%85%A8/">容器安全<sup>1</sup></a><a href="/tags/Dockerfile/">Dockerfile<sup>1</sup></a><a href="/tags/%E5%AD%98%E5%82%A8/">存储<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">40</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">41</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">41</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">54</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Docker/">Docker<sup>10</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%8E%9F%E7%90%86/">容器原理<sup>1</sup></a><a href="/tags/Compose/">Compose<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/">镜像优化<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/">容器网络<sup>1</sup></a><a href="/tags/%E7%9B%91%E6%8E%A7/">监控<sup>1</sup></a><a href="/tags/%E6%8E%92%E9%9A%9C/">排障<sup>1</sup></a><a href="/tags/Harbor/">Harbor<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/">镜像仓库<sup>1</sup></a><a href="/tags/cgroup/">cgroup<sup>1</sup></a><a href="/tags/GPU/">GPU<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%AE%89%E5%85%A8/">容器安全<sup>1</sup></a><a href="/tags/Dockerfile/">Dockerfile<sup>1</sup></a><a href="/tags/%E5%AD%98%E5%82%A8/">存储<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">Docker 存储卷与数据持久化实战：别让容器删了数据也没了</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Docker/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Docker</span></a><a class="post-meta__tags" href="/tags/%E5%AD%98%E5%82%A8/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>存储</span></a></div></div></div></div><h1 class="post-title">Docker 存储卷与数据持久化实战：别让容器删了数据也没了</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h1 id="Docker-存储卷与数据持久化实战：别让容器删了数据也没了"><a href="#Docker-存储卷与数据持久化实战：别让容器删了数据也没了" class="headerlink" title="Docker 存储卷与数据持久化实战：别让容器删了数据也没了"></a>Docker 存储卷与数据持久化实战：别让容器删了数据也没了</h1><h2 id="引言"><a href="#引言" class="headerlink" title="引言"></a>引言</h2><p>我第一次把生产数据库搬进 Docker，是在两年前一个内部工具的容器化项目里。当时的心态很轻——<code>docker run</code> 一个 Postgres 镜像，端口一映射，业务跑起来，完事。直到某天夜里同事为了”清理环境”，顺手 <code>docker rm -f</code> 了那个容器，第二天全组发现昨天写的工单记录全没了。那一刻我才真正理解一句 Docker 圈的老话：<strong>容器是临时的，数据不能跟着临时</strong>。</p>
+<p>这篇复盘，把我们在存储持久化上踩过的坑、想明白的事、最后定下来的方案，一次讲透。核心要回答三个问题：容器里的数据到底存在哪？怎么保证它不丢？数据库这种有状态服务，到底该怎么容器化才稳？</p>
+<p>如果你正在把任何”数据不能丢”的服务往容器里搬，这篇文章能帮你少走至少两次弯路。</p>
+<h2 id="一、先搞懂：容器的可写层为什么不能放数据"><a href="#一、先搞懂：容器的可写层为什么不能放数据" class="headerlink" title="一、先搞懂：容器的可写层为什么不能放数据"></a>一、先搞懂：容器的可写层为什么不能放数据</h2><p>要理解 Docker 的存储，第一件事是搞懂一个容器在磁盘上到底长什么样。</p>
+<p>Docker 采用了”分层镜像”设计：镜像是只读层，叠加若干只读层之后，最上面再盖一层可写层（writable layer）。容器运行期间所有对文件系统的写操作——新建、修改、删除——都落在这层可写层上，由存储驱动（storage driver，overlay2 是默认）管理。这层东西有几个致命的属性：</p>
+<ol>
+<li><strong>生命周期等于容器</strong>。容器一删（<code>docker rm</code>），可写层立刻跟着没了。这是设计如此，不是 bug。</li>
+<li><strong>性能差</strong>。可写层用的是写时复制（copy-on-write），一个 1.5 GB 的大文件你要改一个字节，存储驱动得先把整个文件从只读层复制到可写层再改，写放大严重。在 overlay2 下我们在一台 NVMe 机器上实测，直接写可写层的随机写 IOPS 大概只能跑到宿主机裸盘的 40%<!-- 校准：请按真实经历核实/替换 -->；如果换回老的 aufs&#x2F;devicemapper，会更惨。</li>
+<li><strong>跨容器无法共享</strong>。A 容器写的文件，B 容器看不见，因为可写层是 per-container 的。</li>
+<li><strong>绑定迁移困难</strong>。可写层混在 Docker 的内部目录里（<code>/var/lib/docker/overlay2/...</code>），路径又长又随机，你想手动拷贝它做迁移，基本是自找麻烦。</li>
+</ol>
+<p>所以结论非常干脆：<strong>凡是要持久化的数据，一律不能放在可写层，必须挂出去</strong>。这就是 Docker 提供三种挂载方式（volume &#x2F; bind mount &#x2F; tmpfs）的根本原因。</p>
+<h2 id="二、三种挂载方式：选错一个，麻烦一年"><a href="#二、三种挂载方式：选错一个，麻烦一年" class="headerlink" title="二、三种挂载方式：选错一个，麻烦一年"></a>二、三种挂载方式：选错一个，麻烦一年</h2><p>Docker 提供三种把”外部存储”接到容器里的方式。名字看着像近亲，行为和适用场景差得很远。</p>
+<h3 id="2-1-一张图说清三者差别"><a href="#2-1-一张图说清三者差别" class="headerlink" title="2.1 一张图说清三者差别"></a>2.1 一张图说清三者差别</h3><table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>volume（数据卷）</th>
+<th>bind mount（绑定挂载）</th>
+<th>tmpfs（内存盘）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>管理方</td>
+<td>Docker daemon</td>
+<td>宿主机文件系统</td>
+<td>主机内存</td>
+</tr>
+<tr>
+<td>存储位置</td>
+<td><code>/var/lib/docker/volumes/</code> 下</td>
+<td>宿主机任意路径</td>
+<td>内存（无落盘）</td>
+</tr>
+<tr>
+<td>创建方式</td>
+<td><code>docker volume create</code> 或 <code>-v name:/path</code></td>
+<td><code>-v /host/path:/container/path</code></td>
+<td><code>--tmpfs /path</code> 或 <code>--mount type=tmpfs</code></td>
+</tr>
+<tr>
+<td>跨主机迁移</td>
+<td>支持，配合 volume driver 可上 NFS&#x2F;云盘</td>
+<td>不支持（强绑定宿主机路径）</td>
+<td>不支持</td>
+</tr>
+<tr>
+<td>权限模型</td>
+<td>Docker 管，容器内可任意 UID</td>
+<td>依赖宿主机目录的真实 UID&#x2F;GID</td>
+<td>内存，重启即失</td>
+</tr>
+<tr>
+<td>备份&#x2F;迁移</td>
+<td>官方支持，命令清晰</td>
+<td>直接当宿主机文件备份</td>
+<td>不需要备份（临时数据）</td>
+</tr>
+<tr>
+<td>生命周期</td>
+<td>独立于容器，<code>docker rm</code> 不删卷</td>
+<td>独立于容器</td>
+<td>容器停就没了</td>
+</tr>
+<tr>
+<td>推荐场景</td>
+<td>数据库、有状态服务、需分享的数据</td>
+<td>开发挂源码、配置文件</td>
+<td>临时缓存、敏感 token</td>
+</tr>
+</tbody></table>
+<p>下面这张对比是我在团队内部培训时反复强调的一句话：<strong>生产环境里有状态的数据，默认一律走 volume；bind mount 留给开发态；tmpfs 留给”绝对不能落盘”的临时数据</strong>。</p>
+<h3 id="2-2-volume：官方推荐的生产级方案"><a href="#2-2-volume：官方推荐的生产级方案" class="headerlink" title="2.2 volume：官方推荐的生产级方案"></a>2.2 volume：官方推荐的生产级方案</h3><p>volume 是 Docker 亲儿子，由 daemon 统一管理在 <code>/var/lib/docker/volumes/&lt;卷名&gt;/_data</code>。它有几个 bind mount 给不了的好处：</p>
+<ul>
+<li><strong>跨容器共享</strong>：多个容器可以挂同一个卷，常用于”一个容器写数据 + 一个 sidecar 容器做备份”。</li>
+<li><strong>跨主机可迁移</strong>：配合 volume driver（plugin），volume 的后端可以是 NFS、Ceph、AWS EBS、阿里云云盘，容器在哪台机器，数据就跟到哪台机器。这是 bind mount 永远做不到的。</li>
+<li><strong>生命周期独立</strong>：<code>docker rm</code> 不会删 volume，你得显式 <code>docker volume rm</code> 才行——这条规则后来救过我们好几次。</li>
+</ul>
+<p>volume 又分两种，必须分清：</p>
+<p><strong>命名卷（named volume）</strong>——有名字，好管理，推荐：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 先建卷，再挂载</span></span><br><span class="line">docker volume create pg_data</span><br><span class="line">docker run -d \</span><br><span class="line">  --name postgres \</span><br><span class="line">  -v pg_data:/var/lib/postgresql/data \</span><br><span class="line">  -e POSTGRES_PASSWORD=xxx \</span><br><span class="line">  postgres:16</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看卷在哪</span></span><br><span class="line">docker volume inspect pg_data</span><br></pre></td></tr></table></figure>
+
+<p><strong>匿名卷（anonymous volume）</strong>——没名字，只是一串 hash。某些镜像（比如官方 Postgres）的 Dockerfile 里会 <code>VOLUME /var/lib/postgresql/data</code>，你启动时不挂命名卷，Docker 就会自动给它分配一个匿名卷。<code>docker rm</code> 容器时这个匿名卷会变成”悬空卷”（dangling volume），日积月累会占满磁盘——这是我们后面会重点讲的坑。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 这一行跑完，会默默生成一个 hash 命名的匿名卷</span></span><br><span class="line">docker run -d -e POSTGRES_PASSWORD=xxx postgres:16</span><br><span class="line"><span class="comment"># 看悬空卷</span></span><br><span class="line">docker volume <span class="built_in">ls</span> -f dangling=<span class="literal">true</span></span><br></pre></td></tr></table></figure>
+
+<p>我们的规范是：<strong>生产环境禁止匿名卷，所有卷必须有 <code>项目_角色</code> 的命名约定</strong>（如 <code>crm_pg_data</code>、<code>crm_redis_data</code>），方便巡检和备份。</p>
+<h3 id="2-3-bind-mount：强大但危险"><a href="#2-3-bind-mount：强大但危险" class="headerlink" title="2.3 bind mount：强大但危险"></a>2.3 bind mount：强大但危险</h3><p>bind mount 直接把宿主机的一个目录挂进容器。它的本质是”路径映射”：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 把宿主机 /data/pg 挂到容器内的数据目录</span></span><br><span class="line">docker run -d \</span><br><span class="line">  -v /data/pg:/var/lib/postgresql/data \</span><br><span class="line">  -e POSTGRES_PASSWORD=xxx \</span><br><span class="line">  postgres:16</span><br></pre></td></tr></table></figure>
+
+<p>优点是直观——数据就在 <code>/data/pg</code>，备份就是 <code>tar</code>，迁移就是 <code>rsync</code>，谁都会。但它有两个让生产环境我不敢用的特性：</p>
+<p>第一，<strong>强绑定宿主机路径</strong>。容器一换机器，数据不会跟着走，得你自己保证目标机器上有同样的 <code>/data/pg</code>。这跟”容器随处漂”的理念是冲突的。</p>
+<p>第二，<strong>权限是宿主机文件系统的真实权限</strong>，Docker 不插手。这一条是无数 UID&#x2F;GID 痛苦的根源，后面单独复盘。</p>
+<p>所以我们的定位是：<strong>bind mount 只在开发态用</strong>——比如把本地源码目录挂进容器做热重载，或者把一份配置文件挂进去改改看效果。生产环境一律 volume。</p>
+<h3 id="2-4-tmpfs：给”不能落盘”的数据"><a href="#2-4-tmpfs：给”不能落盘”的数据" class="headerlink" title="2.4 tmpfs：给”不能落盘”的数据"></a>2.4 tmpfs：给”不能落盘”的数据</h3><p>tmpfs 把挂载点放在主机内存里，容器一停数据就没了。听起来像鸡肋，但它的用途很特定：</p>
+<ul>
+<li><strong>安全敏感数据</strong>：API token、TLS 私钥这种”绝对不能写磁盘”的东西，挂成 tmpfs，容器一销毁内存里就没了，没有残留风险。</li>
+<li><strong>高频临时缓存</strong>：比如某些会话缓存，写穿磁盘不值得，tmpfs 速度极快又自清理。</li>
+</ul>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">docker run -d \</span><br><span class="line">  --name api \</span><br><span class="line">  --tmpfs /app/cache:size=512m,mode=1777 \</span><br><span class="line">  my-api:latest</span><br></pre></td></tr></table></figure>
+
+<p>需要留意 tmpfs 吃的是<strong>宿主机内存</strong>，size 一定要给上限，不然一个失控的缓存能把宿主机内存吃光。</p>
+<h2 id="三、数据库容器化的存储方案：数据放哪、怎么不丢"><a href="#三、数据库容器化的存储方案：数据放哪、怎么不丢" class="headerlink" title="三、数据库容器化的存储方案：数据放哪、怎么不丢"></a>三、数据库容器化的存储方案：数据放哪、怎么不丢</h2><p>讲清楚三种挂载，回到最初的问题：数据库这种”数据就是命”的服务，到底该怎么容器化？下面是我们团队最终定下来的方案，跑在一个内部 CRM（约 200 人用）的 Postgres 上稳定了半年多<!-- 校准：请按真实经历核实/替换 -->。</p>
+<h3 id="3-1-落点设计：命名卷-严格禁止匿名卷"><a href="#3-1-落点设计：命名卷-严格禁止匿名卷" class="headerlink" title="3.1 落点设计：命名卷 + 严格禁止匿名卷"></a>3.1 落点设计：命名卷 + 严格禁止匿名卷</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 建专用网络</span></span><br><span class="line">docker network create crm_net</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 建命名卷（数据 + 日志分离）</span></span><br><span class="line">docker volume create crm_pg_data</span><br><span class="line">docker volume create crm_pg_wal</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 启 Postgres，数据目录和 WAL 分别挂两个卷</span></span><br><span class="line">docker run -d \</span><br><span class="line">  --name crm_pg \</span><br><span class="line">  --restart unless-stopped \</span><br><span class="line">  --network crm_net \</span><br><span class="line">  -v crm_pg_data:/var/lib/postgresql/data \</span><br><span class="line">  -v crm_pg_wal:/var/lib/postgresql/wal \</span><br><span class="line">  -e POSTGRES_PASSWORD=xxx \</span><br><span class="line">  -e POSTGRES_DB=crm \</span><br><span class="line">  -e PGDATA=/var/lib/postgresql/data/pgdata \</span><br><span class="line">  postgres:16</span><br></pre></td></tr></table></figure>
+
+<p>几个细节值得说明：</p>
+<ul>
+<li><strong>数据和 WAL 分卷</strong>：方便单独备份，也方便 WAL 卷单独用更高 IOPS 的存储（volume driver 换成云盘 SSD）。</li>
+<li><strong><code>PGDATA</code> 显式指定子目录</strong>：Postgres 官方镜像要求 <code>PGDATA</code> 必须是挂载点下的子目录，不是挂载点本身，否则初始化会报错。这是个新手必踩的坑。</li>
+<li><strong><code>--restart unless-stopped</code></strong>：避免容器意外退出后没人拉起来。</li>
+<li><strong>独立 network</strong>：让后续要连库的应用容器都进 <code>crm_net</code>，通过容器名 <code>crm_pg</code> 解析，省去暴露端口的风险。</li>
+</ul>
+<h3 id="3-2-有状态服务的容器化清单"><a href="#3-2-有状态服务的容器化清单" class="headerlink" title="3.2 有状态服务的容器化清单"></a>3.2 有状态服务的容器化清单</h3><p>我把有状态服务容器化归纳成一张 checklist，每次新上一个服务都过一遍：</p>
+<ol>
+<li>数据落点是不是命名 volume（不是匿名卷，不是可写层）？</li>
+<li>卷名是否符合命名规范（<code>项目_角色[_用途]</code>）？</li>
+<li>WAL&#x2F;日志和数据是否分卷，方便独立备份和扩容？</li>
+<li>是否配置了 volume 的定期备份（见下一节）？</li>
+<li>容器 <code>--restart</code> 策略是否设置？</li>
+<li>备份文件是否落到<strong>另一台机器 &#x2F; 对象存储</strong>（本地备份等于没备份）？</li>
+<li>删除容器前是否确认过它挂的卷不被删？</li>
+<li>是否有监控告警覆盖卷的容量使用率？</li>
+</ol>
+<p>最后两条是吃过亏才加上的。</p>
+<h2 id="四、volume-的备份、迁移与恢复"><a href="#四、volume-的备份、迁移与恢复" class="headerlink" title="四、volume 的备份、迁移与恢复"></a>四、volume 的备份、迁移与恢复</h2><p>这是整篇文章最该抄走的部分。volume 既然独立于容器，备份恢复就是标准的”把卷里的文件打包”操作。</p>
+<h3 id="4-1-备份"><a href="#4-1-备份" class="headerlink" title="4.1 备份"></a>4.1 备份</h3><p>思路：临时启一个容器，挂上目标卷，再挂一个宿主机目录，把卷内容 <code>tar</code> 出来。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 把 crm_pg_data 卷打包成宿主机上的 tar 包</span></span><br><span class="line">docker run --<span class="built_in">rm</span> \</span><br><span class="line">  -v crm_pg_data:/data:ro \</span><br><span class="line">  -v /backup:/backup \</span><br><span class="line">  alpine \</span><br><span class="line">  tar czf /backup/crm_pg_data_$(<span class="built_in">date</span> +%F).tar.gz -C /data .</span><br></pre></td></tr></table></figure>
+
+<p>关键点：</p>
+<ul>
+<li>源卷以 <code>:ro</code> 只读挂载，备份过程绝不碰原数据。</li>
+<li>输出落到宿主机 <code>/backup</code>，下一步用 <code>rclone</code> 或 <code>aws s3 cp</code> 推到对象存储。</li>
+<li>对运行中的数据库，<strong>热备要先 dump 再 tar</strong>——直接 tar 一个正在写的 Postgres 数据目录，恢复出来可能不一致。正确做法是 <code>pg_dump</code> 加 <code>pg_basebackup</code>：</li>
+</ul>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 逻辑备份（轻量、跨大版本）</span></span><br><span class="line">docker <span class="built_in">exec</span> crm_pg pg_dump -U postgres -Fc crm &gt; /backup/crm_$(<span class="built_in">date</span> +%F).dump</span><br><span class="line"></span><br><span class="line"><span class="comment"># 物理基础备份（可用于 PITL 时间点恢复）</span></span><br><span class="line">docker <span class="built_in">exec</span> crm_pg pg_basebackup -U postgres -D - -Ft -z -P &gt; /backup/base_$(<span class="built_in">date</span> +%F).tar.gz</span><br></pre></td></tr></table></figure>
+
+<h3 id="4-2-迁移"><a href="#4-2-迁移" class="headerlink" title="4.2 迁移"></a>4.2 迁移</h3><p>把一个卷从一台机器搬到另一台机器，标准流程：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 源机：打包</span></span><br><span class="line">docker run --<span class="built_in">rm</span> -v crm_pg_data:/data:ro -v /tmp:/backup alpine \</span><br><span class="line">  tar czf /backup/crm_pg_data.tar.gz -C /data .</span><br><span class="line"></span><br><span class="line"><span class="comment"># scp 到目标机</span></span><br><span class="line">scp /tmp/crm_pg_data.tar.gz target:/tmp/</span><br><span class="line"></span><br><span class="line"><span class="comment"># 目标机：先建空卷，再灌数据</span></span><br><span class="line">docker volume create crm_pg_data</span><br><span class="line">docker run --<span class="built_in">rm</span> \</span><br><span class="line">  -v crm_pg_data:/data \</span><br><span class="line">  -v /tmp:/backup \</span><br><span class="line">  alpine \</span><br><span class="line">  tar xzf /backup/crm_pg_data.tar.gz -C /data</span><br></pre></td></tr></table></figure>
+
+<h3 id="4-3-恢复"><a href="#4-3-恢复" class="headerlink" title="4.3 恢复"></a>4.3 恢复</h3><p>误删数据或换新机器，恢复就是上面迁移的后半段。但有两条铁律：</p>
+<ul>
+<li><strong>恢复前一定先停掉正在用这个卷的容器</strong>，避免文件冲突。</li>
+<li><strong>恢复后用同名容器重新挂载</strong>，不要改路径，应用代码里写死的连接串才不会错。</li>
+</ul>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">docker stop crm_pg</span><br><span class="line">docker volume <span class="built_in">rm</span> crm_pg_data   <span class="comment"># 删空卷（如果是恢复到新机器这步省略）</span></span><br><span class="line">docker volume create crm_pg_data</span><br><span class="line">docker run --<span class="built_in">rm</span> -v crm_pg_data:/data -v /backup:/backup alpine \</span><br><span class="line">  tar xzf /backup/crm_pg_data_2026-06-30.tar.gz -C /data</span><br><span class="line">docker start crm_pg</span><br></pre></td></tr></table></figure>
+
+<p>我们在团队里把这些封装成一个 <code>volbak</code> 脚本，cron 每天凌晨跑一次全量，再推到 OSS。脚本不复杂，关键是<strong>让备份这件事不依赖人记性</strong>。</p>
+<h2 id="五、踩坑复盘：这三件事我都没躲过"><a href="#五、踩坑复盘：这三件事我都没躲过" class="headerlink" title="五、踩坑复盘：这三件事我都没躲过"></a>五、踩坑复盘：这三件事我都没躲过</h2><p>讲了正确的做法，再讲讲我们是怎么”知道”这些做法是对的——全是被坑出来的。</p>
+<h3 id="5-1-坑一：bind-mount-的-UID-GID-错位"><a href="#5-1-坑一：bind-mount-的-UID-GID-错位" class="headerlink" title="5.1 坑一：bind mount 的 UID&#x2F;GID 错位"></a>5.1 坑一：bind mount 的 UID&#x2F;GID 错位</h3><p>那是上 Redis 的时候。我图省事用 bind mount：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker run -d --name redis \</span><br><span class="line">  -v /data/redis:/data \</span><br><span class="line">  redis:7</span><br></pre></td></tr></table></figure>
+
+<p>起是起来了，但 Redis 容器内的 <code>redis</code> 用户 UID 是 999，而宿主机 <code>/data/redis</code> 是我 root 建的，属主 root。结果 Redis 一写 <code>dump.rdb</code> 直接 <code>Permission denied</code>，起来又退出，起来又退出。</p>
+<p>更阴的版本是这样：容器跑起来了（因为我 <code>chmod 777</code>），但宿主机上那些数据文件的真实属主变成了 <code>999:999</code>——一个宿主机上根本不存在的 UID。等我想用宿主机上的脚本去操作这些文件，权限模型一团乱，备份脚本也跑不动。</p>
+<p>后来定下的规矩是：</p>
+<ul>
+<li><strong>生产环境一律用 volume，不用 bind mount</strong>。volume 由 Docker 管，权限问题最少。</li>
+<li>真要用 bind mount，<strong>必须显式指定容器内运行用户的 UID，并保证宿主机目录的属主 UID 一致</strong>：</li>
+</ul>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 宿主机建一个专用账户，UID 提前规划</span></span><br><span class="line">useradd -u 1099 redis_host</span><br><span class="line"><span class="built_in">mkdir</span> -p /data/redis &amp;&amp; <span class="built_in">chown</span> 1099:1099 /data/redis</span><br><span class="line"></span><br><span class="line"><span class="comment"># 容器内也用 1099</span></span><br><span class="line">docker run -d --name redis \</span><br><span class="line">  -v /data/redis:/data \</span><br><span class="line">  -u 1099:1099 \</span><br><span class="line">  redis:7</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>或者直接用 <code>--user</code> 跑容器，让两边 UID 对齐，别让 Docker 默认的随机高 UID 偷偷搞乱宿主机文件系统。</li>
+</ul>
+<h3 id="5-2-坑二：磁盘被匿名卷撑爆"><a href="#5-2-坑二：磁盘被匿名卷撑爆" class="headerlink" title="5.2 坑二：磁盘被匿名卷撑爆"></a>5.2 坑二：磁盘被匿名卷撑爆</h3><p>某天监控告警一台机器磁盘 95%。上去 <code>df -h</code> 一看，<code>/var/lib/docker</code> 占了 80%<!-- 校准：请按真实经历核实/替换 -->。<code>docker system df</code> 一查：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE</span><br><span class="line">Images          24        8         18GB      12GB</span><br><span class="line">Containers      12        12        800MB     0B</span><br><span class="line">Local Volumes   47        6         220GB     198GB</span><br></pre></td></tr></table></figure>
+
+<p>47 个卷，活跃的只有 6 个，<strong>198 GB 都是可回收的悬空卷</strong>。原因就是官方 Postgres&#x2F;MySQL 镜像的 Dockerfile 里写了 <code>VOLUME</code> 指令，团队同学每次 <code>docker run</code> 不挂命名卷，Docker 就默默建一个匿名卷；<code>docker rm</code> 容器时这个匿名卷不会跟着删，越积越多。</p>
+<p>清理方法：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 删所有未被任何容器引用的卷（一定要先确认，删了不可逆！）</span></span><br><span class="line">docker volume prune -f</span><br><span class="line"></span><br><span class="line"><span class="comment"># 看看具体有哪些悬空卷</span></span><br><span class="line">docker volume <span class="built_in">ls</span> -f dangling=<span class="literal">true</span></span><br></pre></td></tr></table></figure>
+
+<p>但这只是擦屁股。真正的预防是规范：<strong>所有有状态容器启动时必须挂命名卷</strong>，并在镜像扫描里加一条检查——Dockerfile 里有 <code>VOLUME</code> 指令的服务，部署模板里必须提供对应的命名卷映射。后来这条规范让我们再没出现过匿名卷堆积。</p>
+<h3 id="5-3-坑三：误删-volume-丢数据"><a href="#5-3-坑三：误删-volume-丢数据" class="headerlink" title="5.3 坑三：误删 volume 丢数据"></a>5.3 坑三：误删 volume 丢数据</h3><p>这是最痛的一次。一次环境清理，同事执行了：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">rm</span> -f crm_pg</span><br><span class="line">docker volume <span class="built_in">rm</span> crm_pg_data   <span class="comment"># 想着&quot;反正要重建&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p>他不知道的是，那天的逻辑备份脚本因为 OSS 凭据过期已经三天没成功推过了。于是这一条 <code>volume rm</code> 把最近三天的工单数据全送走了。我们花了一整天从应用层的操作日志里一点点复原关键数据，那滋味，谁经历谁知道。</p>
+<p>教训后来凝结成三条硬性规则：</p>
+<ol>
+<li><strong><code>docker volume rm</code> 在生产环境默认禁用</strong>，要走变更单、要双人确认。</li>
+<li><strong>volume 删除前先 <code>docker volume inspect</code> 看挂载点，把数据先 tar 一份到 <code>/backup</code> 再删</strong>。</li>
+<li><strong>备份成功率要监控</strong>——脚本”跑了”和”成功了”是两回事，必须对备份产物的大小、上传 OSS 的 HTTP 200 做校验告警。</li>
+</ol>
+<p>具体到一条命令的保险丝，可以在 shell 里给 <code>docker volume rm</code> 包一个 alias：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 危险命令加二次确认</span></span><br><span class="line"><span class="built_in">alias</span> docker=<span class="string">&#x27;docker&#x27;</span></span><br><span class="line"><span class="function"><span class="title">safe_volume_rm</span></span>() &#123;</span><br><span class="line">  <span class="built_in">local</span> v=<span class="variable">$1</span></span><br><span class="line">  <span class="built_in">echo</span> <span class="string">&quot;即将删除卷: <span class="variable">$v</span>&quot;</span></span><br><span class="line">  docker volume inspect <span class="string">&quot;<span class="variable">$v</span>&quot;</span> | grep Mountpoint</span><br><span class="line">  <span class="built_in">read</span> -p <span class="string">&quot;已备份? 输入卷名确认删除: &quot;</span> confirm</span><br><span class="line">  [ <span class="string">&quot;<span class="variable">$confirm</span>&quot;</span> = <span class="string">&quot;<span class="variable">$v</span>&quot;</span> ] &amp;&amp; docker volume <span class="built_in">rm</span> <span class="string">&quot;<span class="variable">$v</span>&quot;</span> || <span class="built_in">echo</span> <span class="string">&quot;取消&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>工具层面的兜底永远不如流程层面——但每多一道关卡，就少一次半夜被叫起来。</p>
+<h2 id="六、存储驱动：overlay2-为什么是默认"><a href="#六、存储驱动：overlay2-为什么是默认" class="headerlink" title="六、存储驱动：overlay2 为什么是默认"></a>六、存储驱动：overlay2 为什么是默认</h2><p>最后聊一个偏底层但绕不开的话题：Docker 用什么存储驱动管理镜像层和可写层。</p>
+<p>通过 <code>docker info | grep &quot;Storage Driver&quot;</code> 能看到当前用的驱动。常见的几种：</p>
+<table>
+<thead>
+<tr>
+<th>存储驱动</th>
+<th>后端文件系统</th>
+<th>稳定性</th>
+<th>性能</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>overlay2</strong></td>
+<td>ext4 &#x2F; xfs</td>
+<td>极稳，官方推荐</td>
+<td>最优</td>
+<td>Linux 4.0+，生产默认</td>
+</tr>
+<tr>
+<td>fuse-overlayfs</td>
+<td>任意</td>
+<td>稳</td>
+<td>良好</td>
+<td>rootless 场景</td>
+</tr>
+<tr>
+<td>devicemapper</td>
+<td>块设备</td>
+<td>老牌，需调参</td>
+<td>一般</td>
+<td>老系统，已不推荐新用</td>
+</tr>
+<tr>
+<td>btrfs</td>
+<td>btrfs</td>
+<td>良好</td>
+<td>良好</td>
+<td>已用 btrfs 做根分发的系统</td>
+</tr>
+<tr>
+<td>zfs</td>
+<td>zfs</td>
+<td>良好</td>
+<td>良好</td>
+<td>已用 zfs 的系统（如 SmartOS）</td>
+</tr>
+<tr>
+<td>vfs</td>
+<td>任意</td>
+<td>稳</td>
+<td>极慢</td>
+<td>仅调试用，无 CoW</td>
+</tr>
+</tbody></table>
+<p><strong>选型结论只有一句话：除非你已经在用 btrfs&#x2F;zfs 做根文件系统，否则一律 overlay2</strong>。它是 overlayfs 的第二代实现，Linux 主线原生支持，性能最接近裸盘，社区投入最大。我们在两种文件系统上都跑过同样的镜像构建基准，overlay2 比 devicemapper loop-lvm 快接近一倍<!-- 校准：请按真实经历核实/替换 -->，而 devicemapper 在 loop 模式下还容易遇到池满不可恢复的问题，是历史包袱。</p>
+<p>btrfs 和 zfs 各有强项——btrfs 对大量小镜像的去重很好，zfs 的快照和端到端校验是它的招牌。但它们要求<strong>宿主机根文件系统就是它本身</strong>，否则装 volume driver 的复杂度不划算。对绝大多数团队来说，ext4&#x2F;xfs + overlay2 是性价比最高的组合。</p>
+<p>切换驱动的命令（注意：<strong>会清掉所有镜像和容器</strong>，操作前务必备份）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># /etc/docker/daemon.json</span></span><br><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;storage-driver&quot;</span>: <span class="string">&quot;overlay2&quot;</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 重启 docker</span></span><br><span class="line"><span class="built_in">sudo</span> systemctl restart docker</span><br></pre></td></tr></table></figure>
+
+<h2 id="结语：容器是临时的，数据不是"><a href="#结语：容器是临时的，数据不是" class="headerlink" title="结语：容器是临时的，数据不是"></a>结语：容器是临时的，数据不是</h2><p>写到这里，Docker 存储持久化这件事其实就这么几条主线：</p>
+<ul>
+<li><strong>可写层不能放数据</strong>——性能差、随容器删除丢失、迁移困难。</li>
+<li><strong>三种挂载各司其职</strong>——volume 给生产，bind mount 给开发，tmpfs 给临时敏感数据。</li>
+<li><strong>数据库容器化，命名卷 + 数据&#x2F;WAL 分离 + 定期备份 + 异地存放</strong>，四件套缺一不可。</li>
+<li><strong>备份不验证等于没备份，清理脚本不确认等于埋雷</strong>——这是我们用两次事故换来的认知。</li>
+<li><strong>存储驱动一律 overlay2</strong>，除非你的根文件系统已经是 btrfs&#x2F;zfs。</li>
+</ul>
+<p>容器技术本身把”环境”和”数据”做了一次彻底的解耦，这本来是好事。但解耦的代价是：你得主动把”数据怎么活下来”这件事想清楚、写进流程、跑进脚本、盯进监控。<strong>任何一件依赖人记性的事，早晚都会出问题</strong>——这是我做完这一整轮容器化存储改造后，最想留给同行的一句话。</p>
+<p>希望这篇复盘能让你在凌晨三点，少接一个”数据没了”的电话。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Docker/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Docker<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/%E5%AD%98%E5%82%A8/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>存储<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/docker-resource-limits"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">Docker 容器资源限制与 cgroup 实战：从 CPU throttle 到 GPU 显存 OOM 的复盘</div></div></a></div><div class="next-post pull-right"><a href="/posts/docker-network-deep-dive"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">Docker 容器网络模型深度剖析与生产实践</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#Docker-%E5%AD%98%E5%82%A8%E5%8D%B7%E4%B8%8E%E6%95%B0%E6%8D%AE%E6%8C%81%E4%B9%85%E5%8C%96%E5%AE%9E%E6%88%98%EF%BC%9A%E5%88%AB%E8%AE%A9%E5%AE%B9%E5%99%A8%E5%88%A0%E4%BA%86%E6%95%B0%E6%8D%AE%E4%B9%9F%E6%B2%A1%E4%BA%86"><span class="toc-text">Docker 存储卷与数据持久化实战：别让容器删了数据也没了</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E8%A8%80"><span class="toc-text">引言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E5%85%88%E6%90%9E%E6%87%82%EF%BC%9A%E5%AE%B9%E5%99%A8%E7%9A%84%E5%8F%AF%E5%86%99%E5%B1%82%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E8%83%BD%E6%94%BE%E6%95%B0%E6%8D%AE"><span class="toc-text">一、先搞懂：容器的可写层为什么不能放数据</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E4%B8%89%E7%A7%8D%E6%8C%82%E8%BD%BD%E6%96%B9%E5%BC%8F%EF%BC%9A%E9%80%89%E9%94%99%E4%B8%80%E4%B8%AA%EF%BC%8C%E9%BA%BB%E7%83%A6%E4%B8%80%E5%B9%B4"><span class="toc-text">二、三种挂载方式：选错一个，麻烦一年</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-%E4%B8%80%E5%BC%A0%E5%9B%BE%E8%AF%B4%E6%B8%85%E4%B8%89%E8%80%85%E5%B7%AE%E5%88%AB"><span class="toc-text">2.1 一张图说清三者差别</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-volume%EF%BC%9A%E5%AE%98%E6%96%B9%E6%8E%A8%E8%8D%90%E7%9A%84%E7%94%9F%E4%BA%A7%E7%BA%A7%E6%96%B9%E6%A1%88"><span class="toc-text">2.2 volume：官方推荐的生产级方案</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-bind-mount%EF%BC%9A%E5%BC%BA%E5%A4%A7%E4%BD%86%E5%8D%B1%E9%99%A9"><span class="toc-text">2.3 bind mount：强大但危险</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-4-tmpfs%EF%BC%9A%E7%BB%99%E2%80%9D%E4%B8%8D%E8%83%BD%E8%90%BD%E7%9B%98%E2%80%9D%E7%9A%84%E6%95%B0%E6%8D%AE"><span class="toc-text">2.4 tmpfs：给”不能落盘”的数据</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E6%95%B0%E6%8D%AE%E5%BA%93%E5%AE%B9%E5%99%A8%E5%8C%96%E7%9A%84%E5%AD%98%E5%82%A8%E6%96%B9%E6%A1%88%EF%BC%9A%E6%95%B0%E6%8D%AE%E6%94%BE%E5%93%AA%E3%80%81%E6%80%8E%E4%B9%88%E4%B8%8D%E4%B8%A2"><span class="toc-text">三、数据库容器化的存储方案：数据放哪、怎么不丢</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-%E8%90%BD%E7%82%B9%E8%AE%BE%E8%AE%A1%EF%BC%9A%E5%91%BD%E5%90%8D%E5%8D%B7-%E4%B8%A5%E6%A0%BC%E7%A6%81%E6%AD%A2%E5%8C%BF%E5%90%8D%E5%8D%B7"><span class="toc-text">3.1 落点设计：命名卷 + 严格禁止匿名卷</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-%E6%9C%89%E7%8A%B6%E6%80%81%E6%9C%8D%E5%8A%A1%E7%9A%84%E5%AE%B9%E5%99%A8%E5%8C%96%E6%B8%85%E5%8D%95"><span class="toc-text">3.2 有状态服务的容器化清单</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81volume-%E7%9A%84%E5%A4%87%E4%BB%BD%E3%80%81%E8%BF%81%E7%A7%BB%E4%B8%8E%E6%81%A2%E5%A4%8D"><span class="toc-text">四、volume 的备份、迁移与恢复</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-%E5%A4%87%E4%BB%BD"><span class="toc-text">4.1 备份</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-%E8%BF%81%E7%A7%BB"><span class="toc-text">4.2 迁移</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-%E6%81%A2%E5%A4%8D"><span class="toc-text">4.3 恢复</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E8%B8%A9%E5%9D%91%E5%A4%8D%E7%9B%98%EF%BC%9A%E8%BF%99%E4%B8%89%E4%BB%B6%E4%BA%8B%E6%88%91%E9%83%BD%E6%B2%A1%E8%BA%B2%E8%BF%87"><span class="toc-text">五、踩坑复盘：这三件事我都没躲过</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-%E5%9D%91%E4%B8%80%EF%BC%9Abind-mount-%E7%9A%84-UID-GID-%E9%94%99%E4%BD%8D"><span class="toc-text">5.1 坑一：bind mount 的 UID&#x2F;GID 错位</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-%E5%9D%91%E4%BA%8C%EF%BC%9A%E7%A3%81%E7%9B%98%E8%A2%AB%E5%8C%BF%E5%90%8D%E5%8D%B7%E6%92%91%E7%88%86"><span class="toc-text">5.2 坑二：磁盘被匿名卷撑爆</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-3-%E5%9D%91%E4%B8%89%EF%BC%9A%E8%AF%AF%E5%88%A0-volume-%E4%B8%A2%E6%95%B0%E6%8D%AE"><span class="toc-text">5.3 坑三：误删 volume 丢数据</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E5%AD%98%E5%82%A8%E9%A9%B1%E5%8A%A8%EF%BC%9Aoverlay2-%E4%B8%BA%E4%BB%80%E4%B9%88%E6%98%AF%E9%BB%98%E8%AE%A4"><span class="toc-text">六、存储驱动：overlay2 为什么是默认</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%BB%93%E8%AF%AD%EF%BC%9A%E5%AE%B9%E5%99%A8%E6%98%AF%E4%B8%B4%E6%97%B6%E7%9A%84%EF%BC%8C%E6%95%B0%E6%8D%AE%E4%B8%8D%E6%98%AF"><span class="toc-text">结语：容器是临时的，数据不是</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/docker-observability-troubleshooting.html","posts/hadoop-mapreduce-shuffle.html","posts/docker-private-registry-harbor.html","posts/docker-security-hardening.html","posts/docker-compose-orchestration.html","posts/hadoop-yarn-scheduler.html","posts/docker-resource-limits.html","posts/docker-storage-persistence.html","posts/docker-network-deep-dive.html","posts/hadoop-hdfs-small-files.html","posts/dockerfile-best-practices.html","posts/docker-image-layer-optimization.html","posts/docker-architecture.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

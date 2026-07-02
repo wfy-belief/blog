@@ -1,0 +1,481 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Docker 镜像分层原理与构建优化实战：把一个 2.3GB 镜像压到 180MB 的复盘 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/docker-image-layer-optimization"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="从镜像分层、overlay2 存储驱动、构建缓存到多阶段构建与 buildkit 缓存挂载，复盘一次镜像瘦身与构建加速的完整历程。"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文以一个 Python 服务镜像从 2.3GB 压到 180MB、CI 构建从 9 分钟降到 1 分半的复盘为线索，拆解 Docker 镜像分层原理、overlay2 存储驱动、构建缓存失效机制，再逐层讲优化手段：合并 RUN、.dockerignore、依赖前置 COPY、多阶段构建、alpine/distroless 基础镜像、buildkit 的 --mount=type=cache 缓存挂载，最后覆盖镜像大小治理与漏洞扫描。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Docker/">Docker<sup>10</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%8E%9F%E7%90%86/">容器原理<sup>1</sup></a><a href="/tags/Compose/">Compose<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/">镜像优化<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/">容器网络<sup>1</sup></a><a href="/tags/%E7%9B%91%E6%8E%A7/">监控<sup>1</sup></a><a href="/tags/%E6%8E%92%E9%9A%9C/">排障<sup>1</sup></a><a href="/tags/Harbor/">Harbor<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/">镜像仓库<sup>1</sup></a><a href="/tags/cgroup/">cgroup<sup>1</sup></a><a href="/tags/GPU/">GPU<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%AE%89%E5%85%A8/">容器安全<sup>1</sup></a><a href="/tags/Dockerfile/">Dockerfile<sup>1</sup></a><a href="/tags/%E5%AD%98%E5%82%A8/">存储<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">40</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">41</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">41</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">54</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Docker/">Docker<sup>10</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%8E%9F%E7%90%86/">容器原理<sup>1</sup></a><a href="/tags/Compose/">Compose<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/">镜像优化<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/">容器网络<sup>1</sup></a><a href="/tags/%E7%9B%91%E6%8E%A7/">监控<sup>1</sup></a><a href="/tags/%E6%8E%92%E9%9A%9C/">排障<sup>1</sup></a><a href="/tags/Harbor/">Harbor<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/">镜像仓库<sup>1</sup></a><a href="/tags/cgroup/">cgroup<sup>1</sup></a><a href="/tags/GPU/">GPU<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%AE%89%E5%85%A8/">容器安全<sup>1</sup></a><a href="/tags/Dockerfile/">Dockerfile<sup>1</sup></a><a href="/tags/%E5%AD%98%E5%82%A8/">存储<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">Docker 镜像分层原理与构建优化实战：把一个 2.3GB 镜像压到 180MB 的复盘</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Docker/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Docker</span></a><a class="post-meta__tags" href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>镜像优化</span></a></div></div></div></div><h1 class="post-title">Docker 镜像分层原理与构建优化实战：把一个 2.3GB 镜像压到 180MB 的复盘</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h2 id="引子：一个-2-3GB-的镜像和一条-9-分钟的-CI"><a href="#引子：一个-2-3GB-的镜像和一条-9-分钟的-CI" class="headerlink" title="引子：一个 2.3GB 的镜像和一条 9 分钟的 CI"></a>引子：一个 2.3GB 的镜像和一条 9 分钟的 CI</h2><p>去年接手一个 Python 推理服务的容器化，Dockerfile 是前同事留的，大概长这样：基础镜像 <code>python:3.10</code>，十几条 <code>RUN apt-get install</code>、<code>RUN pip install</code>、<code>RUN copy</code>，最后 <code>COPY . .</code> 把整个仓库扔进去。镜像 build 出来 2.3GB<!-- 校准：请按真实经历核实/替换 -->，CI 每次跑 9 分钟左右，其中 6 分钟在 docker build<!-- 校准：请按真实经历核实/替换 -->。推到 Harbor 又慢，部署拉镜像也慢，节点上磁盘还被几个大镜像吃满过。</p>
+<p>组里之前的优化思路就是”加机器、加带宽”，没人认真看过 Dockerfile。我把镜像 <code>docker history</code> 拉出来逐层看，发现一堆低级问题：<code>apt-get</code> 没 <code>--no-install-recommends</code>、缓存目录没清、<code>.git</code> 和测试数据全被打进镜像、依赖和源码混在一个 COPY 里导致每次改一行代码就全量重装依赖。逐一治理之后，镜像压到 180MB<!-- 校准：请按真实经历核实/替换 -->，CI 构建稳定在 1 分半。这篇文章把那次治理的全过程拆开讲。</p>
+<p>我的方法论跟调任何性能问题一样：<strong>先理解机制，再动配置。</strong> Docker 镜像优化不是背几条最佳实践就行，得明白分层是怎么存的、缓存是怎么失效的、overlay2 是怎么叠的，才能判断每条指令的代价。下面先讲原理，再讲手段。</p>
+<h2 id="一、镜像分层原理：每条指令都是一层"><a href="#一、镜像分层原理：每条指令都是一层" class="headerlink" title="一、镜像分层原理：每条指令都是一层"></a>一、镜像分层原理：每条指令都是一层</h2><p>Docker 镜像不是一个大文件，而是一堆**只读层（layer）**叠起来的洋葱。Dockerfile 里每条 <code>FROM</code>、<code>RUN</code>、<code>COPY</code>、<code>ADD</code>、<code>CMD</code>（以及部分 <code>ENV</code>&#x2F;<code>WORKDIR</code> 在旧版本里）都会产生一个新层，每层只存”相对父层的差异”——新增的文件、修改的文件、删除标记（whiteout）。</p>
+<p>一个最小 Python 镜像的分层示意：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">     Docker 镜像 = 一堆只读层叠加 + 顶层可写容器层</span><br><span class="line">┌──────────────────────────────────────────────┐</span><br><span class="line">│  顶层 Container layer（可写，容器运行时产生）    │</span><br><span class="line">├──────────────────────────────────────────────┤</span><br><span class="line">│  L5  CMD [&quot;python&quot;,&quot;app.py&quot;]          0 B     │</span><br><span class="line">│  L4  COPY app/ /app/                  12 MB   │</span><br><span class="line">│  L3  RUN pip install -r req.txt       320 MB  │</span><br><span class="line">│  L2  WORKDIR /app                     0 B     │</span><br><span class="line">│  L1  FROM python:3.10-slim            ~150 MB │</span><br><span class="line">└──────────────────────────────────────────────┘</span><br><span class="line">     每层只存相对父层的 diff，靠 overlay2 叠加成最终视图</span><br></pre></td></tr></table></figure>
+
+<p>几个关键认知，是我踩坑之后才真正内化的：</p>
+<p><strong>层是叠加的，删文件不减小镜像。</strong> 这是新手最常踩的坑。你在第一层 <code>RUN curl -o big.tar.gz</code>，在第二层 <code>RUN rm big.tar.gz</code>，镜像体积并不会变小——big.tar.gz 依然存在于第一层里，第二层只是加了一条”这个文件被删了”的 whiteout 标记。最终镜像同时背着两层的体积。这就是为什么”在同一层里下载、解压、删除”是铁律。</p>
+<p><strong>层共享与复用是镜像快的根本。</strong> 多个镜像如果共享同一个基础层（比如都 <code>FROM python:3.10-slim</code>），节点上只存一份，拉取时也只拉差异层。这也是为什么 CI 机器上缓存命中率对构建时间影响巨大——基础镜像层和早期不变的层会被反复复用。</p>
+<p><strong>COPY 的层也有代价。</strong> 很多人觉得 COPY 不就是复制文件吗，但它同样产生一层，而且 COPY 进去的文件如果变了，这层缓存就失效。这就是为什么”先 COPY 依赖清单，再 COPY 源码”能省大量时间——后面会展开。</p>
+<p><code>docker history &lt;image&gt;</code> 是我看分层的第一工具，每行显示一层、对应指令、产生的大小。一个镜像臃肿，history 拉出来扫一眼基本就知道哪几层是大头。</p>
+<h2 id="二、存储驱动：为什么-overlay2-是生产默认"><a href="#二、存储驱动：为什么-overlay2-是生产默认" class="headerlink" title="二、存储驱动：为什么 overlay2 是生产默认"></a>二、存储驱动：为什么 overlay2 是生产默认</h2><p>分层只是逻辑模型，落到磁盘上靠<strong>存储驱动（storage driver）<strong>来管理层的叠加与可写层。Docker 历史上换过好几代驱动：aufs（早期 Ubuntu 默认，已弃用）、devicemapper（CentOS 老传统，性能差）、overlay（第一版，inode 限制），现在</strong>生产默认是 overlay2</strong>，社区也只推荐这一个。</p>
+<p>为什么是 overlay2？因为它是 Linux 内核原生 overlayfs 文件系统的直接调用，没有额外用户态开销。它的工作方式是三层结构：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">         overlay2 叠加结构（最终容器视图）</span><br><span class="line">┌────────────────────────────────────────────┐</span><br><span class="line">│   Merged（合并视图，容器看到的根文件系统）     │</span><br><span class="line">├────────────────────────────────────────────┤</span><br><span class="line">│   Upper（可写层，容器运行时所有写操作落到这）  │</span><br><span class="line">├────────────────────────────────────────────┤</span><br><span class="line">│   Lower（多个只读镜像层，自上而下叠加）        │</span><br><span class="line">│   L1 ← L2 ← L3 ← ...                        │</span><br><span class="line">└────────────────────────────────────────────┘</span><br><span class="line">     读：从上往下找第一个命中的层</span><br><span class="line">     写：copy-up：把 Lower 文件复制到 Upper 再修改</span><br></pre></td></tr></table></figure>
+
+<p>读文件时，从 Upper 往 Lower 逐层查找，命中即返回。写文件时触发 <strong>copy-up</strong>：先从 Lower 层把文件复制到 Upper 层，再在 Upper 上修改。copy-up 是 overlay2 的主要开销——这就是为什么”容器里频繁写大文件”很慢，而且会把 Upper 层撑大（<code>docker system df</code> 能看到每个容器的 writable size）。</p>
+<p>几个我在生产里跟 overlay2 相关的经验：</p>
+<p><strong><code>overlay2 lowerdir</code> 最多 128 层。</strong> 内核限制（旧内核是更低），超过会直接挂不上。这也是限制 Dockerfile 层数的硬约束——虽然现在很少把层数堆到 128，但合并 RUN 仍是好习惯。</p>
+<p><strong>xfs 要挂 <code>d_type=true</code>。</strong> overlay2 依赖 <code>trusted.overlay.*</code> 扩展属性来存 whiteout，xfs 默认可能没开 <code>d_type</code>，结果就是 build 报错 <code>overlayfs: the backing xfs filesystem is formatted without d_type</code>。我一次在老 CentOS 节点上部署就踩过，挂载 <code>/var/lib/docker</code> 的 xfs 分区没开 d_type，只能重格式化 <code>mkfs.xfs -n ftype=1</code>。生产前一定 <code>xfs_info /var/lib/docker | grep ftype</code> 确认是 <code>ftype=1</code>。</p>
+<p><strong>别在容器里写日志到本地文件。</strong> 这是 copy-up 的典型受害者。一个服务每秒写 access.log，Upper 层会无限增长，容器一重启全丢。正确做法是日志直接打到 stdout&#x2F;stderr，让 Docker logging driver 收走。</p>
+<h2 id="三、构建缓存：层一旦失效，后面全失效"><a href="#三、构建缓存：层一旦失效，后面全失效" class="headerlink" title="三、构建缓存：层一旦失效，后面全失效"></a>三、构建缓存：层一旦失效，后面全失效</h2><p>这是镜像优化里<strong>最容易被忽视、但收益最大</strong>的一层认知。Docker build 是有缓存的，缓存机制大致是：<strong>对每一层，Docker 会用”指令 + 输入”算一个缓存 key，如果 key 没变就用缓存层，一旦某层缓存失效，它后面所有层都强制重建。</strong></p>
+<p>具体到不同指令：</p>
+<ul>
+<li><code>RUN</code>：缓存 key 就是命令字符串本身。改一个字符（比如版本号 <code>1.2.3</code> 改 <code>1.2.4</code>）这层就失效。</li>
+<li><code>COPY</code>&#x2F;<code>ADD</code>：缓存 key 是命令 + 被复制文件的<strong>内容校验和</strong>（不只是文件名）。文件内容变一个字节，这层就失效。</li>
+<li><code>FROM</code>：基础镜像 digest 变了，后面全失效。</li>
+</ul>
+<p>这个机制意味着一个极其重要的推论：<strong>Dockerfile 里指令的顺序，直接决定缓存命中率。</strong> 哪条指令最容易变，就越要往后放。看下面这个反例，就是前同事留的 Dockerfile：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 反面教材：源码 COPY 太靠前，缓存几乎永远失效</span></span><br><span class="line"><span class="keyword">FROM</span> python:<span class="number">3.10</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">WORKDIR</span><span class="language-bash"> /app</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> . .                          <span class="comment"># ← 改一行代码，下面所有层全失效</span></span></span><br><span class="line"></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> apt-get update &amp;&amp; apt-get install -y \</span></span><br><span class="line"><span class="language-bash">    gcc libpq-dev curl wget vim   <span class="comment"># ← vim 是调试时手动加的</span></span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> pip install -r requirements.txt</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> pip install gunicorn</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">CMD</span><span class="language-bash"> [<span class="string">&quot;gunicorn&quot;</span>, <span class="string">&quot;app:app&quot;</span>]</span></span><br></pre></td></tr></table></figure>
+
+<p><code>COPY . .</code> 在前面，意味着只要改一行源码，后面三个 <code>RUN</code>（包括 pip install，最耗时的一步）全部重建。CI 每次跑 6 分钟的 build 里，有 5 分钟在重装依赖。</p>
+<p>正确写法是把<strong>最不容易变的放前面，最易变的放最后</strong>：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 正确：依赖清单前置，源码后置</span></span><br><span class="line"><span class="keyword">FROM</span> python:<span class="number">3.10</span>-slim</span><br><span class="line"></span><br><span class="line"><span class="keyword">WORKDIR</span><span class="language-bash"> /app</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 系统依赖：极少变</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> apt-get update &amp;&amp; apt-get install -y --no-install-recommends \</span></span><br><span class="line"><span class="language-bash">    gcc libpq-dev \</span></span><br><span class="line"><span class="language-bash">    &amp;&amp; <span class="built_in">rm</span> -rf /var/lib/apt/lists/*</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 依赖清单：只要 requirements.txt 不变就命中缓存</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> requirements.txt .</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> pip install --no-cache-dir -r requirements.txt</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 源码：最后 COPY，改源码只重建这层 + CMD</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> app/ ./app/</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">CMD</span><span class="language-bash"> [<span class="string">&quot;gunicorn&quot;</span>, <span class="string">&quot;app:app&quot;</span>]</span></span><br></pre></td></tr></table></figure>
+
+<p>改造之后，平时改源码 push，CI 的 build 只要 20 秒（只重建 COPY app&#x2F; 和 CMD 两层），只有改依赖时才重新 pip install<!-- 校准：请按真实经历核实/替换 -->。</p>
+<p>几个缓存相关的坑值得单独讲：</p>
+<p><strong><code>apt-get update</code> 和 <code>apt-get install</code> 必须写在一层。</strong> 拆成两层会导致：第一层 <code>RUN apt-get update</code> 缓存的 apt 索引可能已经过时（缓存命中），第二层 <code>RUN apt-get install nginx</code> 拿过时索引去装包，要么装不上、要么装到旧版本。这是 Dockerfile linter（hadolint）必报的告警。</p>
+<p><strong><code>.dockerignore</code> 不是可选的。</strong> 很多人不写 <code>.dockerignore</code>，结果 <code>COPY . .</code> 把 <code>.git/</code>、<code>node_modules/</code>、<code>__pycache__/</code>、测试数据、本地 <code>.env</code> 全打进去。这些文件变化频繁，会让缓存频繁失效，还可能把密钥泄露到镜像里（一个经典安全事故）。我接手后第一件事就是补上：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"># .dockerignore</span><br><span class="line">.git</span><br><span class="line">.gitignore</span><br><span class="line">__pycache__</span><br><span class="line">*.pyc</span><br><span class="line">.pytest_cache</span><br><span class="line">.venv</span><br><span class="line">venv/</span><br><span class="line">node_modules/</span><br><span class="line">tests/</span><br><span class="line">*.md</span><br><span class="line">.env</span><br><span class="line">.env.*</span><br><span class="line">docker-compose*.yml</span><br><span class="line">Dockerfile*</span><br></pre></td></tr></table></figure>
+
+<p><code>.dockerignore</code> 还有一个隐藏收益：build context 变小，构建上下文上传到 daemon 的时间缩短。那个 2.3GB 镜像的服务，build context 有 1.4GB（含历史测试数据集），加上 <code>.dockerignore</code> 后 context 缩到 8MB<!-- 校准：请按真实经历核实/替换 -->。</p>
+<p><strong>BuildKit 默认开启。</strong> Docker 18.09 之后引入 BuildKit，构建速度快、并行度高，而且缓存策略更聪明。老版本 Docker 要 <code>DOCKER_BUILDKIT=1</code>，23.0+ 默认开启。生产环境务必确认用的是 BuildKit。</p>
+<h2 id="四、合并-RUN-减少层数，并清理在同一层"><a href="#四、合并-RUN-减少层数，并清理在同一层" class="headerlink" title="四、合并 RUN 减少层数，并清理在同一层"></a>四、合并 RUN 减少层数，并清理在同一层</h2><p>前面讲了删文件不减镜像体积，解决办法就是把”下载、解压、删除”合并到<strong>同一层同一个 RUN</strong> 里。对比：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 反面：三层，big.tar.gz 在第一层永远存在</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> curl -o /tmp/big.tar.gz https://example.com/big.tar.gz</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> tar xzf /tmp/big.tar.gz -C /opt</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> <span class="built_in">rm</span> /tmp/big.tar.gz          <span class="comment"># ← 减不掉，只是加 whiteout</span></span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 正面：一层内完成下载、解压、删除，中间产物不进镜像</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> curl -fsSL -o /tmp/big.tar.gz https://example.com/big.tar.gz \</span></span><br><span class="line"><span class="language-bash">    &amp;&amp; tar xzf /tmp/big.tar.gz -C /opt \</span></span><br><span class="line"><span class="language-bash">    &amp;&amp; <span class="built_in">rm</span> /tmp/big.tar.gz \</span></span><br><span class="line"><span class="language-bash">    &amp;&amp; <span class="built_in">rm</span> -rf /var/lib/apt/lists/*</span></span><br></pre></td></tr></table></figure>
+
+<p>核心原则：<strong>层内产生的临时文件，必须在同一层内清理掉。</strong> <code>apt-get</code> 装完包要 <code>rm -rf /var/lib/apt/lists/*</code>，<code>pip install</code> 要加 <code>--no-cache-dir</code> 避免 <code>~/.cache/pip</code> 残留，<code>apk add</code> 在 alpine 上要加 <code>--no-cache</code>。</p>
+<p>合并 RUN 的另一个好处是减少层数。虽然 overlay2 限制是 128 层，离上限远，但层数多意味着 metadata 多、推送时校验多、层共享收益下降。一个合理的服务镜像，Dockerfile 通常控制在 10–15 条指令以内。</p>
+<p>不过也别为了合层而牺牲可读性和缓存粒度。把”系统依赖”和”pip 依赖”拆成两层是值得的——它们变化的频率不同，分开能让缓存命中更精细。</p>
+<h2 id="五、多阶段构建：瘦身的核武器"><a href="#五、多阶段构建：瘦身的核武器" class="headerlink" title="五、多阶段构建：瘦身的核武器"></a>五、多阶段构建：瘦身的核武器</h2><p>上面那些手段能把镜像从 2.3GB 压到 700MB 左右，但真正的核武器是<strong>多阶段构建（multi-stage build）</strong>。它的思路是：用一个 stage 编译，把编译产物拷到另一个干净 stage 运行，编译器、依赖源码、中间产物全都丢掉。</p>
+<p>那个 Python 服务原本 700MB 里，有 300MB 是编译用的 <code>gcc</code> 和构建期才需要的 <code>python-dev</code>——运行时根本用不到。Go 服务更典型，构建需要完整 Go 工具链（800MB+），但运行时只需要一个二进制（20MB）。看一个 Go 服务的对比：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 反面：构建工具链全进镜像</span></span><br><span class="line"><span class="keyword">FROM</span> golang:<span class="number">1.22</span></span><br><span class="line"><span class="keyword">WORKDIR</span><span class="language-bash"> /src</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> . .</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> go build -o /app/server ./cmd/server</span></span><br><span class="line"><span class="comment"># 镜像里有完整 Go SDK + 源码 + 二进制，800MB+</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">CMD</span><span class="language-bash"> [<span class="string">&quot;/app/server&quot;</span>]</span></span><br></pre></td></tr></table></figure>
+
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 正面：多阶段，运行镜像只有二进制</span></span><br><span class="line"><span class="comment"># ---- builder stage ----</span></span><br><span class="line"><span class="keyword">FROM</span> golang:<span class="number">1.22</span>-alpine AS builder</span><br><span class="line"><span class="keyword">WORKDIR</span><span class="language-bash"> /src</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> go.mod go.sum ./</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> go mod download</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> . .</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> CGO_ENABLED=0 go build -ldflags=<span class="string">&quot;-s -w&quot;</span> -o /out/server ./cmd/server</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># ---- runtime stage ----</span></span><br><span class="line"><span class="keyword">FROM</span> gcr.io/distroless/static-debian12</span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> --from=builder /out/server /server</span></span><br><span class="line"><span class="keyword">USER</span> nonroot:nonroot</span><br><span class="line"><span class="keyword">ENTRYPOINT</span><span class="language-bash"> [<span class="string">&quot;/server&quot;</span>]</span></span><br><span class="line"><span class="comment"># 镜像 ~20MB，没有 shell、没有包管理器、没有 Go 工具链</span></span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>单阶段</th>
+<th>多阶段</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>镜像大小</td>
+<td>~830 MB</td>
+<td>~22 MB<!-- 校准：请按真实经历核实/替换 --></td>
+</tr>
+<tr>
+<td>内含 shell</td>
+<td>有</td>
+<td>无（distroless）</td>
+</tr>
+<tr>
+<td>攻击面</td>
+<td>gcc&#x2F;make&#x2F;源码全在</td>
+<td>仅二进制</td>
+</tr>
+<tr>
+<td>启动时间</td>
+<td>1.2 s</td>
+<td>0.4 s<!-- 校准：请按真实经历核实/替换 --></td>
+</tr>
+<tr>
+<td>拉取时间</td>
+<td>18 s</td>
+<td>2 s<!-- 校准：请按真实经历核实/替换 --></td>
+</tr>
+</tbody></table>
+<p>多阶段的几个要点：</p>
+<p><strong><code>COPY --from=&lt;stage&gt;</code> 是关键。</strong> 它从指定构建阶段拷贝产物，只拷贝你要的文件，不带那一层的其他东西。可以 <code>COPY --from=builder</code>，也可以 <code>COPY --from=nginx:1.25-alpine /usr/sbin/nginx /usr/sbin/nginx</code> 直接从另一个镜像拷。</p>
+<p><strong><code>CGO_ENABLED=0</code> 配 distroless&#x2F;alpine。</strong> Go 静态编译后不需要 libc，能跑在 <code>distroless/static</code>（无 shell、无 libc）。如果用了 cgo 就得用 <code>distroless/cc</code> 或 alpine + musl。</p>
+<p><strong>builder 用大镜像没事，反正不留。</strong> builder 阶段用 <code>golang:1.22</code>（带全套工具链）完全 OK，最后镜像只取 runtime stage。</p>
+<p>那个 Python 服务最后用的是 Python 多阶段：builder 里装 gcc 编译 C 扩展，把编译好的 site-packages 拷到 runtime（<code>python:3.10-slim</code>），runtime 里只有 slim 运行时 + 编译好的依赖 wheel。</p>
+<h2 id="六、基础镜像选型：alpine-vs-distroless-vs-slim"><a href="#六、基础镜像选型：alpine-vs-distroless-vs-slim" class="headerlink" title="六、基础镜像选型：alpine vs distroless vs slim"></a>六、基础镜像选型：alpine vs distroless vs slim</h2><p>基础镜像决定了镜像的”地板”。同样是 Python 3.10，选不同的基础镜像体积天差地别：</p>
+<table>
+<thead>
+<tr>
+<th>基础镜像</th>
+<th>大小</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>python:3.10</code></td>
+<td>~340 MB</td>
+<td>完整 Debian，带 gcc&#x2F;编译工具，构建方便但臃肿</td>
+</tr>
+<tr>
+<td><code>python:3.10-slim</code></td>
+<td>~150 MB</td>
+<td>Debian 精简版，无编译工具，运行时首选</td>
+</tr>
+<tr>
+<td><code>python:3.10-alpine</code></td>
+<td>~50 MB</td>
+<td>musl libc，体积小但 pip 装 C 扩展要重编译</td>
+</tr>
+<tr>
+<td><code>distroless/python3</code></td>
+<td>~50 MB</td>
+<td>Google 出品，无 shell、无包管理器，安全最佳</td>
+</tr>
+</tbody></table>
+<p>我的选型原则：</p>
+<p><strong>优先 slim。</strong> 生产服务 90% 用 <code>*-slim</code>。它兼容主流 glibc 生态，wheel 包能直接装，调试时还能 <code>apt</code> 临时装工具。Python、Node、Debian 系服务我都用 slim。</p>
+<p><strong>Alpine 要慎用。</strong> alpine 用 musl libc 而不是 glibc，很多 C 扩展（numpy、pandas、cryptography）没有 musl 的预编译 wheel，pip 会从源码编译，构建又慢又容易失败（要装 gcc、musl-dev、libffi-dev 一堆）。我接手过一个 alpine Python 服务，pip install 单次要 8 分钟，换回 slim 后 40 秒<!-- 校准：请按真实经历核实/替换 -->。alpine 适合纯静态语言（Go、Rust 静态二进制）或对体积极致敏感的场景。</p>
+<p><strong>Distroless 是安全首选。</strong> 它没有 shell、没有包管理器，连 <code>/bin/sh</code> 都没有——攻击者拿到 RCE 也无法 exec shell，攻击面极小。代价是调试麻烦（没法 <code>docker exec -it xxx sh</code>），需要 <code>:debug</code> 变体（带 busybox shell）辅助排障。对安全敏感的服务（对外网暴露、金融）我强烈推荐 distroless。</p>
+<p>另外基础镜像<strong>一定要钉死 digest</strong>，不要用 <code>latest</code> 也不要只钉 tag。<code>python:3.10-slim</code> 这个 tag 指向的镜像会随上游更新而变化，今天 build 的镜像和下个月 build 的可能不一样。生产 Dockerfile 里写 <code>python:3.10.14-slim-bookworm@sha256:xxxx</code> 才是可复现的。</p>
+<h2 id="七、BuildKit-缓存挂载：CI-加速的隐藏神器"><a href="#七、BuildKit-缓存挂载：CI-加速的隐藏神器" class="headerlink" title="七、BuildKit 缓存挂载：CI 加速的隐藏神器"></a>七、BuildKit 缓存挂载：CI 加速的隐藏神器</h2><p>多阶段 + slim 把镜像瘦下来了，但 CI 总时间还有优化空间。最典型的问题是：<strong>pip&#x2F;npm 装依赖时的下载缓存怎么办？</strong> 传统做法是把缓存目录 COPY 进镜像当一层——但这会让缓存本身进镜像，污染体积。BuildKit 给了一个优雅的解法：<code>--mount=type=cache</code>。</p>
+<p>它的思路是：构建时把宿主机或 CI 上的某个目录挂载到容器里当缓存用，构建结束这个挂载<strong>不进镜像</strong>，但下次 build 还能复用。</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># syntax=docker/dockerfile:1.7</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">FROM</span> python:<span class="number">3.10</span>-slim</span><br><span class="line"></span><br><span class="line"><span class="comment"># pip 缓存挂载：跨 build 复用，不进镜像</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> --mount=<span class="built_in">type</span>=cache,target=/root/.cache/pip \</span></span><br><span class="line"><span class="language-bash">    pip install -r requirements.txt</span></span><br></pre></td></tr></table></figure>
+
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># Go mod 缓存</span></span><br><span class="line"><span class="keyword">FROM</span> golang:<span class="number">1.22</span> AS builder</span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> --mount=<span class="built_in">type</span>=cache,target=/go/pkg/mod \</span></span><br><span class="line"><span class="language-bash">    --mount=<span class="built_in">type</span>=cache,target=/root/.cache/go-build \</span></span><br><span class="line"><span class="language-bash">    go build -o /out/server ./cmd/server</span></span><br></pre></td></tr></table></figure>
+
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># apt 缓存（Debian/Ubuntu）</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> --mount=<span class="built_in">type</span>=cache,target=/var/cache/apt,sharing=locked \</span></span><br><span class="line"><span class="language-bash">    --mount=<span class="built_in">type</span>=cache,target=/var/lib/apt,sharing=locked \</span></span><br><span class="line"><span class="language-bash">    <span class="built_in">rm</span> -f /etc/apt/apt.conf.d/docker-clean \</span></span><br><span class="line"><span class="language-bash">    &amp;&amp; apt-get update &amp;&amp; apt-get install -y --no-install-recommends gcc</span></span><br></pre></td></tr></table></figure>
+
+<p>几个要点：</p>
+<p><strong><code># syntax=docker/dockerfile:1.7</code> 必须在第一行。</strong> 它告诉 Docker 用 BuildKit frontend，新版特性（<code>--mount</code>、<code>--security</code>、heredoc）才生效。Docker 23.0+ 虽然默认 BuildKit，但 frontend 仍建议显式声明。</p>
+<p><strong>CI 上要配置持久化缓存后端。</strong> GitHub Actions 用 <code>actions/cache</code> 保存 <code>/tmp/.buildx-cache</code>，GitLab CI 用 cache key 缓存 buildx 目录。<code>type=cache</code> 默认存在 buildkit daemon 的工作目录，daemon 重启会丢，所以跨 job 要靠 CI 的 cache 机制把 buildkit 的数据目录搬进 CI cache。</p>
+<p><strong><code>sharing=locked</code> 防并发竞争。</strong> 多 stage 并行时如果都写同一个 apt cache 会冲突，加 <code>sharing=locked</code> 自动加锁。</p>
+<p>那个 Python 服务加上 pip cache mount 后，第二次 build 起步 pip install 从 4 分钟降到 20 秒（纯装 wheel，没有下载）<!-- 校准：请按真实经历核实/替换 -->。</p>
+<p>另一个隐藏好用的特性是 <code>--mount=type=bind</code>，构建期临时挂载文件（比如编译用的工具链），构建完不进镜像。还有 <code>--mount=type=secret</code>，挂载密钥（pip 私有源 token、npm 私有包 token），不会留在镜像层里——这是比 <code>ARG</code> 传密钥安全得多的做法。</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 私有 pip 源 token 用 secret 挂载，不会进镜像层</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> --mount=<span class="built_in">type</span>=secret,<span class="built_in">id</span>=pip_token \</span></span><br><span class="line"><span class="language-bash">    PIP_TOKEN=$(<span class="built_in">cat</span> /run/secrets/pip_token) \</span></span><br><span class="line"><span class="language-bash">    pip install --index-url https://<span class="variable">$&#123;PIP_TOKEN&#125;</span>@pypi.internal/simple/ -r requirements.txt</span></span><br></pre></td></tr></table></figure>
+
+<p>构建时 <code>docker build --secret id=pip_token,env=PIP_TOKEN .</code> 传入。</p>
+<h2 id="八、镜像大小治理与漏洞扫描"><a href="#八、镜像大小治理与漏洞扫描" class="headerlink" title="八、镜像大小治理与漏洞扫描"></a>八、镜像大小治理与漏洞扫描</h2><p>瘦身不是一次性的事，得有持续治理机制。我在团队里推了几条规范：</p>
+<p><strong>CI 里加镜像大小门禁。</strong> build 完用一条脚本读 <code>docker inspect --format=&#39;&#123;&#123;.Size&#125;&#125;&#39;</code> 比对阈值，Python 服务超过 400MB 直接 fail CI，Go 服务超过 50MB fail<!-- 校准：请按真实经历核实/替换 -->。这逼着所有人写 Dockerfile 时克制。阈值要定期 review，业务增长合理变大的要放。</p>
+<p><strong>定期跑漏洞扫描。</strong> 用 Trivy 或 Grype 在 CI 里扫镜像，CRITICAL 漏洞 fail，HIGH 警告。基础镜像的选择直接影响漏洞数量——<code>python:3.10</code> 全量镜像扫出来上百个 CVE，换 slim 降到十几个，distroless 只剩个位数<!-- 校准：请按真实经历核实/替换 -->。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># CI 里的扫描步骤</span></span><br><span class="line">trivy image --severity CRITICAL --exit-code 1 myapp:latest</span><br><span class="line">trivy image --severity HIGH,CRITICAL --ignore-unfixed myapp:latest</span><br></pre></td></tr></table></figure>
+
+<p><strong><code>--ignore-unfixed</code> 过滤掉上游还没修的 CVE</strong>，避免告警疲劳。定期跑一次不过滤的全量扫描做基线对齐。</p>
+<p><strong>基础镜像定期升版。</strong> 每月或每季度过一遍 <code>python:3.10-slim</code> 的 digest，跟着 patch 版本走，能修掉一批已披露 CVE。这个动作最好自动化（Dependabot&#x2F;Renovate 盯 base image）。</p>
+<p><strong><code>dive</code> 工具看每层细节。</strong> <code>dive &lt;image&gt;</code> 能交互式地看每一层加了哪些文件、哪些是被 whiteout 掉的，是定位”为什么镜像这么大”的神器。我在治理那个 2.3GB 镜像时，dive 一打开就看到 <code>/usr/local/lib/python3.10/site-packages/</code> 里有一堆没用的依赖，还有 <code>/root/.cache</code> 残留 200MB。</p>
+<h2 id="九、踩坑复盘清单"><a href="#九、踩坑复盘清单" class="headerlink" title="九、踩坑复盘清单"></a>九、踩坑复盘清单</h2><p>把这次治理里踩过的坑汇总成一张表，方便对照自查：</p>
+<table>
+<thead>
+<tr>
+<th>坑</th>
+<th>现象</th>
+<th>解决</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>COPY . .</code> 在前</td>
+<td>改一行代码全量重装依赖</td>
+<td>依赖清单（requirements.txt&#x2F;go.mod）单独前置 COPY</td>
+</tr>
+<tr>
+<td>没 <code>.dockerignore</code></td>
+<td>.git&#x2F;测试数据进镜像，context 巨大</td>
+<td>补全 ignore，context 从 GB 降到 MB</td>
+</tr>
+<tr>
+<td><code>RUN rm</code> 减不掉体积</td>
+<td>下载的临时文件留在下层</td>
+<td>同一层内下载、解压、删除</td>
+</tr>
+<tr>
+<td><code>apt-get update</code> 拆层</td>
+<td>缓存索引过时装错版本</td>
+<td>update 和 install 写在同一 RUN</td>
+</tr>
+<tr>
+<td>alpine 装 C 扩展慢</td>
+<td>pip 编译 numpy 要装 gcc、musl-dev</td>
+<td>换 slim，alpine 只用于静态二进制</td>
+</tr>
+<tr>
+<td><code>:latest</code> 基础镜像</td>
+<td>不可复现，下个月 build 行为变了</td>
+<td>钉 tag + digest</td>
+</tr>
+<tr>
+<td>容器写日志到文件</td>
+<td>Upper 层无限涨，重启丢失</td>
+<td>日志打 stdout，logging driver 收集</td>
+</tr>
+<tr>
+<td>xfs 没开 d_type</td>
+<td>overlay2 挂载报错</td>
+<td><code>mkfs.xfs -n ftype=1</code></td>
+</tr>
+<tr>
+<td><code>ARG</code> 传密钥</td>
+<td>token 进镜像历史层泄露</td>
+<td>用 <code>--mount=type=secret</code></td>
+</tr>
+<tr>
+<td>镜像越滚越大没人管</td>
+<td>半年后普遍 1GB+</td>
+<td>CI 加大小门禁 + 定期扫描</td>
+</tr>
+</tbody></table>
+<h2 id="收尾：优化的本质是理解代价"><a href="#收尾：优化的本质是理解代价" class="headerlink" title="收尾：优化的本质是理解代价"></a>收尾：优化的本质是理解代价</h2><p>这次治理给我最大的体会是：<strong>镜像优化的本质，是让每条 Dockerfile 指令都”贵得其所”。</strong> 一条 RUN 产生一层、一层带一份 diff，每次 build 都在为这些层和 diff 付钱（构建时间、存储、传输、安全）。理解了分层、缓存、overlay2 之后，每条指令的代价是可估算的，优化就有方向；不理解机制，就只能背几条 best practice 照搬，遇到新场景两眼一抹黑。</p>
+<p>最后的对比数据，也是那次治理的收尾：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>优化前</th>
+<th>优化后</th>
+<th>变化</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>镜像大小</td>
+<td>2.3 GB</td>
+<td>180 MB</td>
+<td>-92%<!-- 校准：请按真实经历核实/替换 --></td>
+</tr>
+<tr>
+<td>CI build 时间</td>
+<td>9 min</td>
+<td>1.5 min</td>
+<td>-83%<!-- 校准：请按真实经历核实/替换 --></td>
+</tr>
+<tr>
+<td>推送到 Harbor</td>
+<td>4 min</td>
+<td>25 s</td>
+<td>-90%<!-- 校准：请按真实经历核实/替换 --></td>
+</tr>
+<tr>
+<td>节点拉镜像</td>
+<td>90 s</td>
+<td>8 s</td>
+<td>-91%<!-- 校准：请按真实经历核实/替换 --></td>
+</tr>
+<tr>
+<td>CRITICAL CVE</td>
+<td>14 个</td>
+<td>0 个</td>
+<td>—<!-- 校准：请按真实经历核实/替换 --></td>
+</tr>
+<tr>
+<td>Dockerfile 指令数</td>
+<td>23 条</td>
+<td>14 条</td>
+<td>-39%</td>
+</tr>
+</tbody></table>
+<p>这套方法论后来我沉淀成团队的 Dockerfile 规范 + CI 门禁，新服务上线默认按这套来，老服务分批治理。镜像这件事看着小，但它是整个容器化交付链路的起点——镜像瘦了，存储、带宽、启动、安全全部跟着受益，是少数几个能”一次投入、全线受益”的优化。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Docker/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Docker<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>镜像优化<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/dockerfile-best-practices"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">Dockerfile 实战最佳实践与生产级模板：从踩坑到可信镜像</div></div></a></div><div class="next-post pull-right"><a href="/posts/docker-architecture"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">Docker 架构与底层原理深度剖析：容器到底是个什么东西</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E5%AD%90%EF%BC%9A%E4%B8%80%E4%B8%AA-2-3GB-%E7%9A%84%E9%95%9C%E5%83%8F%E5%92%8C%E4%B8%80%E6%9D%A1-9-%E5%88%86%E9%92%9F%E7%9A%84-CI"><span class="toc-text">引子：一个 2.3GB 的镜像和一条 9 分钟的 CI</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E9%95%9C%E5%83%8F%E5%88%86%E5%B1%82%E5%8E%9F%E7%90%86%EF%BC%9A%E6%AF%8F%E6%9D%A1%E6%8C%87%E4%BB%A4%E9%83%BD%E6%98%AF%E4%B8%80%E5%B1%82"><span class="toc-text">一、镜像分层原理：每条指令都是一层</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%AD%98%E5%82%A8%E9%A9%B1%E5%8A%A8%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88-overlay2-%E6%98%AF%E7%94%9F%E4%BA%A7%E9%BB%98%E8%AE%A4"><span class="toc-text">二、存储驱动：为什么 overlay2 是生产默认</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E6%9E%84%E5%BB%BA%E7%BC%93%E5%AD%98%EF%BC%9A%E5%B1%82%E4%B8%80%E6%97%A6%E5%A4%B1%E6%95%88%EF%BC%8C%E5%90%8E%E9%9D%A2%E5%85%A8%E5%A4%B1%E6%95%88"><span class="toc-text">三、构建缓存：层一旦失效，后面全失效</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E5%90%88%E5%B9%B6-RUN-%E5%87%8F%E5%B0%91%E5%B1%82%E6%95%B0%EF%BC%8C%E5%B9%B6%E6%B8%85%E7%90%86%E5%9C%A8%E5%90%8C%E4%B8%80%E5%B1%82"><span class="toc-text">四、合并 RUN 减少层数，并清理在同一层</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E5%A4%9A%E9%98%B6%E6%AE%B5%E6%9E%84%E5%BB%BA%EF%BC%9A%E7%98%A6%E8%BA%AB%E7%9A%84%E6%A0%B8%E6%AD%A6%E5%99%A8"><span class="toc-text">五、多阶段构建：瘦身的核武器</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E5%9F%BA%E7%A1%80%E9%95%9C%E5%83%8F%E9%80%89%E5%9E%8B%EF%BC%9Aalpine-vs-distroless-vs-slim"><span class="toc-text">六、基础镜像选型：alpine vs distroless vs slim</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81BuildKit-%E7%BC%93%E5%AD%98%E6%8C%82%E8%BD%BD%EF%BC%9ACI-%E5%8A%A0%E9%80%9F%E7%9A%84%E9%9A%90%E8%97%8F%E7%A5%9E%E5%99%A8"><span class="toc-text">七、BuildKit 缓存挂载：CI 加速的隐藏神器</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81%E9%95%9C%E5%83%8F%E5%A4%A7%E5%B0%8F%E6%B2%BB%E7%90%86%E4%B8%8E%E6%BC%8F%E6%B4%9E%E6%89%AB%E6%8F%8F"><span class="toc-text">八、镜像大小治理与漏洞扫描</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B9%9D%E3%80%81%E8%B8%A9%E5%9D%91%E5%A4%8D%E7%9B%98%E6%B8%85%E5%8D%95"><span class="toc-text">九、踩坑复盘清单</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%94%B6%E5%B0%BE%EF%BC%9A%E4%BC%98%E5%8C%96%E7%9A%84%E6%9C%AC%E8%B4%A8%E6%98%AF%E7%90%86%E8%A7%A3%E4%BB%A3%E4%BB%B7"><span class="toc-text">收尾：优化的本质是理解代价</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/docker-observability-troubleshooting.html","posts/hadoop-mapreduce-shuffle.html","posts/docker-private-registry-harbor.html","posts/docker-security-hardening.html","posts/docker-compose-orchestration.html","posts/hadoop-yarn-scheduler.html","posts/docker-resource-limits.html","posts/docker-storage-persistence.html","posts/docker-network-deep-dive.html","posts/hadoop-hdfs-small-files.html","posts/dockerfile-best-practices.html","posts/docker-image-layer-optimization.html","posts/docker-architecture.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

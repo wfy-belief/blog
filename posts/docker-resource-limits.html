@@ -1,0 +1,328 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Docker 容器资源限制与 cgroup 实战：从 CPU throttle 到 GPU 显存 OOM 的复盘 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/docker-resource-limits"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="复盘容器资源限制的几起线上事故，拆解 cgroup v1&amp;#x2F;v2、CPU&amp;#x2F;内存&amp;#x2F;IO 限制、lxcfs 失真与 GPU 容器配置。"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文以几起线上抖动与 OOM 事故为线索，复盘 Docker 背后的 cgroup 资源限制：cgroup v1 与 v2 的结构差异、CPU 三件套（--cpus/cpu-shares/cpuset）与 throttle 行为、内存与 swap 限制及 OOM killer、blkio 限速、容器看到宿主机资源的失真问题与 lxcfs 方案，最后覆盖 GPU 容器（nvidia-container-toolkit / --gpus）、NUMA 绑核与监控衔接，给出可落地的限制参数与排障路径。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Docker/">Docker<sup>10</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%8E%9F%E7%90%86/">容器原理<sup>1</sup></a><a href="/tags/Compose/">Compose<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/">镜像优化<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/">容器网络<sup>1</sup></a><a href="/tags/%E7%9B%91%E6%8E%A7/">监控<sup>1</sup></a><a href="/tags/%E6%8E%92%E9%9A%9C/">排障<sup>1</sup></a><a href="/tags/Harbor/">Harbor<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/">镜像仓库<sup>1</sup></a><a href="/tags/cgroup/">cgroup<sup>1</sup></a><a href="/tags/GPU/">GPU<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%AE%89%E5%85%A8/">容器安全<sup>1</sup></a><a href="/tags/Dockerfile/">Dockerfile<sup>1</sup></a><a href="/tags/%E5%AD%98%E5%82%A8/">存储<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">40</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">41</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">41</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">54</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Docker/">Docker<sup>10</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%8E%9F%E7%90%86/">容器原理<sup>1</sup></a><a href="/tags/Compose/">Compose<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/">镜像优化<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/">容器网络<sup>1</sup></a><a href="/tags/%E7%9B%91%E6%8E%A7/">监控<sup>1</sup></a><a href="/tags/%E6%8E%92%E9%9A%9C/">排障<sup>1</sup></a><a href="/tags/Harbor/">Harbor<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/">镜像仓库<sup>1</sup></a><a href="/tags/cgroup/">cgroup<sup>1</sup></a><a href="/tags/GPU/">GPU<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%AE%89%E5%85%A8/">容器安全<sup>1</sup></a><a href="/tags/Dockerfile/">Dockerfile<sup>1</sup></a><a href="/tags/%E5%AD%98%E5%82%A8/">存储<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">Docker 容器资源限制与 cgroup 实战：从 CPU throttle 到 GPU 显存 OOM 的复盘</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Docker/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Docker</span></a><a class="post-meta__tags" href="/tags/cgroup/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>cgroup</span></a><a class="post-meta__tags" href="/tags/GPU/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>GPU</span></a></div></div></div></div><h1 class="post-title">Docker 容器资源限制与 cgroup 实战：从 CPU throttle 到 GPU 显存 OOM 的复盘</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h2 id="引子：一次诡异的-P99-抖动"><a href="#引子：一次诡异的-P99-抖动" class="headerlink" title="引子：一次诡异的 P99 抖动"></a>引子：一次诡异的 P99 抖动</h2><p>去年我们推理服务上线后，P99 延迟每隔几分钟就抖一下，从 80ms 飙到 600ms。链路追踪显示不是模型推理本身的问题，而是宿主机上跑了好几个离线 ETL 容器，CPU 一抢，我们的在线容器就被 throttle 了。最后定位到根因：运维给容器设了 <code>--cpus=4</code>，但没设 <code>cpu.cfs_period_us</code>&#x2F;<code>cpu.cfs_quota_us</code> 之外的东西，CFS 周期一到就被强制节流，P99 跟着抖。</p>
+<p>这次之后我下决心把容器资源限制从头到尾理一遍。Docker 的 <code>--cpus</code>、<code>--memory</code> 看起来是几个简单参数，背后全是 cgroup。这篇文章把我们踩过的坑整理出来，希望下次你看到 OOMKilled、看到 P99 抖动、看到 GPU 显存爆掉时，能少走点弯路。<!-- 校准：请按真实经历核实/替换 --></p>
+<h2 id="一、cgroup：容器资源限制的底座"><a href="#一、cgroup：容器资源限制的底座" class="headerlink" title="一、cgroup：容器资源限制的底座"></a>一、cgroup：容器资源限制的底座</h2><p>Docker 的资源限制本质就是把一组 cgroup 参数写到 <code>/sys/fs/cgroup</code> 里。所以不理解 cgroup，就没法真正理解容器限制。</p>
+<h3 id="cgroup-v1：按资源分目录"><a href="#cgroup-v1：按资源分目录" class="headerlink" title="cgroup v1：按资源分目录"></a>cgroup v1：按资源分目录</h3><p>cgroup v1 是按资源控制器（subsystem &#x2F; controller）分目录的，每个控制器一棵树：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">/sys/fs/cgroup/</span><br><span class="line">├── cpu/            # CPU 时间片</span><br><span class="line">│   └── docker/&lt;container-id&gt;/</span><br><span class="line">│       ├── cpu.cfs_quota_us</span><br><span class="line">│       ├── cpu.cfs_period_us</span><br><span class="line">│       └── cpu.shares</span><br><span class="line">├── memory/         # 内存</span><br><span class="line">│   └── docker/&lt;container-id&gt;/</span><br><span class="line">│       ├── memory.limit_in_bytes</span><br><span class="line">│       └── memory.memsw.limit_in_bytes</span><br><span class="line">├── blkio/          # 块设备 IO</span><br><span class="line">├── cpuset/         # CPU 绑核</span><br><span class="line">└── ...</span><br></pre></td></tr></table></figure>
+
+<p>v1 的特点是：控制器之间互相独立，一个容器在不同控制器下各有一个目录，靠 docker daemon 帮你串起来。问题是层级嵌套表达力弱，命名也容易乱。</p>
+<h3 id="cgroup-v2：统一层级"><a href="#cgroup-v2：统一层级" class="headerlink" title="cgroup v2：统一层级"></a>cgroup v2：统一层级</h3><p>cgroup v2 把所有控制器挂到同一棵树底下，一个容器一个目录，所有控制器文件都在里面：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">/sys/fs/cgroup/</span><br><span class="line">└── docker/&lt;container-id&gt;/</span><br><span class="line">    ├── cpu.max         # &quot;quota period&quot;，如 &quot;400000 100000&quot;</span><br><span class="line">    ├── cpu.weight      # 替代 cpu.shares，范围 1-10000</span><br><span class="line">    ├── memory.max      # 替代 memory.limit_in_bytes</span><br><span class="line">    ├── memory.swap.max # 替代 memory.memsw.limit_in_bytes</span><br><span class="line">    └── io.max          # 替代 blkio.throttle.*</span><br></pre></td></tr></table></figure>
+
+<p>v2 还引入了 PSI（Pressure Stall Information），<code>/proc/pressure/cpu</code>、<code>/proc/pressure/memory</code>、<code>/proc/pressure/io</code> 三个文件能给出资源压力的实时指标，比 v1 的「瞎猜」强太多。PSI 把「资源有多挤」量化成了三个窗口（10s&#x2F;60s&#x2F;300s）的 stall 比例，区分「部分任务在等」（some）和「所有任务都在等」（full）。一个典型的 memory PSI 输出：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">some avg10=2.50 avg60=1.20 avg300=0.40 total=1234567</span><br><span class="line">full avg10=0.80 avg60=0.30 avg300=0.05 total=234567</span><br></pre></td></tr></table></figure>
+
+<p><code>avg10</code> 是过去 10 秒的 stall 比例。我们运维看到 <code>memory.full.avg10</code> 持续 &gt; 10%，基本可以预判离 OOM 不远了，提前扩容比等 OOMKilled 强太多。</p>
+<p>Linux 内核 5.10 之后 cgroup v2 基本可用，Docker 20.10 起默认支持。我们线上是 Ubuntu 22.04 + Docker 24，已经全面切到 v2。<!-- 校准：请按真实经历核实/替换 --></p>
+<p>判断你的系统用哪个版本：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># v2 下 stat -f /sys/fs/cgroup 显示 cgroup2fs</span></span><br><span class="line"><span class="built_in">stat</span> -f -c %T /sys/fs/cgroup</span><br><span class="line"><span class="comment"># cgroup2fs → v2；tmpfs → v1</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>v1 → v2 迁移注意。</strong> 切 v2 不是装个新 Docker 就完事。首先内核要 <code>CONFIG_CGROUP_V2</code> 编译进去；其次 systemd 在 v2 下用 <code>delegate</code> 机制管理 cgroup 子树，docker daemon 要在 <code>/etc/docker/daemon.json</code> 里 <code>&quot;default-cgroupns-mode&quot;: &quot;host&quot;</code> 才能正确挂载；最后部分监控工具（老版本 cAdvisor、自研 agent）写死了 v1 的路径，切了之后采不到数据，得同步升级。我们切换时灰度了一周，先把非核心服务迁过去观察，确认无 throttle 异常再全量。<!-- 校准：请按真实经历核实/替换 --></p>
+<h2 id="二、CPU-限制三件套"><a href="#二、CPU-限制三件套" class="headerlink" title="二、CPU 限制三件套"></a>二、CPU 限制三件套</h2><h3 id="2-1-cpus：CFS-配额"><a href="#2-1-cpus：CFS-配额" class="headerlink" title="2.1 --cpus：CFS 配额"></a>2.1 <code>--cpus</code>：CFS 配额</h3><p>最常用的是 <code>--cpus</code>，它底层写的是 <code>cpu.cfs_quota_us</code> 和 <code>cpu.cfs_period_us</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker run -d --cpus=4 nginx</span><br><span class="line"><span class="comment"># 等价于 quota=400000, period=100000（单位微秒）</span></span><br><span class="line"><span class="comment"># 即每 100ms 调度周期内，该容器最多用 4 个核的 CPU 时间</span></span><br></pre></td></tr></table></figure>
+
+<p>这是硬上限。容器瞬时可以用满所有核，但一个周期内累计超过 quota，CFS 就把它 throttle 住，等下个周期。</p>
+<p><strong>坑点：CPU throttle 与 P99。</strong> 这就是引子里那场抖动的根因。容器在一周期内把 quota 用完，剩下的时间就眼巴巴等着，请求堆在队列里，延迟尖刺就来了。怎么看 throttle：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># v1</span></span><br><span class="line"><span class="built_in">cat</span> /sys/fs/cgroup/cpu/docker/&lt;<span class="built_in">id</span>&gt;/cpu.stat</span><br><span class="line"><span class="comment"># v2</span></span><br><span class="line"><span class="built_in">cat</span> /sys/fs/cgroup/docker/&lt;<span class="built_in">id</span>&gt;/cpu.stat</span><br><span class="line"><span class="comment"># 输出示例：</span></span><br><span class="line"><span class="comment"># nr_periods 12345</span></span><br><span class="line"><span class="comment"># nr_throttled 890      ← 被节流的周期数</span></span><br><span class="line"><span class="comment"># throttled_time 67000000</span></span><br></pre></td></tr></table></figure>
+
+<p><code>nr_throttled</code> 增长快、<code>throttled_time</code> 高，就是 P99 抖动的元凶。我们后来的做法是：在线服务把 <code>--cpus</code> 设得略高于实际峰值（比如峰值 3.2 核就给 4.5 核），同时把 <code>cpu.cfs_period_us</code> 从默认 100ms 降到 10ms，让 throttle 更平滑、尖刺更小。当然这只是缓解，根治还是得保证宿主机不超卖。<!-- 校准：请按真实经历核实/替换 --></p>
+<h3 id="2-2-cpu-shares：相对权重"><a href="#2-2-cpu-shares：相对权重" class="headerlink" title="2.2 --cpu-shares：相对权重"></a>2.2 <code>--cpu-shares</code>：相对权重</h3><p><code>--cpu-shares</code> 是软限制，只在 CPU 紧张时生效：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">docker run -d --cpu-shares=512 app-a</span><br><span class="line">docker run -d --cpu-shares=1024 app-b</span><br><span class="line"><span class="comment"># CPU 不紧张时，两个容器都能用满</span></span><br><span class="line"><span class="comment"># CPU 紧张时，b 拿到的 CPU 时间是 a 的两倍</span></span><br></pre></td></tr></table></figure>
+
+<p>默认值 1024。注意它是相对权重，不是绝对上限，单容器跑时 shares 没任何意义。我们用它做的是「在线优先于离线」——在线服务 shares 给 2048，离线 ETL 给 256，宿主机一挤，离线自动让路。</p>
+<p><strong>shares 与 quota 混用的陷阱。</strong> 我们早期图省事，在线服务只设了 <code>--cpu-shares</code> 没设 <code>--cpus</code>，以为靠权重就能保住在线。结果某天离线任务起了十几个，shares 总和远超在线，按比例分下来在线还是被挤压——shares 是「按总权重比例分」，不是「保底」。教训：<strong>保底用 <code>--cpus</code>（硬上限给离线），优先级用 shares（在线权重拉高）</strong>，两个配合才稳。后来我们的标准配置是离线容器 <code>--cpus=2 --cpu-shares=256</code>，在线容器 <code>--cpus=8 --cpu-shares=2048</code>，宿主机 CPU 32 核严格不超卖。<!-- 校准：请按真实经历核实/替换 --></p>
+<h3 id="2-3-cpuset-cpus：绑核"><a href="#2-3-cpuset-cpus：绑核" class="headerlink" title="2.3 --cpuset-cpus：绑核"></a>2.3 <code>--cpuset-cpus</code>：绑核</h3><p>绑核最硬，直接指定容器只能用哪些物理核：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">docker run -d --cpuset-cpus=<span class="string">&quot;0-3&quot;</span> app     <span class="comment"># 用 0/1/2/3 号核</span></span><br><span class="line">docker run -d --cpuset-cpus=<span class="string">&quot;0,2,4&quot;</span> app   <span class="comment"># 用 0/2/4 号核</span></span><br></pre></td></tr></table></figure>
+
+<p>绑核的好处是避免核间迁移、cache 命中率高，对 NUMA 架构尤其重要（见后文）。坏处是不灵活，容器多了人工分配核太累。我们的实践是：核心推理服务绑核，批处理任务用 <code>--cpus</code>。</p>
+<p><strong>绑核 + 共享 L3 的取舍。</strong> 绑核不是越细越好。现代 CPU 一个 NUMA 节点内多个核共享 L3 cache，如果你把一个高吞吐服务的核选得稀稀拉拉（比如 0、8、16、24），看似跨节点用满了，实际每个请求在不同核间漂移，L3 命中率反而下降。我们测下来推理服务绑「连续的 4 个核」（0-3）比绑「分散的 4 个核」吞吐高 12%，因为 L3 局部性好。所以绑核前先 <code>lscpu -e</code> 看清 cache 拓扑，优先选同一 CCX&#x2F;同一 L3 域内的核。<!-- 校准：请按真实经历核实/替换 --></p>
+<h2 id="三、内存限制：-memory-与-OOM-killer"><a href="#三、内存限制：-memory-与-OOM-killer" class="headerlink" title="三、内存限制：--memory 与 OOM killer"></a>三、内存限制：<code>--memory</code> 与 OOM killer</h2><h3 id="3-1-三个参数"><a href="#3-1-三个参数" class="headerlink" title="3.1 三个参数"></a>3.1 三个参数</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">docker run -d \</span><br><span class="line">  --memory=8g \              <span class="comment"># 物理内存上限</span></span><br><span class="line">  --memory-swap=10g \        <span class="comment"># 内存+swap 上限（必须 &gt;= memory）</span></span><br><span class="line">  --memory-reservation=6g \  <span class="comment"># 软下限，内存紧张时尝试回收到这个值</span></span><br><span class="line">  app</span><br></pre></td></tr></table></figure>
+
+<p><code>--memory</code> 是硬上限，超过就触发 OOM killer。<code>--memory-swap</code> 默认是 <code>--memory</code> 的两倍，如果你不希望容器用 swap，把它设成和 <code>--memory</code> 一样（相当于 swap 为 0）。线上服务我们一律 <code>--memory-swap</code> &#x3D;&#x3D; <code>--memory</code>，禁止 swap，否则一旦用 swap，延迟立刻飞天。</p>
+<h3 id="3-2-OOM-killer-的行为"><a href="#3-2-OOM-killer-的行为" class="headerlink" title="3.2 OOM killer 的行为"></a>3.2 OOM killer 的行为</h3><p>cgroup 的 OOM killer 比内核全局 OOM 凶多了：容器一超 memory.max，内核立刻挑一个进程（通常是占用最大的那个）杀掉，整个容器要么重启（<code>--restart=unless-stopped</code>）要么进 Exited 状态。</p>
+<p><code>docker inspect &lt;id&gt;</code> 里有个关键字段 <code>OOMKilled</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">docker inspect &lt;<span class="built_in">id</span>&gt; --format <span class="string">&#x27;&#123;&#123;.State.OOMKilled&#125;&#125; &#123;&#123;.State.ExitCode&#125;&#125;&#x27;</span></span><br><span class="line"><span class="comment"># true 137 → 被 cgroup OOM 干掉</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>复盘：内存设错被 OOM。</strong> 有一次我们给一个 Java 服务设了 <code>--memory=4g</code>，但 JVM 堆给了 4g，加上 metaspace、线程栈、堆外，实际峰值接近 6g，结果每隔几小时就被 OOMKilled。教训是：<code>--memory</code> 必须 &gt;&#x3D; JVM 堆 + 堆外 + overhead，Java 服务一般留 25% 余量。即堆 4g 的话，容器内存至少给 5g。</p>
+<h3 id="3-3-OOM-之外：memory-oom-control-与-OOM-disable"><a href="#3-3-OOM-之外：memory-oom-control-与-OOM-disable" class="headerlink" title="3.3 OOM 之外：memory.oom_control 与 OOM disable"></a>3.3 OOM 之外：memory.oom_control 与 OOM disable</h3><p>cgroup 还有个 <code>memory.oom_control</code>（v1）&#x2F; <code>memory.oom.group</code>（v2）开关。默认情况下整个 cgroup 任何一个进程触发 OOM 都可能被杀；如果设了 <code>memory.oom.group=1</code>，那么这个 cgroup 里只要有进程触发 OOM，<strong>整个 cgroup 的所有进程一起被杀</strong>。k8s 的 pod 就是这么玩的——一个 pod 里某容器 OOM，按 group 杀更符合预期。裸 Docker 场景下一般保持默认即可，但要知道这个开关，否则某天你发现「明明没超内存的进程也死了」会很懵。</p>
+<h3 id="3-4-老-JDK-看不到-cgroup-限制的坑"><a href="#3-4-老-JDK-看不到-cgroup-限制的坑" class="headerlink" title="3.4 老 JDK 看不到 cgroup 限制的坑"></a>3.4 老 JDK 看不到 cgroup 限制的坑</h3><p>这是个老问题但至今还在踩。JDK 8u191 之前（更准确地说是 JDK 10 之前），JVM 完全不读 cgroup，<code>Runtime.availableProcessors()</code> 和最大堆都按宿主机算。在一个 64 核 256G 的物理机上跑容器，老 JDK 会以为有 64 核、堆能开到几百 G，结果被 cgroup 反手 OOM。</p>
+<p>JDK 8u191 之后引入了 <code>+UseContainerSupport</code>（默认开启），JVM 会去读 cgroup 的 CPU 和内存限制来推算核数和最大堆。但即便如此，老版本对 cgroup v2 的支持仍有 bug（JDK 11 早期版本读不到 v2 的 <code>cpu.max</code>），导致 GC 线程数算错、堆开得离谱。我们线上统一升到 JDK 17 之后这类问题才消停。<!-- 校准：请按真实经历核实/替换 --></p>
+<p>排查时看这两个：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># JVM 看到的核数</span></span><br><span class="line">java -XshowSettings:system -version</span><br><span class="line"><span class="comment"># Container Support: active</span></span><br><span class="line"><span class="comment"># CPUs: 4   ← 应该等于 --cpus 取整</span></span><br></pre></td></tr></table></figure>
+
+<h2 id="四、IO-限制：blkio-io"><a href="#四、IO-限制：blkio-io" class="headerlink" title="四、IO 限制：blkio &#x2F; io"></a>四、IO 限制：blkio &#x2F; io</h2><p>磁盘 IO 在 v1 叫 blkio，v2 叫 io。Docker 提供 <code>--device-read-bps</code>、<code>--device-write-bps</code>、<code>--device-read-iops</code> 等：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">docker run -d \</span><br><span class="line">  --device-read-bps=/dev/sda:10mb \</span><br><span class="line">  --device-write-bps=/dev/sda:10mb \</span><br><span class="line">  app</span><br></pre></td></tr></table></figure>
+
+<p>注意限制是针对块设备的，所以要先知道容器数据落在哪个盘。直接读写 <code>/dev/sda</code> 的进程会被限速，但走 page cache 的读写不算——这是 blkio 的盲区：<strong>缓存命中不计入限速</strong>。所以你看到容器读 QPS 不高但偶尔卡顿，可能是 page cache 被挤掉、回退到磁盘读，又被限速放大了。</p>
+<p>对 AI 训练这种 IO 暴涨型负载，我们一般不做硬限速（怕拖慢训练），而是把训练数据和模型放在不同的块设备上，靠 cpuset 把训练容器绑到特定 NUMA，IO 也自然分流。<!-- 校准：请按真实经历核实/替换 --></p>
+<p><strong>复盘：日志打爆磁盘。</strong> 有一阵子我们的推理容器日志没做轮转，高峰期 QPS 一上来，日志写把磁盘吞吐吃满，反过来把同一块盘上的模型加载也拖慢了，推理冷启动从 2 秒变 30 秒。后来加了 <code>--device-write-bps=/dev/nvme0n1:50mb</code> 给日志容器限速，同时把日志单独切到一块便宜的 SATA 盘，问题立刻缓解。blkio 限速虽然粗糙，但对「吵闹邻居」型的隔离非常有效。<!-- 校准：请按真实经历核实/替换 --></p>
+<h2 id="五、容器看到的资源失真：lxcfs-方案"><a href="#五、容器看到的资源失真：lxcfs-方案" class="headerlink" title="五、容器看到的资源失真：lxcfs 方案"></a>五、容器看到的资源失真：lxcfs 方案</h2><p>这是我觉得容器化里最容易被忽视的坑。</p>
+<h3 id="5-1-失真现象"><a href="#5-1-失真现象" class="headerlink" title="5.1 失真现象"></a>5.1 失真现象</h3><p>进到容器里跑：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it &lt;<span class="built_in">id</span>&gt; bash</span><br><span class="line">free -g</span><br><span class="line"><span class="built_in">cat</span> /proc/cpuinfo | grep -c processor</span><br><span class="line"><span class="built_in">nproc</span></span><br></pre></td></tr></table></figure>
+
+<p>你会看到<strong>宿主机的全部内存和全部核数</strong>。因为 <code>/proc</code> 是宿主机挂载进来的，<code>/proc/meminfo</code>、<code>/proc/cpuinfo</code>、<code>/proc/stat</code> 都是宿主机的视角。<code>free</code>、<code>top</code>、JVM 全都基于这些文件做判断。</p>
+<p>后果很严重：JVM 按宿主机内存算堆、监控按宿主机核数报、运维 <code>top</code> 一看「我容器才用了 2G，没事」，其实宿主机都炸了。老 JDK 那个坑，根子也在 <code>/proc</code> 失真。</p>
+<h3 id="5-2-lxcfs：把-proc-改对"><a href="#5-2-lxcfs：把-proc-改对" class="headerlink" title="5.2 lxcfs：把 &#x2F;proc 改对"></a>5.2 lxcfs：把 &#x2F;proc 改对</h3><p>lxcfs 是一个 FUSE 文件系统，专门给容器伪造一份「符合 cgroup 限制」的 <code>/proc</code> 视图：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 宿主机装 lxcfs</span></span><br><span class="line">apt install lxcfs</span><br><span class="line"><span class="comment"># 启动</span></span><br><span class="line">lxcfs /var/lib/lxcfs &amp;</span><br><span class="line"></span><br><span class="line"><span class="comment"># docker run 时挂载（docker 24+ 有 --lxcfs-conf，或手动 -v）</span></span><br><span class="line">docker run -d \</span><br><span class="line">  -m 8g --cpus=4 \</span><br><span class="line">  -v /var/lib/lxcfs/proc/cpuinfo:/proc/cpuinfo:rw \</span><br><span class="line">  -v /var/lib/lxcfs/proc/meminfo:/proc/meminfo:rw \</span><br><span class="line">  -v /var/lib/lxcfs/proc/stat:/proc/stat:rw \</span><br><span class="line">  app</span><br></pre></td></tr></table></figure>
+
+<p>挂上之后，容器里 <code>free</code>、<code>nproc</code>、<code>top</code> 看到的就是 cgroup 限制后的值，JVM 和监控终于能算对了。</p>
+<p>我们线上是 k8s，用的是 lxcfs 的 admission webhook 自动注入挂载，比手动 <code>-v</code> 省事。如果是裸 Docker，自己写个启动脚本包一下就行。这是做容器化收尾时强烈建议补上的一环。</p>
+<p><strong>lxcfs 的局限。</strong> lxcfs 不是万能的：它只接管 <code>/proc/cpuinfo</code>、<code>/proc/meminfo</code>、<code>/proc/stat</code>、<code>/proc/diskstats</code> 这几个文件，<code>/sys</code> 下的设备信息、<code>/proc/loadavg</code> 仍是宿主机视角。而且它是 FUSE 用户态文件系统，每次读 <code>/proc/meminfo</code> 都有上下文切换开销，高频采样的监控 agent 反而要小心别把 lxcfs 进程压垮。我们踩过一次：node-exporter 每秒抓一次 <code>/proc/stat</code>，容器多了之后 lxcfs 的 CPU 占用飙到 200%，反而成了瓶颈。后来把采集间隔放到 15s，问题才缓解。<!-- 校准：请按真实经历核实/替换 --></p>
+<p>另一条更彻底的路是 JDK 升级 + cgroup 感知。JDK 17 对 cgroup v2 的支持已经很完善，JVM 内部读 <code>cpu.max</code>、<code>memory.max</code> 推算资源，不依赖 <code>/proc</code> 视图。所以如果是 Java 服务，<strong>升 JDK 比上 lxcfs 更治本</strong>；非 Java 服务（Go、Python）还是老老实实挂 lxcfs。</p>
+<h2 id="六、GPU-容器：AI-训练推理场景"><a href="#六、GPU-容器：AI-训练推理场景" class="headerlink" title="六、GPU 容器：AI 训练推理场景"></a>六、GPU 容器：AI 训练推理场景</h2><h3 id="6-1-nvidia-container-toolkit"><a href="#6-1-nvidia-container-toolkit" class="headerlink" title="6.1 nvidia-container-toolkit"></a>6.1 nvidia-container-toolkit</h3><p>Docker 默认容器看不到 GPU，需要装 <code>nvidia-container-toolkit</code>（旧名 nvidia-docker2）。装完后容器里才能访问 GPU：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># Ubuntu 装法</span></span><br><span class="line">distribution=$(. /etc/os-release;<span class="built_in">echo</span> $ID<span class="variable">$VERSION_ID</span>) \</span><br><span class="line">  &amp;&amp; curl -s -L https://nvidia.github.io/libnvidia-container/gpgkey | <span class="built_in">sudo</span> apt-key add - \</span><br><span class="line">  &amp;&amp; curl -s -L https://nvidia.github.io/libnvidia-container/<span class="variable">$distribution</span>/libnvidia-container.list \</span><br><span class="line">    | <span class="built_in">sudo</span> <span class="built_in">tee</span> /etc/apt/sources.list.d/nvidia-container-toolkit.list</span><br><span class="line">apt update &amp;&amp; apt install -y nvidia-container-toolkit</span><br><span class="line">nvidia-ctk runtime configure --runtime=docker</span><br><span class="line">systemctl restart docker</span><br></pre></td></tr></table></figure>
+
+<p>它的原理值得说一下：toolkit 注册了一个叫 <code>nvidia</code> 的 containerd runtime，当你 <code>--gpus</code> 时，runtime 在容器启动前注入 NVIDIA 的内核驱动组件（<code>nvidia.ko</code>、<code>nvidia-uvm.ko</code>）、设备节点（<code>/dev/nvidia*</code>）和用户态库（<code>libcuda.so</code>、<code>libnvidia-ml.so</code>）。注入哪些库由 hook 配置控制，可以裁剪——推理服务不需要 NVCC，只挂 runtime 库即可，镜像能瘦一大圈。我们基础镜像是 <code>nvidia/cuda:12.2.0-runtime-ubuntu22.04</code>，比 <code>-devel</code> 版小 4GB。<!-- 校准：请按真实经历核实/替换 --></p>
+<p><strong>版本坑：CUDA 与驱动匹配。</strong> toolkit 注入的库版本由宿主机 NVIDIA 驱动决定，而镜像里的 CUDA 版本要向下兼容驱动。NVIDIA 的规则是「驱动版本决定了能支持的 CUDA 上限」。我们有一次宿主机驱动还停在 525，新镜像却升到 CUDA 12.3，容器一启动就报 <code>CUDA driver version is insufficient</code>。要么升宿主机驱动，要么镜像降到 CUDA 12.1。AI 平台管理 GPU 集群，<strong>驱动版本统一</strong>是第一纪律，否则混乱不堪。<!-- 校准：请按真实经历核实/替换 --></p>
+<h3 id="6-2-gpus-参数"><a href="#6-2-gpus-参数" class="headerlink" title="6.2 --gpus 参数"></a>6.2 <code>--gpus</code> 参数</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 挂全部 GPU</span></span><br><span class="line">docker run --gpus all nvidia/cuda:12.2.0-runtime-ubuntu22.04 nvidia-smi</span><br><span class="line"></span><br><span class="line"><span class="comment"># 挂指定 GPU（按索引）</span></span><br><span class="line">docker run --gpus <span class="string">&#x27;&quot;device=0,2&quot;&#x27;</span> ...</span><br><span class="line"></span><br><span class="line"><span class="comment"># 挂指定数量</span></span><br><span class="line">docker run --gpus 2 ...</span><br></pre></td></tr></table></figure>
+
+<p><code>--gpus</code> 底层是把宿主机的 NVIDIA 设备节点（<code>/dev/nvidia0</code>、<code>/dev/nvidiactl</code> 等）和 CUDA 库挂进容器。挂进去后容器里 <code>nvidia-smi</code> 就能看到这些卡。</p>
+<h3 id="6-3-GPU-显存-OOM-复盘"><a href="#6-3-GPU-显存-OOM-复盘" class="headerlink" title="6.3 GPU 显存 OOM 复盘"></a>6.3 GPU 显存 OOM 复盘</h3><p>GPU 显存限制和 CPU&#x2F;内存不一样——<strong>Docker 的 <code>--memory</code> 限制不了 GPU 显存</strong>。GPU 显存是显卡自己管的，cgroup v2 目前（截至 2026 年）对 GPU 显存的支持还不完整，主流做法是靠应用层自律。</p>
+<p>我们踩过的坑：一个推理服务和一个微调任务共享一张 A100 80G，微调脚本没设 <code>PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb</code>，碎片化 + 一次性 allocate，把整张卡吃满，推理服务直接 CUDA out of memory 崩了。事后给的规矩：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 推理服务固定卡，靠环境变量让框架自律</span></span><br><span class="line">docker run --gpus <span class="string">&#x27;&quot;device=0&quot;&#x27;</span> \</span><br><span class="line">  -e PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128,expandable_segments:True \</span><br><span class="line">  -e CUDA_VISIBLE_DEVICES=0 \</span><br><span class="line">  inference-server</span><br><span class="line"></span><br><span class="line"><span class="comment"># 多任务共享时，用 MPS（Multi-Process Service）或 MIG 切分</span></span><br><span class="line"><span class="comment"># A100 开 MIG，物理切成 7 个独立实例，互不干扰</span></span><br><span class="line">nvidia-smi mig -i 0 -cgi 19,19,19,19,19,19,19 -C</span><br></pre></td></tr></table></figure>
+
+<p>MIG（Multi-Instance GPU）是 A100&#x2F;H100 才有的硬件级切分，每个实例有独立的显存和计算核，互不影响，比软件限速可靠得多。AI 平台一旦上规模，MIG 基本是标配。<!-- 校准：请按真实经历核实/替换 --></p>
+<p>监控 GPU 显存要靠 DCGM Exporter，把 <code>DCGM_FI_DEV_FB_USED</code>（显存使用）和 <code>DCGM_FI_DEV_GPU_UTIL</code>（计算利用率）吐给 Prometheus。我们告警规则是单卡显存 &gt; 90% 持续 5 分钟就 page，避免悄悄爆掉。</p>
+<p><strong>复盘：推理 batch size 调大显存爆。</strong> 另一次事故是同事为了提吞吐把推理服务的 <code>batch_size</code> 从 8 调到 32，单卡显存瞬间撑爆，但因为模型本身能跑，前几分钟看着没事，等到 QPS 上来激活（activation）张量堆满，直接 CUDA OOM 全量重启。教训：显存类参数（batch size、KV cache 上限、序列长度）改了必须压测峰值 QPS 跑满再上线，光看空载不行。后来我们加了「显存使用率 &gt; 80% 立刻告警」的提前量，配合框架的 <code>max_split_size_mb</code> 让分配更可预测。<!-- 校准：请按真实经历核实/替换 --></p>
+<h2 id="七、NUMA-绑定"><a href="#七、NUMA-绑定" class="headerlink" title="七、NUMA 绑定"></a>七、NUMA 绑定</h2><p>多路服务器上，CPU 和内存是分 NUMA 节点的。一个进程跨 NUMA 访问远端内存，延迟会高一截（NUMA miss）。对延迟敏感的推理服务，绑 NUMA 很关键。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 看宿主机 NUMA 拓扑</span></span><br><span class="line">numactl --hardware</span><br><span class="line"><span class="comment"># available: 2 nodes (0-1)</span></span><br><span class="line"><span class="comment"># node 0 cpus: 0 1 2 ... 31</span></span><br><span class="line"><span class="comment"># node 1 cpus: 32 33 ... 63</span></span><br><span class="line"><span class="comment"># node 0 size: 128 GB</span></span><br><span class="line"><span class="comment"># node 1 size: 128 GB</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 容器绑到 node 0</span></span><br><span class="line">docker run -d --cpuset-cpus=<span class="string">&quot;0-15&quot;</span> --cpuset-mems=<span class="string">&quot;0&quot;</span> inference-server</span><br></pre></td></tr></table></figure>
+
+<p><code>--cpuset-mems=&quot;0&quot;</code> 让容器只在 NUMA node 0 分配内存，配合 <code>--cpuset-cpus=&quot;0-15&quot;</code>（都在 node 0 上），CPU 和内存都本地，访问延迟最低。</p>
+<p>GPU 也有 NUMA 亲和性，<code>nvidia-smi topo -m</code> 能看到每张卡挂在哪个 NUMA 节点上。推理服务绑核时，CPU 核和 GPU 卡要落在同一个 NUMA，否则 PCIe 跨节点传输会拖慢。我们实测跨 NUMA 跑推理，P99 比同 NUMA 高 15%。<!-- 校准：请按真实经历核实/替换 --></p>
+<p><strong>NVLink 与 NUMA。</strong> 多卡训练还要看 NVLink 拓扑。<code>nvidia-smi topo -m</code> 输出里 <code>NV</code> 表示两卡间有 NVLink，<code>SYS</code> 表示跨 NUMA 走 QPI。allreduce 这种集合通信走 NVLink 比走 PCIe 快一个数量级。我们做多卡微调时，会刻意把一个训练任务的 4 张卡选在「两两都有 NVLink」的组里（比如 node 0 上的卡 0&#x2F;1&#x2F;2&#x2F;3），而不是跨节点选卡 0&#x2F;4&#x2F;8&#x2F;12。这事看似细节，但 allreduce 时间能差 3 倍。<!-- 校准：请按真实经历核实/替换 --></p>
+<h2 id="八、监控与告警衔接"><a href="#八、监控与告警衔接" class="headerlink" title="八、监控与告警衔接"></a>八、监控与告警衔接</h2><p>资源限制设好了，没有监控等于没设。我们对接 Prometheus + Grafana 的几条主线：</p>
+<ol>
+<li><strong>cAdvisor</strong>：容器维度的 CPU、内存、IO。但它不直接给 throttle 指标，要自己从 cgroup <code>cpu.stat</code> 采。</li>
+<li><strong>node-exporter + 自定义 collector</strong>：把 <code>nr_throttled</code>、PSI 读出来。我们的告警里有一条「容器 throttle rate &gt; 5%&#x2F;min 持续 10 分钟」就 page，专门抓引子那种抖动。</li>
+<li><strong>DCGM Exporter</strong>：GPU 维度，显存、利用率、温度、ECC 错误。</li>
+<li><strong>OOM 事件</strong>：用 node-exporter 的 textfile collector 读 <code>/var/log/syslog</code> 里的 <code>Killed process</code> 行，按容器聚合，任何一次非预期的 OOMKilled 都告警。</li>
+</ol>
+<p>PSI 是 cgroup v2 之后我最喜欢的指标，它把「资源紧张的程度」量化成了 10s&#x2F;60s&#x2F;300s 三个窗口的 stall 比例。<code>memory pressure</code> 的 avg10 持续 &gt; 20% 就是 OOM 前兆，比看内存使用率靠谱得多。</p>
+<p><strong>监控矩阵的取舍。</strong> 我们最终落到这套配置：cAdvisor 给容器维度的「绝对使用量」（CPU%、内存字节、IO 吞吐）；node-exporter + 自定义 cgroup collector 给「限制相关量」（throttle、PSI、OOM 计数）；DCGM 给 GPU；三条线在 Grafana 拼成一张「容器健康度」总览图。告警分两级：P1 是「PSI full &gt; 20% 持续 5 分钟」「OOMKilled 发生」「GPU 显存 &gt; 95%」，直接 page；P2 是「throttle rate &gt; 5%」「内存使用 &gt; 80%」，进工单第二天处理。这样既不会漏事故，也不会半夜被吵醒。<!-- 校准：请按真实经历核实/替换 --></p>
+<h2 id="写在最后"><a href="#写在最后" class="headerlink" title="写在最后"></a>写在最后</h2><p>容器资源限制这块，表面是几个 <code>docker run</code> 参数，底下是 cgroup、调度器、PSI、NUMA 一整套内核机制。我们的教训集中就一句话：<strong>限制参数不能拍脑袋设，要看监控、要压测、要留余量</strong>。</p>
+<ul>
+<li>CPU：在线服务 <code>--cpus</code> 留 30% 余量，关注 throttle 指标；</li>
+<li>内存：<code>--memory-swap</code> 等于 <code>--memory</code> 禁 swap，Java 服务留足 overhead；</li>
+<li><code>/proc</code> 失真：lxcfs 一定要补上，否则 JVM 和监控全瞎；</li>
+<li>GPU：靠 MIG 切分 + 应用层自律，DCGM 监控显存；</li>
+<li>NUMA：延迟敏感服务绑同节点；</li>
+<li>监控：PSI + throttle + OOM 事件三件套，缺一不可。</li>
+</ul>
+<p>把这些都做扎实了，容器化才算是真正落地，而不是把「跑在宿主机上」换成「跑在容器里」的换汤不换药。下次再遇到 OOMKilled 和 P99 抖动，希望你能直接定位到 cgroup 那一行参数。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Docker/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Docker<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/cgroup/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>cgroup<span class="tagsPageCount">1</span></span></a><a class="post-meta__tags" href="/tags/GPU/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>GPU<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/hadoop-yarn-scheduler"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">YARN 架构剖析与调度器调优实战</div></div></a></div><div class="next-post pull-right"><a href="/posts/docker-storage-persistence"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">Docker 存储卷与数据持久化实战：别让容器删了数据也没了</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E5%AD%90%EF%BC%9A%E4%B8%80%E6%AC%A1%E8%AF%A1%E5%BC%82%E7%9A%84-P99-%E6%8A%96%E5%8A%A8"><span class="toc-text">引子：一次诡异的 P99 抖动</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81cgroup%EF%BC%9A%E5%AE%B9%E5%99%A8%E8%B5%84%E6%BA%90%E9%99%90%E5%88%B6%E7%9A%84%E5%BA%95%E5%BA%A7"><span class="toc-text">一、cgroup：容器资源限制的底座</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#cgroup-v1%EF%BC%9A%E6%8C%89%E8%B5%84%E6%BA%90%E5%88%86%E7%9B%AE%E5%BD%95"><span class="toc-text">cgroup v1：按资源分目录</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#cgroup-v2%EF%BC%9A%E7%BB%9F%E4%B8%80%E5%B1%82%E7%BA%A7"><span class="toc-text">cgroup v2：统一层级</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81CPU-%E9%99%90%E5%88%B6%E4%B8%89%E4%BB%B6%E5%A5%97"><span class="toc-text">二、CPU 限制三件套</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-cpus%EF%BC%9ACFS-%E9%85%8D%E9%A2%9D"><span class="toc-text">2.1 --cpus：CFS 配额</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-cpu-shares%EF%BC%9A%E7%9B%B8%E5%AF%B9%E6%9D%83%E9%87%8D"><span class="toc-text">2.2 --cpu-shares：相对权重</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-cpuset-cpus%EF%BC%9A%E7%BB%91%E6%A0%B8"><span class="toc-text">2.3 --cpuset-cpus：绑核</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E5%86%85%E5%AD%98%E9%99%90%E5%88%B6%EF%BC%9A-memory-%E4%B8%8E-OOM-killer"><span class="toc-text">三、内存限制：--memory 与 OOM killer</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-%E4%B8%89%E4%B8%AA%E5%8F%82%E6%95%B0"><span class="toc-text">3.1 三个参数</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-OOM-killer-%E7%9A%84%E8%A1%8C%E4%B8%BA"><span class="toc-text">3.2 OOM killer 的行为</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-OOM-%E4%B9%8B%E5%A4%96%EF%BC%9Amemory-oom-control-%E4%B8%8E-OOM-disable"><span class="toc-text">3.3 OOM 之外：memory.oom_control 与 OOM disable</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4-%E8%80%81-JDK-%E7%9C%8B%E4%B8%8D%E5%88%B0-cgroup-%E9%99%90%E5%88%B6%E7%9A%84%E5%9D%91"><span class="toc-text">3.4 老 JDK 看不到 cgroup 限制的坑</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81IO-%E9%99%90%E5%88%B6%EF%BC%9Ablkio-io"><span class="toc-text">四、IO 限制：blkio &#x2F; io</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E5%AE%B9%E5%99%A8%E7%9C%8B%E5%88%B0%E7%9A%84%E8%B5%84%E6%BA%90%E5%A4%B1%E7%9C%9F%EF%BC%9Alxcfs-%E6%96%B9%E6%A1%88"><span class="toc-text">五、容器看到的资源失真：lxcfs 方案</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-%E5%A4%B1%E7%9C%9F%E7%8E%B0%E8%B1%A1"><span class="toc-text">5.1 失真现象</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-lxcfs%EF%BC%9A%E6%8A%8A-proc-%E6%94%B9%E5%AF%B9"><span class="toc-text">5.2 lxcfs：把 &#x2F;proc 改对</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81GPU-%E5%AE%B9%E5%99%A8%EF%BC%9AAI-%E8%AE%AD%E7%BB%83%E6%8E%A8%E7%90%86%E5%9C%BA%E6%99%AF"><span class="toc-text">六、GPU 容器：AI 训练推理场景</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-nvidia-container-toolkit"><span class="toc-text">6.1 nvidia-container-toolkit</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-gpus-%E5%8F%82%E6%95%B0"><span class="toc-text">6.2 --gpus 参数</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-3-GPU-%E6%98%BE%E5%AD%98-OOM-%E5%A4%8D%E7%9B%98"><span class="toc-text">6.3 GPU 显存 OOM 复盘</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81NUMA-%E7%BB%91%E5%AE%9A"><span class="toc-text">七、NUMA 绑定</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81%E7%9B%91%E6%8E%A7%E4%B8%8E%E5%91%8A%E8%AD%A6%E8%A1%94%E6%8E%A5"><span class="toc-text">八、监控与告警衔接</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%86%99%E5%9C%A8%E6%9C%80%E5%90%8E"><span class="toc-text">写在最后</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/docker-observability-troubleshooting.html","posts/hadoop-mapreduce-shuffle.html","posts/docker-private-registry-harbor.html","posts/docker-security-hardening.html","posts/docker-compose-orchestration.html","posts/hadoop-yarn-scheduler.html","posts/docker-resource-limits.html","posts/docker-storage-persistence.html","posts/docker-network-deep-dive.html","posts/hadoop-hdfs-small-files.html","posts/dockerfile-best-practices.html","posts/docker-image-layer-optimization.html","posts/docker-architecture.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

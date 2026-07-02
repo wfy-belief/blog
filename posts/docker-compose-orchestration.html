@@ -1,0 +1,372 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Docker Compose 多服务编排实战与适用边界 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/docker-compose-orchestration"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="把一套多服务环境用 Compose 在本地立起来，并讲清楚它在哪里该止步"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文复盘用 Docker Compose 编排多服务（应用 + Redis + PostgreSQL）的实战经验。先讲 Compose 的定位与适用边界——本地/测试/中小生产能用、复杂生产该上 K8s；再拆解 compose.yml 的 services/networks/volumes 结构与版本要点；重点讲 depends_on + healthcheck 的「真正就绪」等待、.env 与 profiles 的环境隔离、资源限制与重启策略、命名卷的数据持久化；最后给一个完整可跑的编排 demo，并复盘 depends_on 不等就绪、数据卷初始化顺序、环境变量覆盖、v1/v2 命令差异等踩坑。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Docker/">Docker<sup>10</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%8E%9F%E7%90%86/">容器原理<sup>1</sup></a><a href="/tags/Compose/">Compose<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/">镜像优化<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/">容器网络<sup>1</sup></a><a href="/tags/%E7%9B%91%E6%8E%A7/">监控<sup>1</sup></a><a href="/tags/%E6%8E%92%E9%9A%9C/">排障<sup>1</sup></a><a href="/tags/Harbor/">Harbor<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/">镜像仓库<sup>1</sup></a><a href="/tags/cgroup/">cgroup<sup>1</sup></a><a href="/tags/GPU/">GPU<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%AE%89%E5%85%A8/">容器安全<sup>1</sup></a><a href="/tags/Dockerfile/">Dockerfile<sup>1</sup></a><a href="/tags/%E5%AD%98%E5%82%A8/">存储<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">40</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">41</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">41</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">54</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Docker/">Docker<sup>10</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%8E%9F%E7%90%86/">容器原理<sup>1</sup></a><a href="/tags/Compose/">Compose<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/">镜像优化<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/">容器网络<sup>1</sup></a><a href="/tags/%E7%9B%91%E6%8E%A7/">监控<sup>1</sup></a><a href="/tags/%E6%8E%92%E9%9A%9C/">排障<sup>1</sup></a><a href="/tags/Harbor/">Harbor<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/">镜像仓库<sup>1</sup></a><a href="/tags/cgroup/">cgroup<sup>1</sup></a><a href="/tags/GPU/">GPU<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%AE%89%E5%85%A8/">容器安全<sup>1</sup></a><a href="/tags/Dockerfile/">Dockerfile<sup>1</sup></a><a href="/tags/%E5%AD%98%E5%82%A8/">存储<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">Docker Compose 多服务编排实战与适用边界</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Docker/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Docker</span></a><a class="post-meta__tags" href="/tags/Compose/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Compose</span></a></div></div></div></div><h1 class="post-title">Docker Compose 多服务编排实战与适用边界</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h2 id="一、引言：Compose-是什么，以及我为什么还在用"><a href="#一、引言：Compose-是什么，以及我为什么还在用" class="headerlink" title="一、引言：Compose 是什么，以及我为什么还在用"></a>一、引言：Compose 是什么，以及我为什么还在用</h2><p>我把 Docker Compose 用了大概五年，从最早「本地起一个 MySQL 加一个 Redis 图省事」，到后来用它跑整套微服务联调环境，再到给小团队搭过一两个能上线的中小生产。中间一度动摇过——Kubernetes 这几年已经是事实标准，Compose 是不是该退场了？踩过几个项目之后我形成了自己的判断：Compose 和 K8s 不是替代关系，是分层关系。Compose 解决的是「一台上把一组服务立起来」，K8s 解决的是「一群上把一组服务调度好」。前者是单机编排，后者是集群编排。</p>
+<p>所以这篇文章我要讲清楚的只有一件事：怎么用 Compose 在单机上把多服务环境编排得稳、编得清楚，同时明确它在哪里该止步。不绕原理，只讲文件结构、依赖等待、环境隔离、资源约束和一个能跑的 demo，外加这些年踩过的坑。</p>
+<p>先声明：下文涉及的 Compose 版本是 v2.x（写本文时为 2.27 左右），Docker Engine 为 25.x。<!-- 校准：请按真实经历核实/替换 --></p>
+<h2 id="二、Compose-的价值与适用边界"><a href="#二、Compose-的价值与适用边界" class="headerlink" title="二、Compose 的价值与适用边界"></a>二、Compose 的价值与适用边界</h2><p>我用 Compose 的场景大致分三档：</p>
+<ul>
+<li><strong>本地开发</strong>：最高频。一个 <code>compose.yml</code> 把 app + 数据库 + 缓存 + 反向代理全拉起来，新人 clone 仓库后 <code>docker compose up</code> 就有一个能联调的完整环境，再也不用在 README 里写「请先装 MySQL 8、改 my.cnf、建库 test」。</li>
+<li><strong>CI 与测试</strong>：跑集成测试时用 Compose 起依赖，测试结束 <code>down -v</code> 一把清掉。比 mock 数据库真实，比共享测试库干净。</li>
+<li><strong>中小生产&#x2F;边缘部署</strong>：团队内部工具、客户内网交付、几十到一两百 QPS 的轻量应用，Compose + 一台好机器能扛住，运维成本远低于上 K8s。</li>
+</ul>
+<p>边界我也很明确：<strong>一旦出现「需要多机调度、滚动升级不能停、要跨节点伸缩、要服务网格治理流量」这些诉求，就别在 Compose 上硬撑了，该上 Kubernetes。</strong> Compose 的本质是单机上的「声明式启动器」，它没有真正的调度器、没有自愈、没有跨节点网络。历史上 Docker Swarm 把 Compose 文件带到集群里，但 Swarm 这几年已经式微，生态、文档、人才储备都转向了 K8s，我个人在 2022 年之后就没再给新项目选 Swarm。<!-- 校准：请按真实经历核实/替换 --></p>
+<p>简单说：Compose 是「单机的多服务编排」，K8s 是「集群的工作负载编排」。把 Compose 文件通过工具转换&#x2F;迁移到 K8s 的尝试（比如早期的 Kompose）可以做为脚手架，但不要指望一份 compose.yml 既能本地跑又能直接喂给生产 K8s——那份文件的「信息量」是不一样的。</p>
+<h2 id="三、compose-yml-文件结构精讲"><a href="#三、compose-yml-文件结构精讲" class="headerlink" title="三、compose.yml 文件结构精讲"></a>三、compose.yml 文件结构精讲</h2><p>Compose 文件的顶层结构我固定按 <code>services</code> &#x2F; <code>networks</code> &#x2F; <code>volumes</code> 三段写，顺序不乱，读的人一眼能看出全貌。</p>
+<h3 id="3-1-顶层三段"><a href="#3-1-顶层三段" class="headerlink" title="3.1 顶层三段"></a>3.1 顶层三段</h3><figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">services:</span></span><br><span class="line">  <span class="attr">web:</span>       <span class="comment"># 业务服务</span></span><br><span class="line">    <span class="string">...</span></span><br><span class="line">  <span class="attr">db:</span>        <span class="comment"># 数据库</span></span><br><span class="line">    <span class="string">...</span></span><br><span class="line">  <span class="attr">cache:</span>     <span class="comment"># 缓存</span></span><br><span class="line">    <span class="string">...</span></span><br><span class="line"></span><br><span class="line"><span class="attr">networks:</span></span><br><span class="line">  <span class="attr">appnet:</span>    <span class="comment"># 自定义网络</span></span><br><span class="line"></span><br><span class="line"><span class="attr">volumes:</span></span><br><span class="line">  <span class="attr">pgdata:</span>    <span class="comment"># 命名卷</span></span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><code>services</code> 是核心，每个键就是一个容器服务。</li>
+<li><code>networks</code> 声明自定义网络。默认 Compose 会建一个项目同名网络，但我习惯显式声明，方便多服务之间用服务名互相访问。</li>
+<li><code>volumes</code> 声明命名卷。命名卷的生命周期独立于容器，<code>docker compose down</code> 不会删它，只有带 <code>-v</code> 才删。</li>
+</ul>
+<h3 id="3-2-版本字段的坑"><a href="#3-2-版本字段的坑" class="headerlink" title="3.2 版本字段的坑"></a>3.2 版本字段的坑</h3><p>老教程里 compose.yml 第一行经常写 <code>version: &quot;3.8&quot;</code>。在 Compose v2 里这个字段已经被<strong>废弃且忽略</strong>了——Composed v2 的 parser 会打一条 warning，然后按内置 schema 解析。我现在新写的文件一律不带 <code>version</code> 字段，省得误导后来人以为「必须填」。</p>
+<p>这里其实是 v1&#x2F;v2 一个分水岭。下面专门拉出来讲。</p>
+<h3 id="3-3-service-内部的关键字段速查"><a href="#3-3-service-内部的关键字段速查" class="headerlink" title="3.3 service 内部的关键字段速查"></a>3.3 service 内部的关键字段速查</h3><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>作用</th>
+<th>我的使用习惯</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>image</code> &#x2F; <code>build</code></td>
+<td>拉镜像或本地构建</td>
+<td>本地开发用 build 指向 Dockerfile，生产用固定 image tag</td>
+</tr>
+<tr>
+<td><code>ports</code></td>
+<td>端口映射 <code>宿主:容器</code></td>
+<td>只对要暴露给宿主的服务映射，内部互访走网络名</td>
+</tr>
+<tr>
+<td><code>environment</code> &#x2F; <code>env_file</code></td>
+<td>环境变量</td>
+<td>敏感信息走 <code>.env</code> + <code>env_file</code>，不写死在 yml</td>
+</tr>
+<tr>
+<td><code>depends_on</code></td>
+<td>启动依赖</td>
+<td>配合 <code>condition: service_healthy</code> 才有意义</td>
+</tr>
+<tr>
+<td><code>healthcheck</code></td>
+<td>健康检查</td>
+<td>数据库类服务必加，给依赖方做”真就绪”信号</td>
+</tr>
+<tr>
+<td><code>restart</code></td>
+<td>重启策略</td>
+<td>生产类服务 <code>unless-stopped</code>，避免重启宿主后不起来</td>
+</tr>
+<tr>
+<td><code>volumes</code></td>
+<td>挂载卷</td>
+<td>数据库数据走命名卷，配置走 bind mount</td>
+</tr>
+<tr>
+<td><code>networks</code></td>
+<td>加入网络</td>
+<td>显式声明，避免默认网络带来的混乱</td>
+</tr>
+<tr>
+<td><code>deploy.resources</code></td>
+<td>资源限制</td>
+<td>注意：只在 Swarm 模式下完全生效，单机要用 <code>mem_limit</code> 等</td>
+</tr>
+</tbody></table>
+<p>最后这一行是新手最容易踩的坑之一：<code>deploy.resources.limits</code> 在 <code>docker compose up</code>（非 Swarm）下<strong>不生效</strong>，单机要限制资源得用 v2 支持的顶层 <code>mem_limit</code> &#x2F; <code>cpus</code>。下面踩坑那节会展开。</p>
+<h2 id="四、多服务依赖与健康等待：Compose-最值得讲清的一节"><a href="#四、多服务依赖与健康等待：Compose-最值得讲清的一节" class="headerlink" title="四、多服务依赖与健康等待：Compose 最值得讲清的一节"></a>四、多服务依赖与健康等待：Compose 最值得讲清的一节</h2><p>如果让我只挑一个主题讲透 Compose，我选「依赖与就绪」。因为这是 90% 多服务环境起不来的根因。</p>
+<h3 id="4-1-depends-on-默认不等”真正就绪”"><a href="#4-1-depends-on-默认不等”真正就绪”" class="headerlink" title="4.1 depends_on 默认不等”真正就绪”"></a>4.1 depends_on 默认不等”真正就绪”</h3><p>最朴素的写法：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">services:</span></span><br><span class="line">  <span class="attr">web:</span></span><br><span class="line">    <span class="attr">depends_on:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">db</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">cache</span></span><br></pre></td></tr></table></figure>
+
+<p>它的语义是：<strong>容器进入 created 状态才启动 web</strong>——也就是 db 的进程刚刚被拉起，完全不代表 db 已经能接受连接。于是 web 一启动就去连数据库，十有八九拿到 <code>Connection refused</code>，然后开始疯狂重试甚至直接崩溃退出。这是 Compose 入门第一个坑。</p>
+<h3 id="4-2-用-healthcheck-condition-解决"><a href="#4-2-用-healthcheck-condition-解决" class="headerlink" title="4.2 用 healthcheck + condition 解决"></a>4.2 用 healthcheck + condition 解决</h3><p>正确做法是给被依赖的服务加 <code>healthcheck</code>，再让依赖方写 <code>condition: service_healthy</code>：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">services:</span></span><br><span class="line">  <span class="attr">db:</span></span><br><span class="line">    <span class="attr">image:</span> <span class="string">postgres:16</span></span><br><span class="line">    <span class="attr">environment:</span></span><br><span class="line">      <span class="attr">POSTGRES_PASSWORD:</span> <span class="string">$&#123;DB_PASSWORD&#125;</span></span><br><span class="line">    <span class="attr">healthcheck:</span></span><br><span class="line">      <span class="attr">test:</span> [<span class="string">&quot;CMD-SHELL&quot;</span>, <span class="string">&quot;pg_isready -U postgres -d app&quot;</span>]</span><br><span class="line">      <span class="attr">interval:</span> <span class="string">5s</span></span><br><span class="line">      <span class="attr">timeout:</span> <span class="string">3s</span></span><br><span class="line">      <span class="attr">retries:</span> <span class="number">10</span></span><br><span class="line">      <span class="attr">start_period:</span> <span class="string">10s</span></span><br><span class="line"></span><br><span class="line">  <span class="attr">web:</span></span><br><span class="line">    <span class="attr">image:</span> <span class="string">myapp:latest</span></span><br><span class="line">    <span class="attr">depends_on:</span></span><br><span class="line">      <span class="attr">db:</span></span><br><span class="line">        <span class="attr">condition:</span> <span class="string">service_healthy</span></span><br><span class="line">      <span class="attr">cache:</span></span><br><span class="line">        <span class="attr">condition:</span> <span class="string">service_started</span></span><br></pre></td></tr></table></figure>
+
+<p>这样 Compose 会反复探活 db，直到 healthcheck 连续成功，才认为 db 就绪，再去启动 web。<code>start_period</code> 给数据库一个”冷启动宽限”，宽限期内失败不计入 retries，这点对 Java 类慢启动服务很重要。</p>
+<p>我要强调三点实战细节：</p>
+<ol>
+<li><strong>healthcheck 的 test 命令要测的是”服务能干活”，不是”端口开着”。</strong> 比如数据库用 <code>pg_isready</code>、Redis 用 <code>redis-cli ping</code>，HTTP 服务用 <code>curl -f http://localhost:8080/health</code>。<code>nc -z</code> 那种只测 TCP 端口是不够的。</li>
+<li><strong>应用代码里仍然要做重试。</strong> 健康检查通过不代表之后一直可用——网络瞬断、连接池预热、并发竞争都可能让首批请求失败。我在 web 里固定用一个带指数退避的连接重试包装。</li>
+<li><strong><code>condition: service_started</code> 是退化选项</strong>，等价于默认行为；只有 <code>service_healthy</code> 才是真正的”业务就绪”。</li>
+</ol>
+<h3 id="4-3-长链路与初始化顺序"><a href="#4-3-长链路与初始化顺序" class="headerlink" title="4.3 长链路与初始化顺序"></a>4.3 长链路与初始化顺序</h3><p>依赖不只是直连依赖。比如我先要 db 起来，还要 db 执行初始化 SQL 建表，然后 web 才能用。典型踩法是：把 init SQL 放到 <code>docker-entrypoint-initdb.d/</code> 里，但是 web 的 <code>depends_on: service_healthy</code> 只等 db 进程健康，不等 init SQL 跑完。</p>
+<p>PostgreSQL 镜像的约定是：容器<strong>首次启动</strong>（数据目录为空）时才会执行 initdb.d 里的脚本，而且 entrypoint 会等这些脚本执行完才打开监听。所以这种情况下，pg_isready 通过基本就等于 init 也跑完了。但 MySQL 的某些镜像不是这么做的——init 脚本和监听几乎并行，于是你 healthcheck 通了表却没建好。这个坑我踩过，最后是给 web 单独加一个 <code>wait-for-scripts</code> 一次性 init 容器，让它跑完再放行。<!-- 校准：请按真实经历核实/替换 --></p>
+<h2 id="五、环境变量、-env-与-profiles"><a href="#五、环境变量、-env-与-profiles" class="headerlink" title="五、环境变量、.env 与 profiles"></a>五、环境变量、.env 与 profiles</h2><h3 id="5-1-三层环境变量与覆盖坑"><a href="#5-1-三层环境变量与覆盖坑" class="headerlink" title="5.1 三层环境变量与覆盖坑"></a>5.1 三层环境变量与覆盖坑</h3><p>Compose 里同一个变量可能从好几个地方来，优先级从高到低我整理过：</p>
+<ol>
+<li><code>docker compose run -e KEY=xxx</code> 命令行传入</li>
+<li>当前 shell 的环境变量</li>
+<li>项目根目录 <code>.env</code> 文件</li>
+<li>compose.yml 里 <code>environment</code> 显式给的值</li>
+</ol>
+<p>听起来合理，但有个反直觉点：第 4 层的「显式给的值」<strong>可以引用 .env 里的变量</strong>，写法是 <code>${DB_PASSWORD}</code>。所以最常见的写法是 yml 里 <code>environment: { POSTGRES_PASSWORD: ${DB_PASSWORD} }</code>，真实密码放 <code>.env</code>。我吃过一次亏：在 yml 里直接写了一个默认值 <code>POSTGRES_PASSWORD: postgres</code>，又在 <code>.env</code> 里写了 <code>DB_PASSWORD=secret</code>，结果 yml 里的硬编码生效，把 <code>.env</code> 屏蔽了——因为第 4 层优先级低于 shell 但<strong>高于</strong> <code>.env</code> 中未被引用的键。规则的正确理解是：一旦某个 key 在 <code>environment</code> 段被显式赋值，<code>.env</code> 里同名 key 就不再透传，除非你在 yml 里用 <code>${}</code> 引用它。</p>
+<p>记住一条：<strong>所有需要被外部覆盖的变量，yml 里一律写成 <code>${VAR}</code> 形式，给一个默认值就写 <code>${VAR:-default}</code></strong>。这样行为可预测。</p>
+<h3 id="5-2-env-别进-git"><a href="#5-2-env-别进-git" class="headerlink" title="5.2 .env 别进 git"></a>5.2 .env 别进 git</h3><p><code>.env</code> 含密码、Token，必须进 <code>.gitignore</code>。仓库里只提交一个 <code>.env.example</code>，列出 key 不填值，新人复制一份改。这事说一百遍都有人忘。</p>
+<h3 id="5-3-profiles：按场景选服务"><a href="#5-3-profiles：按场景选服务" class="headerlink" title="5.3 profiles：按场景选服务"></a>5.3 profiles：按场景选服务</h3><p>Compose v2 引入了 <code>profiles</code>，可以给服务打标签，启动时用 <code>--profile</code> 选择启哪些。我用它做的最多的事是「开发态 vs 测试态」分离：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">services:</span></span><br><span class="line">  <span class="attr">web:</span></span><br><span class="line">    <span class="string">...</span></span><br><span class="line">  <span class="attr">db:</span></span><br><span class="line">    <span class="string">...</span></span><br><span class="line">  <span class="comment"># 只在压测 profile 下启 mock 外部依赖</span></span><br><span class="line">  <span class="attr">wiremock:</span></span><br><span class="line">    <span class="attr">profiles:</span> [<span class="string">&quot;loadtest&quot;</span>]</span><br><span class="line">    <span class="attr">image:</span> <span class="string">wiremock/wiremock</span></span><br></pre></td></tr></table></figure>
+
+<p>默认 <code>docker compose up</code> 不启 wiremock，只在 <code>docker compose --profile loadtest up</code> 时才拉。这比维护两份 yml 干净得多。</p>
+<h2 id="六、资源限制与重启策略"><a href="#六、资源限制与重启策略" class="headerlink" title="六、资源限制与重启策略"></a>六、资源限制与重启策略</h2><h3 id="6-1-单机下的资源限制"><a href="#6-1-单机下的资源限制" class="headerlink" title="6.1 单机下的资源限制"></a>6.1 单机下的资源限制</h3><p>前面提过 <code>deploy.resources</code> 在非 Swarm 单机模式下不生效。要在单机限制 CPU&#x2F;内存，v2 的写法是：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">services:</span></span><br><span class="line">  <span class="attr">web:</span></span><br><span class="line">    <span class="attr">image:</span> <span class="string">myapp:latest</span></span><br><span class="line">    <span class="attr">mem_limit:</span> <span class="string">1g</span></span><br><span class="line">    <span class="attr">mem_reservation:</span> <span class="string">512m</span></span><br><span class="line">    <span class="attr">cpus:</span> <span class="number">1.5</span></span><br></pre></td></tr></table></figure>
+
+<p>这套字段来自 v1 的 Compose v2 兼容层，至今依然支持。限制资源的意义不只是「防止某个服务把宿主吃光」，更重要的是防止「日志风暴把磁盘写满导致整机不可用」这种连锁故障。我给所有服务默认 <code>mem_limit</code>，再加日志驱动的大小限制，这个习惯救过我两次。</p>
+<h3 id="6-2-重启策略"><a href="#6-2-重启策略" class="headerlink" title="6.2 重启策略"></a>6.2 重启策略</h3><p>四个选项：<code>no</code> &#x2F; <code>always</code> &#x2F; <code>unless-stopped</code> &#x2F; <code>on-failure</code>。生产我的默认是 <code>unless-stopped</code>：进程崩了自动拉起，宿主重启后容器也自动起，但 <code>docker compose stop</code> 主动停下的不会被强行拉回来。<code>always</code> 太霸道，连你手动 stop 都给你重启。</p>
+<p>要特别注意：<strong>重启策略不能替代健康检查的自愈。</strong> 容器虽然”在跑”，但应用可能已经卡死。真正的自愈要靠 healthcheck 标记 <code>unhealthy</code>，再配合 <code>restart</code> 的失败计数——但 Compose 单机对 unhealthy 容器并不会自动重启（这是它和 K8s liveness 的一个本质差距）。所以 Compose 里的 healthcheck 更多是「告诉依赖方别连我」的信号源，不是 K8s 那种「死了替我重启」的探针。这条认知我晚了一年才理顺。</p>
+<h2 id="七、命名卷与自定义网络"><a href="#七、命名卷与自定义网络" class="headerlink" title="七、命名卷与自定义网络"></a>七、命名卷与自定义网络</h2><h3 id="7-1-命名卷的持久化"><a href="#7-1-命名卷的持久化" class="headerlink" title="7.1 命名卷的持久化"></a>7.1 命名卷的持久化</h3><p>数据要落盘的，一定要用命名卷，别用 bind mount 写数据。命名卷由 Docker 管理，跨平台路径一致、性能更好、迁移时 <code>docker compose down</code> 不会丢。bind mount 我只用来挂配置文件和源代码热重载。</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">volumes:</span></span><br><span class="line">  <span class="attr">pgdata:</span></span><br><span class="line"></span><br><span class="line"><span class="attr">services:</span></span><br><span class="line">  <span class="attr">db:</span></span><br><span class="line">    <span class="attr">image:</span> <span class="string">postgres:16</span></span><br><span class="line">    <span class="attr">volumes:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">pgdata:/var/lib/postgresql/data</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">./initdb:/docker-entrypoint-initdb.d:ro</span>   <span class="comment"># 初始化 SQL 用 bind</span></span><br></pre></td></tr></table></figure>
+
+<p>命名卷的物理位置在 <code>/var/lib/docker/volumes/&lt;project&gt;_&lt;name&gt;/_data</code>，需要直接拷数据时找得到。</p>
+<h3 id="7-2-自定义网络与服务名解析"><a href="#7-2-自定义网络与服务名解析" class="headerlink" title="7.2 自定义网络与服务名解析"></a>7.2 自定义网络与服务名解析</h3><p>Compose 默认给项目建一个 bridge 网络，并在该网络里内置 DNS，服务之间用<strong>服务名</strong>当主机名互访。但我仍然显式声明 <code>networks</code>，原因有两个：一是多项目共用网络时（比如一个公共网关项目要连到多个 app 项目），显式声明才可控；二是默认网络没有别名，自定义网络可以给同一个服务起多个 alias。</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">networks:</span></span><br><span class="line">  <span class="attr">appnet:</span></span><br><span class="line">    <span class="attr">driver:</span> <span class="string">bridge</span></span><br><span class="line"></span><br><span class="line"><span class="attr">services:</span></span><br><span class="line">  <span class="attr">web:</span></span><br><span class="line">    <span class="attr">networks:</span></span><br><span class="line">      <span class="attr">appnet:</span></span><br><span class="line">        <span class="attr">aliases:</span></span><br><span class="line">          <span class="bullet">-</span> <span class="string">api</span></span><br><span class="line">          <span class="bullet">-</span> <span class="string">app.internal</span></span><br></pre></td></tr></table></figure>
+
+<p>这样网络上 <code>api</code>、<code>app.internal</code> 都能解析到 web 容器，对外的网关和内部的脚本可以各用各的名字。</p>
+<h2 id="八、一个完整的多服务编排-demo"><a href="#八、一个完整的多服务编排-demo" class="headerlink" title="八、一个完整的多服务编排 demo"></a>八、一个完整的多服务编排 demo</h2><p>下面这套是我给一个内部工具搭过的小平台：Python Web app + Redis 缓存 + PostgreSQL 主库，前面挂 Nginx。我把生产非关键的简化了，保留核心结构。直接复制改改就能跑。<!-- 校准：请按真实经历核实/替换 --></p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># compose.yml</span></span><br><span class="line"><span class="attr">services:</span></span><br><span class="line">  <span class="attr">web:</span></span><br><span class="line">    <span class="attr">build:</span> <span class="string">./app</span></span><br><span class="line">    <span class="attr">image:</span> <span class="string">internal-tool/web:$&#123;TAG:-latest&#125;</span></span><br><span class="line">    <span class="attr">environment:</span></span><br><span class="line">      <span class="attr">DB_HOST:</span> <span class="string">db</span></span><br><span class="line">      <span class="attr">DB_PORT:</span> <span class="string">&quot;5432&quot;</span></span><br><span class="line">      <span class="attr">DB_NAME:</span> <span class="string">$&#123;DB_NAME&#125;</span></span><br><span class="line">      <span class="attr">DB_USER:</span> <span class="string">$&#123;DB_USER&#125;</span></span><br><span class="line">      <span class="attr">DB_PASSWORD:</span> <span class="string">$&#123;DB_PASSWORD&#125;</span></span><br><span class="line">      <span class="attr">REDIS_HOST:</span> <span class="string">cache</span></span><br><span class="line">      <span class="attr">REDIS_PORT:</span> <span class="string">&quot;6379&quot;</span></span><br><span class="line">    <span class="attr">depends_on:</span></span><br><span class="line">      <span class="attr">db:</span></span><br><span class="line">        <span class="attr">condition:</span> <span class="string">service_healthy</span></span><br><span class="line">      <span class="attr">cache:</span></span><br><span class="line">        <span class="attr">condition:</span> <span class="string">service_started</span></span><br><span class="line">    <span class="attr">networks:</span> [<span class="string">appnet</span>]</span><br><span class="line">    <span class="attr">restart:</span> <span class="string">unless-stopped</span></span><br><span class="line">    <span class="attr">mem_limit:</span> <span class="string">1g</span></span><br><span class="line">    <span class="attr">cpus:</span> <span class="number">1.0</span></span><br><span class="line">    <span class="attr">healthcheck:</span></span><br><span class="line">      <span class="attr">test:</span> [<span class="string">&quot;CMD&quot;</span>, <span class="string">&quot;python&quot;</span>, <span class="string">&quot;-c&quot;</span>, <span class="string">&quot;import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(&#x27;http://localhost:8000/health&#x27;,timeout=2).status==200 else 1)&quot;</span>]</span><br><span class="line">      <span class="attr">interval:</span> <span class="string">10s</span></span><br><span class="line">      <span class="attr">timeout:</span> <span class="string">3s</span></span><br><span class="line">      <span class="attr">retries:</span> <span class="number">5</span></span><br><span class="line">      <span class="attr">start_period:</span> <span class="string">20s</span></span><br><span class="line"></span><br><span class="line">  <span class="attr">db:</span></span><br><span class="line">    <span class="attr">image:</span> <span class="string">postgres:16</span></span><br><span class="line">    <span class="attr">environment:</span></span><br><span class="line">      <span class="attr">POSTGRES_DB:</span> <span class="string">$&#123;DB_NAME&#125;</span></span><br><span class="line">      <span class="attr">POSTGRES_USER:</span> <span class="string">$&#123;DB_USER&#125;</span></span><br><span class="line">      <span class="attr">POSTGRES_PASSWORD:</span> <span class="string">$&#123;DB_PASSWORD&#125;</span></span><br><span class="line">    <span class="attr">volumes:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">pgdata:/var/lib/postgresql/data</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">./initdb:/docker-entrypoint-initdb.d:ro</span></span><br><span class="line">    <span class="attr">networks:</span> [<span class="string">appnet</span>]</span><br><span class="line">    <span class="attr">restart:</span> <span class="string">unless-stopped</span></span><br><span class="line">    <span class="attr">mem_limit:</span> <span class="string">2g</span></span><br><span class="line">    <span class="attr">healthcheck:</span></span><br><span class="line">      <span class="attr">test:</span> [<span class="string">&quot;CMD-SHELL&quot;</span>, <span class="string">&quot;pg_isready -U $&#123;DB_USER&#125; -d $&#123;DB_NAME&#125;&quot;</span>]</span><br><span class="line">      <span class="attr">interval:</span> <span class="string">5s</span></span><br><span class="line">      <span class="attr">timeout:</span> <span class="string">3s</span></span><br><span class="line">      <span class="attr">retries:</span> <span class="number">12</span></span><br><span class="line">      <span class="attr">start_period:</span> <span class="string">10s</span></span><br><span class="line"></span><br><span class="line">  <span class="attr">cache:</span></span><br><span class="line">    <span class="attr">image:</span> <span class="string">redis:7-alpine</span></span><br><span class="line">    <span class="attr">command:</span> [<span class="string">&quot;redis-server&quot;</span>, <span class="string">&quot;--appendonly&quot;</span>, <span class="string">&quot;yes&quot;</span>, <span class="string">&quot;--maxmemory&quot;</span>, <span class="string">&quot;256mb&quot;</span>, <span class="string">&quot;--maxmemory-policy&quot;</span>, <span class="string">&quot;allkeys-lru&quot;</span>]</span><br><span class="line">    <span class="attr">volumes:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">cachedata:/data</span></span><br><span class="line">    <span class="attr">networks:</span> [<span class="string">appnet</span>]</span><br><span class="line">    <span class="attr">restart:</span> <span class="string">unless-stopped</span></span><br><span class="line">    <span class="attr">mem_limit:</span> <span class="string">384m</span></span><br><span class="line">    <span class="attr">healthcheck:</span></span><br><span class="line">      <span class="attr">test:</span> [<span class="string">&quot;CMD&quot;</span>, <span class="string">&quot;redis-cli&quot;</span>, <span class="string">&quot;ping&quot;</span>]</span><br><span class="line">      <span class="attr">interval:</span> <span class="string">5s</span></span><br><span class="line">      <span class="attr">timeout:</span> <span class="string">3s</span></span><br><span class="line">      <span class="attr">retries:</span> <span class="number">10</span></span><br><span class="line"></span><br><span class="line">  <span class="attr">nginx:</span></span><br><span class="line">    <span class="attr">image:</span> <span class="string">nginx:1.27-alpine</span></span><br><span class="line">    <span class="attr">volumes:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">./nginx/nginx.conf:/etc/nginx/nginx.conf:ro</span></span><br><span class="line">    <span class="attr">ports:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">&quot;8080:80&quot;</span></span><br><span class="line">    <span class="attr">depends_on:</span></span><br><span class="line">      <span class="attr">web:</span></span><br><span class="line">        <span class="attr">condition:</span> <span class="string">service_healthy</span></span><br><span class="line">    <span class="attr">networks:</span> [<span class="string">appnet</span>]</span><br><span class="line">    <span class="attr">restart:</span> <span class="string">unless-stopped</span></span><br><span class="line"></span><br><span class="line"><span class="attr">networks:</span></span><br><span class="line">  <span class="attr">appnet:</span></span><br><span class="line">    <span class="attr">driver:</span> <span class="string">bridge</span></span><br><span class="line"></span><br><span class="line"><span class="attr">volumes:</span></span><br><span class="line">  <span class="attr">pgdata:</span></span><br><span class="line">  <span class="attr">cachedata:</span></span><br></pre></td></tr></table></figure>
+
+<p>配套的 <code>.env.example</code>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">TAG=latest</span><br><span class="line">DB_NAME=appdb</span><br><span class="line">DB_USER=app</span><br><span class="line">DB_PASSWORD=change-me-in-prod</span><br></pre></td></tr></table></figure>
+
+<p>启动顺序我用 <code>docker compose up -d</code>，期望的拉起链是：db&#x2F;cache 先起 → db 的 healthcheck 通过（含 initdb 完成）→ web 启动并完成自身健康检查 → nginx 启动对外。整套大概 30~40 秒冷启动到全绿。</p>
+<h2 id="九、踩坑复盘：我把这些坑都踩过一遍"><a href="#九、踩坑复盘：我把这些坑都踩过一遍" class="headerlink" title="九、踩坑复盘：我把这些坑都踩过一遍"></a>九、踩坑复盘：我把这些坑都踩过一遍</h2><h3 id="9-1-depends-on-不等真正就绪"><a href="#9-1-depends-on-不等真正就绪" class="headerlink" title="9.1 depends_on 不等真正就绪"></a>9.1 depends_on 不等真正就绪</h3><p>最早写法只写 <code>depends_on: [db]</code>，web 启动瞬间连 db 拒绝连接，框架没做重试直接挂。修法就是上面那套 healthcheck + <code>service_healthy</code>。</p>
+<h3 id="9-2-数据卷初始化顺序"><a href="#9-2-数据卷初始化顺序" class="headerlink" title="9.2 数据卷初始化顺序"></a>9.2 数据卷初始化顺序</h3><p>把 init SQL 放进 initdb.d 后，本地第一次 <code>up</code> 跑通了，但同事 down 之后 <code>up</code> 表没了——因为带 <code>-v</code> 把卷删了，重新初始化。后来约定：本地开发可以 <code>-v</code>，但<strong>线上 down 永远不带 -v</strong>，删卷要单独走一条 <code>docker volume rm</code> 的命令，给个心理摩擦。还有一次是 init 脚本之间有依赖（B 表的外键指向 A 表），A 还没建 B 先跑了——postgres initdb 是按文件名字母序，所以我把脚本命名改成 <code>01-create-a.sql</code>、<code>02-create-b.sql</code> 这样前缀化。</p>
+<h3 id="9-3-环境变量覆盖坑"><a href="#9-3-环境变量覆盖坑" class="headerlink" title="9.3 环境变量覆盖坑"></a>9.3 环境变量覆盖坑</h3><p>前面提过：在 yml 里硬编码 <code>POSTGRES_PASSWORD: postgres</code> 想给默认值，结果 <code>.env</code> 里的真实密码失效。教训：要么不写、要么写 <code>${VAR:-default}</code>。</p>
+<h3 id="9-4-v1-与-v2-命令差异"><a href="#9-4-v1-与-v2-命令差异" class="headerlink" title="9.4 v1 与 v2 命令差异"></a>9.4 v1 与 v2 命令差异</h3><p>老项目里脚本全是 <code>docker-compose</code>（带连字符），新装机器只有 <code>docker compose</code>（子命令形式）。两者行为大部分兼容，但有几个差异让我踩过：</p>
+<ul>
+<li><strong>资源限制字段</strong>：v1 的 <code>mem_limit</code> 在 v2 早期一度被警告要废，后来又保留为兼容。<code>deploy.resources</code> 是 K8s&#x2F;Swarm 风格字段，单机下不生效。</li>
+<li><strong>项目名前缀</strong>：v2 默认用目录名做项目名，会把目录名小写化、特殊字符去掉；v1 行为略不同。多项目并存时容易混，我固定用 <code>-p myproject</code> 显式指定。</li>
+<li><strong>网络默认</strong>：v2 默认 bridge 网络的 DNS 行为更严格，老的一些 host 网络混用方案要重新调。</li>
+</ul>
+<p>迁移建议：新项目一律用 v2 的 <code>docker compose</code>，老脚本里的 <code>docker-compose</code> 可以加一个 alias 兜底，但别再新写 v1 命令。</p>
+<h3 id="9-5-健康检查把宿主拖垮"><a href="#9-5-健康检查把宿主拖垮" class="headerlink" title="9.5 健康检查把宿主拖垮"></a>9.5 健康检查把宿主拖垮</h3><p>有一回我给 web 的 healthcheck 写了一个调外部 API 的脚本，每 5 秒一次，结果把对方限流打爆了。healthcheck 必须是<strong>本地的、廉价的</strong>，绝不能调外部依赖。还有 <code>interval</code> 别太短，5~10 秒是甜区。</p>
+<h3 id="9-6-日志写满磁盘"><a href="#9-6-日志写满磁盘" class="headerlink" title="9.6 日志写满磁盘"></a>9.6 日志写满磁盘</h3><p>默认的 json-file 驱动不轮转，跑久了日志几十 G 把宿主 root 分区撑爆，整机 OOM 连带 Compose 一起挂。修法是每个服务都加日志限制：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">logging:</span></span><br><span class="line">  <span class="attr">driver:</span> <span class="string">json-file</span></span><br><span class="line">  <span class="attr">options:</span></span><br><span class="line">    <span class="attr">max-size:</span> <span class="string">&quot;10m&quot;</span></span><br><span class="line">    <span class="attr">max-file:</span> <span class="string">&quot;3&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p>这是我现在的硬约定，和 mem_limit 一样默认带上。</p>
+<h2 id="十、什么时候该止步：把-Compose-用在该用的地方"><a href="#十、什么时候该止步：把-Compose-用在该用的地方" class="headerlink" title="十、什么时候该止步：把 Compose 用在该用的地方"></a>十、什么时候该止步：把 Compose 用在该用的地方</h2><p>最后我想给一个明确的「止步线」，省得后来人在 Compose 上耗到怀疑人生。下面这些信号出现任何一条，就该认真评估上 K8s（或至少上 Nomad 这类真正的调度器）：</p>
+<ul>
+<li><strong>要跨多台机器</strong>：单机扛不住、或者要高可用必须多节点。Compose 单机，没有调度。</li>
+<li><strong>要零停机滚动升级</strong>：Compose 的 <code>up --no-deps</code> 能重建容器，但期间有秒级中断，且没有就绪流量切流。</li>
+<li><strong>要跨服务 mTLS、流量镜像、金丝雀</strong>：这些是服务网格能力，Compose 没有，硬接 Sidecar 自己写很亏。</li>
+<li><strong>要按指标自动伸缩</strong>：HPA&#x2F;VPA、Pod 水平伸缩，Compose 没有。</li>
+<li><strong>团队规模上来、要多环境多集群治理</strong>：Helm&#x2F;Kustomize + GitOps 那套体系在 K8s 上才成熟。</li>
+</ul>
+<p>反过来，下面这些场景 Compose 是我第一选择：本地开发联调环境、CI 集成测试依赖、内部小工具、客户内网一次性交付、POC&#x2F;Demo。这些场景用 K8s 是杀鸡用牛刀，用 Compose 一个人一小时就能搞定。</p>
+<p><strong>总结一句：Compose 是单机多服务编排的甜区工具，把”一台上立起来”这件事做到极致；但只要诉求越过单机这条线，请把舞台让给 Kubernetes。</strong> 认清边界，比堆功能更重要。</p>
+<p>我个人的实践一直遵循这条线：本地与测试一律 Compose，线上看规模——小而稳的就用 Compose 加一台好机器扛着，大而活的就直接上 K8s，不在中间地带反复横跳。这套打法跑了五年，没在任何一边卡死过，也省下了大量「为了用而用」的精力。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Docker/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Docker<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/Compose/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Compose<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/docker-security-hardening"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">Docker 容器安全加固实战：从被扫出一堆高危说起</div></div></a></div><div class="next-post pull-right"><a href="/posts/hadoop-yarn-scheduler"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">YARN 架构剖析与调度器调优实战</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E5%BC%95%E8%A8%80%EF%BC%9ACompose-%E6%98%AF%E4%BB%80%E4%B9%88%EF%BC%8C%E4%BB%A5%E5%8F%8A%E6%88%91%E4%B8%BA%E4%BB%80%E4%B9%88%E8%BF%98%E5%9C%A8%E7%94%A8"><span class="toc-text">一、引言：Compose 是什么，以及我为什么还在用</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81Compose-%E7%9A%84%E4%BB%B7%E5%80%BC%E4%B8%8E%E9%80%82%E7%94%A8%E8%BE%B9%E7%95%8C"><span class="toc-text">二、Compose 的价值与适用边界</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81compose-yml-%E6%96%87%E4%BB%B6%E7%BB%93%E6%9E%84%E7%B2%BE%E8%AE%B2"><span class="toc-text">三、compose.yml 文件结构精讲</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-%E9%A1%B6%E5%B1%82%E4%B8%89%E6%AE%B5"><span class="toc-text">3.1 顶层三段</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-%E7%89%88%E6%9C%AC%E5%AD%97%E6%AE%B5%E7%9A%84%E5%9D%91"><span class="toc-text">3.2 版本字段的坑</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-service-%E5%86%85%E9%83%A8%E7%9A%84%E5%85%B3%E9%94%AE%E5%AD%97%E6%AE%B5%E9%80%9F%E6%9F%A5"><span class="toc-text">3.3 service 内部的关键字段速查</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E5%A4%9A%E6%9C%8D%E5%8A%A1%E4%BE%9D%E8%B5%96%E4%B8%8E%E5%81%A5%E5%BA%B7%E7%AD%89%E5%BE%85%EF%BC%9ACompose-%E6%9C%80%E5%80%BC%E5%BE%97%E8%AE%B2%E6%B8%85%E7%9A%84%E4%B8%80%E8%8A%82"><span class="toc-text">四、多服务依赖与健康等待：Compose 最值得讲清的一节</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-depends-on-%E9%BB%98%E8%AE%A4%E4%B8%8D%E7%AD%89%E2%80%9D%E7%9C%9F%E6%AD%A3%E5%B0%B1%E7%BB%AA%E2%80%9D"><span class="toc-text">4.1 depends_on 默认不等”真正就绪”</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-%E7%94%A8-healthcheck-condition-%E8%A7%A3%E5%86%B3"><span class="toc-text">4.2 用 healthcheck + condition 解决</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-%E9%95%BF%E9%93%BE%E8%B7%AF%E4%B8%8E%E5%88%9D%E5%A7%8B%E5%8C%96%E9%A1%BA%E5%BA%8F"><span class="toc-text">4.3 长链路与初始化顺序</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8F%E3%80%81-env-%E4%B8%8E-profiles"><span class="toc-text">五、环境变量、.env 与 profiles</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-%E4%B8%89%E5%B1%82%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8F%E4%B8%8E%E8%A6%86%E7%9B%96%E5%9D%91"><span class="toc-text">5.1 三层环境变量与覆盖坑</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-env-%E5%88%AB%E8%BF%9B-git"><span class="toc-text">5.2 .env 别进 git</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-3-profiles%EF%BC%9A%E6%8C%89%E5%9C%BA%E6%99%AF%E9%80%89%E6%9C%8D%E5%8A%A1"><span class="toc-text">5.3 profiles：按场景选服务</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E8%B5%84%E6%BA%90%E9%99%90%E5%88%B6%E4%B8%8E%E9%87%8D%E5%90%AF%E7%AD%96%E7%95%A5"><span class="toc-text">六、资源限制与重启策略</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-%E5%8D%95%E6%9C%BA%E4%B8%8B%E7%9A%84%E8%B5%84%E6%BA%90%E9%99%90%E5%88%B6"><span class="toc-text">6.1 单机下的资源限制</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-%E9%87%8D%E5%90%AF%E7%AD%96%E7%95%A5"><span class="toc-text">6.2 重启策略</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E5%91%BD%E5%90%8D%E5%8D%B7%E4%B8%8E%E8%87%AA%E5%AE%9A%E4%B9%89%E7%BD%91%E7%BB%9C"><span class="toc-text">七、命名卷与自定义网络</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#7-1-%E5%91%BD%E5%90%8D%E5%8D%B7%E7%9A%84%E6%8C%81%E4%B9%85%E5%8C%96"><span class="toc-text">7.1 命名卷的持久化</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-2-%E8%87%AA%E5%AE%9A%E4%B9%89%E7%BD%91%E7%BB%9C%E4%B8%8E%E6%9C%8D%E5%8A%A1%E5%90%8D%E8%A7%A3%E6%9E%90"><span class="toc-text">7.2 自定义网络与服务名解析</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81%E4%B8%80%E4%B8%AA%E5%AE%8C%E6%95%B4%E7%9A%84%E5%A4%9A%E6%9C%8D%E5%8A%A1%E7%BC%96%E6%8E%92-demo"><span class="toc-text">八、一个完整的多服务编排 demo</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B9%9D%E3%80%81%E8%B8%A9%E5%9D%91%E5%A4%8D%E7%9B%98%EF%BC%9A%E6%88%91%E6%8A%8A%E8%BF%99%E4%BA%9B%E5%9D%91%E9%83%BD%E8%B8%A9%E8%BF%87%E4%B8%80%E9%81%8D"><span class="toc-text">九、踩坑复盘：我把这些坑都踩过一遍</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#9-1-depends-on-%E4%B8%8D%E7%AD%89%E7%9C%9F%E6%AD%A3%E5%B0%B1%E7%BB%AA"><span class="toc-text">9.1 depends_on 不等真正就绪</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-2-%E6%95%B0%E6%8D%AE%E5%8D%B7%E5%88%9D%E5%A7%8B%E5%8C%96%E9%A1%BA%E5%BA%8F"><span class="toc-text">9.2 数据卷初始化顺序</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-3-%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8F%E8%A6%86%E7%9B%96%E5%9D%91"><span class="toc-text">9.3 环境变量覆盖坑</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-4-v1-%E4%B8%8E-v2-%E5%91%BD%E4%BB%A4%E5%B7%AE%E5%BC%82"><span class="toc-text">9.4 v1 与 v2 命令差异</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-5-%E5%81%A5%E5%BA%B7%E6%A3%80%E6%9F%A5%E6%8A%8A%E5%AE%BF%E4%B8%BB%E6%8B%96%E5%9E%AE"><span class="toc-text">9.5 健康检查把宿主拖垮</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-6-%E6%97%A5%E5%BF%97%E5%86%99%E6%BB%A1%E7%A3%81%E7%9B%98"><span class="toc-text">9.6 日志写满磁盘</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8D%81%E3%80%81%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E8%AF%A5%E6%AD%A2%E6%AD%A5%EF%BC%9A%E6%8A%8A-Compose-%E7%94%A8%E5%9C%A8%E8%AF%A5%E7%94%A8%E7%9A%84%E5%9C%B0%E6%96%B9"><span class="toc-text">十、什么时候该止步：把 Compose 用在该用的地方</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/docker-observability-troubleshooting.html","posts/hadoop-mapreduce-shuffle.html","posts/docker-private-registry-harbor.html","posts/docker-security-hardening.html","posts/docker-compose-orchestration.html","posts/hadoop-yarn-scheduler.html","posts/docker-resource-limits.html","posts/docker-storage-persistence.html","posts/docker-network-deep-dive.html","posts/hadoop-hdfs-small-files.html","posts/dockerfile-best-practices.html","posts/docker-image-layer-optimization.html","posts/docker-architecture.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

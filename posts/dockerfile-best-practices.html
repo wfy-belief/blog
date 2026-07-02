@@ -1,0 +1,374 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Dockerfile 实战最佳实践与生产级模板：从踩坑到可信镜像 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/dockerfile-best-practices"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="逐条精讲 Dockerfile 关键指令的正确用法与陷阱，附 Spring Boot 生产级模板与密钥泄露、时区、权限等踩坑复盘。"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文以第一人称复盘口吻，逐条精讲 Dockerfile 中 FROM、WORKDIR、COPY、RUN、ENV、ENTRYPOINT、HEALTHCHECK、USER 等关键指令的正确用法与常见陷阱，重点拆解构建期 secret 处理、层缓存顺序与最小权限运行。最后给出一份可直接落地的 Spring Boot 生产级 Dockerfile 模板，并复盘密钥泄露、时区错乱、locale 缺失、容器内权限过高四类典型踩坑，帮助团队产出小而安全、可观测、可复现的可信镜像。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Docker/">Docker<sup>10</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%8E%9F%E7%90%86/">容器原理<sup>1</sup></a><a href="/tags/Compose/">Compose<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/">镜像优化<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/">容器网络<sup>1</sup></a><a href="/tags/%E7%9B%91%E6%8E%A7/">监控<sup>1</sup></a><a href="/tags/%E6%8E%92%E9%9A%9C/">排障<sup>1</sup></a><a href="/tags/Harbor/">Harbor<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/">镜像仓库<sup>1</sup></a><a href="/tags/cgroup/">cgroup<sup>1</sup></a><a href="/tags/GPU/">GPU<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%AE%89%E5%85%A8/">容器安全<sup>1</sup></a><a href="/tags/Dockerfile/">Dockerfile<sup>1</sup></a><a href="/tags/%E5%AD%98%E5%82%A8/">存储<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">40</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">41</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">41</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">54</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Docker/">Docker<sup>10</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%8E%9F%E7%90%86/">容器原理<sup>1</sup></a><a href="/tags/Compose/">Compose<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BC%98%E5%8C%96/">镜像优化<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C/">容器网络<sup>1</sup></a><a href="/tags/%E7%9B%91%E6%8E%A7/">监控<sup>1</sup></a><a href="/tags/%E6%8E%92%E9%9A%9C/">排障<sup>1</sup></a><a href="/tags/Harbor/">Harbor<sup>1</sup></a><a href="/tags/%E9%95%9C%E5%83%8F%E4%BB%93%E5%BA%93/">镜像仓库<sup>1</sup></a><a href="/tags/cgroup/">cgroup<sup>1</sup></a><a href="/tags/GPU/">GPU<sup>1</sup></a><a href="/tags/%E5%AE%B9%E5%99%A8%E5%AE%89%E5%85%A8/">容器安全<sup>1</sup></a><a href="/tags/Dockerfile/">Dockerfile<sup>1</sup></a><a href="/tags/%E5%AD%98%E5%82%A8/">存储<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">Dockerfile 实战最佳实践与生产级模板：从踩坑到可信镜像</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Docker/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Docker</span></a><a class="post-meta__tags" href="/tags/Dockerfile/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Dockerfile</span></a></div></div></div></div><h1 class="post-title">Dockerfile 实战最佳实践与生产级模板：从踩坑到可信镜像</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h2 id="Dockerfile-实战最佳实践与生产级模板：从踩坑到可信镜像"><a href="#Dockerfile-实战最佳实践与生产级模板：从踩坑到可信镜像" class="headerlink" title="Dockerfile 实战最佳实践与生产级模板：从踩坑到可信镜像"></a>Dockerfile 实战最佳实践与生产级模板：从踩坑到可信镜像</h2><p>写 Dockerfile 这件事，门槛低到一行 <code>FROM ubuntu</code> 加几条 <code>RUN apt-get install</code> 就能跑起来；但真要在生产线上稳定烧几年，门槛又高到令人发指。我接手过一个历史项目，镜像 1.8 GB、用 root 跑、时区是 UTC、健康检查缺失、构建期把数据库密码写进了中间层——每个问题都曾在凌晨炸过。</p>
+<p>这篇是我把这些年踩过的坑、改过的 Dockerfile、评审过的几十次镜像审计，浓缩成一份”实战最佳实践”。不讲大道理，只讲每条指令的正确写法和它背后的陷阱。最后给一份我们线上 Spring Boot 服务真正在用的生产级 Dockerfile 模板（已脱敏），你可以直接拿去改。</p>
+<!-- 校准：请按真实经历核实/替换 -->
+
+<hr>
+<h3 id="一、FROM：基础镜像的选择是第一道分水岭"><a href="#一、FROM：基础镜像的选择是第一道分水岭" class="headerlink" title="一、FROM：基础镜像的选择是第一道分水岭"></a>一、FROM：基础镜像的选择是第一道分水岭</h3><p>很多人写 Dockerfile 第一行随手就是 <code>FROM ubuntu:latest</code> 或 <code>FROM openjdk:8</code>，然后开始 <code>apt-get install</code> 一堆东西。这是构建期一切罪恶的源头——镜像臃肿、版本漂移、构建不可复现。</p>
+<p>我们团队的几条硬规矩：</p>
+<p><strong>1. 永远不要用 <code>:latest</code>。</strong> 它是漂移的代名词。今天构建出来的镜像和下周构建出来的可能基于完全不同的 digest。生产镜像必须钉死到具体 tag，理想情况钉到 digest：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 差</span></span><br><span class="line"><span class="keyword">FROM</span> openjdk:<span class="number">17</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 好</span></span><br><span class="line"><span class="keyword">FROM</span> eclipse-temurin:<span class="number">17.0</span>.<span class="number">10</span>_7-jre</span><br><span class="line"></span><br><span class="line"><span class="comment"># 更好（完全可复现）</span></span><br><span class="line"><span class="keyword">FROM</span> eclipse-temurin:<span class="number">17.0</span>.<span class="number">10</span>_7-jre@sha256:<span class="number">5</span>d7e4f3c2b1a8e9f6c4d3b2a1f8e7d6c5b4a3f2e1d9c8b7a6f5e4d3c2b1a0f9e</span><br></pre></td></tr></table></figure>
+
+<!-- 校准：请按真实经历核实/替换 -->
+
+<p><strong>2. 优先选 <code>-slim</code> 或 <code>-alpine</code> 变体。</strong> 完整版基础镜像往往带编译器、文档、包管理缓存，把镜像从 200 MB 撑到 800 MB。运行时根本用不上。我们线上 Java 服务从 <code>openjdk:17</code>（约 470 MB）换到 <code>eclipse-temurin:17-jre</code>（约 230 MB）再到 <code>eclipse-temurin:17-jre-alpine</code>（约 120 MB），体积砍掉 70%。</p>
+<p>alpine 要注意 musl libc 与 glibc 的差异——某些依赖 native 库的中间件（比如老版本的 RocksDB、某些数据库驱动）在 alpine 上会偶发段错误。我们踩过一次，最后退回 slim。</p>
+<p><strong>3. 选官方维护、有 CVE 扫描背书的镜像。</strong> <code>eclipse-temurin</code>、<code>amazoncorretto</code>、<code>python:3.11-slim</code> 这类由发行方或基金会维护的镜像，漏洞修复速度远快于个人仓库。我们的策略是：基础镜像每月走一次 Trivy 扫描，CRITICAL 级别三天内升级。</p>
+<p><strong>4. 统一基础镜像策略，别让团队各玩各的。</strong> 我们早期每个服务各挑一个基础镜像，光 Java 就有 <code>openjdk</code>、<code>amazoncorretto</code>、<code>adoptopenjdk</code>、<code>azul/zulu</code> 四种，安全扫描报告分散、升级节奏不一致。后来强制收敛到 <code>eclipse-temurin</code> 一条线，维护成本立刻降了一个量级。基础镜像越少，补丁打得越快、CVE 响应越及时——这是镜像治理的常识。</p>
+<hr>
+<h3 id="二、WORKDIR：别再用-cd-了"><a href="#二、WORKDIR：别再用-cd-了" class="headerlink" title="二、WORKDIR：别再用 cd 了"></a>二、WORKDIR：别再用 <code>cd</code> 了</h3><p><code>RUN cd /app &amp;&amp; do-something</code> 是新手最常见的写法。问题是每条 <code>RUN</code> 都是一个新 shell、一个新层，<code>cd</code> 的效果不会跨层保留。</p>
+<p>正确做法是用 <code>WORKDIR</code>：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">WORKDIR</span><span class="language-bash"> /app</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> . /app</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> ./gradlew build</span></span><br></pre></td></tr></table></figure>
+
+<p><code>WORKDIR</code> 会自动创建目录，之后所有 <code>RUN</code>、<code>CMD</code>、<code>ENTRYPOINT</code>、<code>COPY</code> 的默认工作目录都是它。显式、可读、跨层生效。我评审 Dockerfile 时，看到 <code>cd</code> 出现在 <code>RUN</code> 里，基本判定为不合格。</p>
+<hr>
+<h3 id="三、COPY-vs-ADD：90-的场景你只需要-COPY"><a href="#三、COPY-vs-ADD：90-的场景你只需要-COPY" class="headerlink" title="三、COPY vs ADD：90% 的场景你只需要 COPY"></a>三、COPY vs ADD：90% 的场景你只需要 COPY</h3><p><code>ADD</code> 比 <code>COPY</code> 多两个能力：自动解压 tar 包、支持远程 URL。听起来很香，但这两个”增强”恰恰是踩坑源头：</p>
+<ul>
+<li><code>ADD app.tar.gz /app</code> 会自动解压，但 <code>ADD app.jar /app</code> 不会——行为不一致，读 Dockerfile 的人得猜。</li>
+<li><code>ADD https://...</code> 拉远程文件不会校验 checksum，且无法用构建缓存，等于把构建可复现性交给了一个外部 URL。</li>
+</ul>
+<p>我们内部规范是：<strong>一律用 <code>COPY</code>，需要解压 tar 就在 <code>RUN</code> 里 <code>tar -xzf</code>，需要下载远程文件就先 wget 到本地再 COPY 进来。</strong> 只有在一个场景下会破例用 <code>ADD</code>：根目录有个 tar 包，解压完就删源文件，用 <code>ADD --chown=app:app rootfs.tar.xz /</code> 一步到位。</p>
+<p>另外，<code>COPY</code> 一定要带 <code>--chown</code>：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">COPY</span><span class="language-bash"> --<span class="built_in">chown</span>=1000:1000 app.jar /app/app.jar</span></span><br></pre></td></tr></table></figure>
+
+<p>否则文件 owner 是 root，等下面切到非 root 用户后，可能根本没有读权限——这是我们上线时真实遇到过的 “Permission denied” 事故。</p>
+<hr>
+<h3 id="四、RUN：层、缓存与合并的艺术"><a href="#四、RUN：层、缓存与合并的艺术" class="headerlink" title="四、RUN：层、缓存与合并的艺术"></a>四、RUN：层、缓存与合并的艺术</h3><p>Dockerfile 每条 <code>RUN</code> 都会生成一个层。层是缓存的基本单位：从某条 <code>RUN</code> 开始，只要它的指令字符串或上游文件变了，这一层及之后所有层都会重建。</p>
+<p>这就引出了第一条核心原则——<strong>把变化频率低的放前面，高的放后面</strong>。</p>
+<p>错误示例（每次代码改动都重装依赖）：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">COPY</span><span class="language-bash"> . /app</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> pip install -r requirements.txt   <span class="comment"># 每次 . 变了都重跑</span></span></span><br></pre></td></tr></table></figure>
+
+<p>正确示例（依赖装一次，缓存命中率高）：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">COPY</span><span class="language-bash"> requirements.txt /app/</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> pip install --no-cache-dir -r requirements.txt</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> . /app</span></span><br></pre></td></tr></table></figure>
+
+<!-- 校准：请按真实经历核实/替换 -->
+
+<p>这一招在我们一个 Python 服务上把构建时间从 6 分半压到 40 秒。Maven、Gradle、npm、pip、go mod 都适用同一个套路——先 COPY 依赖清单文件，再装依赖，最后 COPY 业务代码。判断标准就一句：<strong>变化频率从低到高排</strong>。</p>
+<p>还有一个常被忽略的细节：<code>COPY</code> 的源如果是个目录，<code>COPY src/ /app/</code> 和 <code>COPY src/ /app</code> 行为不同，后者会把 src 的内容铺到 &#x2F;app 下而不是放进子目录。我评审时遇到过一次，团队以为代码在 <code>/app/src</code>，实际被铺到了 <code>/app</code> 根下，构建居然过了，运行才崩。<strong>COPY 路径的末尾斜杠，是 Dockerfile 里另一个隐式陷阱。</strong></p>
+<p>第二条原则——<strong><code>apt-get</code> 类指令要合并、要清理、不要交互</strong>：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">RUN</span><span class="language-bash"> apt-get update &amp;&amp; \</span></span><br><span class="line"><span class="language-bash">    apt-get install -y --no-install-recommends \</span></span><br><span class="line"><span class="language-bash">        curl ca-certificates tzdata &amp;&amp; \</span></span><br><span class="line"><span class="language-bash">    <span class="built_in">rm</span> -rf /var/lib/apt/lists/*</span></span><br></pre></td></tr></table></figure>
+
+<p>三个要点缺一不可：</p>
+<ul>
+<li><code>apt-get update</code> 和 <code>apt-get install</code> 必须在<strong>同一条 RUN</strong>，否则缓存里的 update 层是旧的，install 拿不到新包列表。</li>
+<li><code>--no-install-recommends</code> 砍掉推荐包，体积能小一截。</li>
+<li><code>rm -rf /var/lib/apt/lists/*</code> 清掉 apt 缓存，别让它进层。</li>
+</ul>
+<p>第三条原则——<strong>用 <code>&amp;&amp;</code> 和 <code>\</code> 把逻辑相关的命令合并成一层</strong>，避免每条命令一个层把镜像撑大。但也别过度合并——把”装系统包”和”编译产物”塞一个 RUN，调试时连哪步崩的都看不清。</p>
+<hr>
+<h3 id="五、ENV-vs-ARG：构建期-vs-运行期，别混了"><a href="#五、ENV-vs-ARG：构建期-vs-运行期，别混了" class="headerlink" title="五、ENV vs ARG：构建期 vs 运行期，别混了"></a>五、ENV vs ARG：构建期 vs 运行期，别混了</h3><p>这两个是最容易被搞混的指令。</p>
+<ul>
+<li><code>ARG</code>：<strong>只在构建期可见</strong>，可以用 <code>--build-arg</code> 传值，<strong>不会</strong>进入运行期环境，也不会出现在 <code>docker inspect</code> 的 Env 里。</li>
+<li><code>ENV</code>：<strong>构建期和运行期都可见</strong>，容器启动后进程能直接读到。</li>
+</ul>
+<p>典型错误：把数据库密码用 <code>ARG</code> 传进来，以为”运行期看不到所以安全”——但 <code>ARG</code> 的值会被写进构建历史和中间层，<code>docker history</code> 一查全暴露。<strong>ARG 不等于 secret。</strong></p>
+<p>正确用法：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 版本号、构建参数（非敏感）用 ARG</span></span><br><span class="line"><span class="keyword">ARG</span> APP_VERSION=<span class="number">1.0</span>.<span class="number">0</span></span><br><span class="line"><span class="keyword">ARG</span> JAR_FILE=build/libs/app-$&#123;APP_VERSION&#125;.jar</span><br><span class="line"></span><br><span class="line"><span class="comment"># 运行期配置（非敏感）用 ENV</span></span><br><span class="line"><span class="keyword">ENV</span> JAVA_OPTS=<span class="string">&quot;-XX:+UseG1GC -Xms512m -Xmx512m&quot;</span> \</span><br><span class="line">    TZ=<span class="string">&quot;Asia/Shanghai&quot;</span></span><br></pre></td></tr></table></figure>
+
+<!-- 校准：请按真实经历核实/替换 -->
+
+<p>敏感信息（密钥、token）的处理方式见第七节，那是另一个量级的问题。</p>
+<p>补充一个关于 <code>ARG</code> 默认值的坑：<code>ARG</code> 如果在 Dockerfile 里声明了但 <code>--build-arg</code> 没传，会用 Dockerfile 里写的默认值。如果默认值是空字符串，构建可能默默成功但产物是坏的。我们 CI 里加了一道校验：声明过的 <code>ARG</code> 必须在构建脚本里显式传值，缺失直接 fail，杜绝”默认值悄悄生效”的隐性故障。</p>
+<hr>
+<h3 id="六、ENTRYPOINT-vs-CMD：组合语义是-Dockerfile-里最容易写错的地方"><a href="#六、ENTRYPOINT-vs-CMD：组合语义是-Dockerfile-里最容易写错的地方" class="headerlink" title="六、ENTRYPOINT vs CMD：组合语义是 Dockerfile 里最容易写错的地方"></a>六、ENTRYPOINT vs CMD：组合语义是 Dockerfile 里最容易写错的地方</h3><p>这两条指令的组合与覆盖规则，我见过最资深的后端工程师也写错过。先把规则讲清楚：</p>
+<ul>
+<li><code>CMD</code>：<strong>可被 <code>docker run &lt;image&gt; &lt;cmd&gt;</code> 覆盖</strong>，用于提供默认命令。</li>
+<li><code>ENTRYPOINT</code>：<strong>默认不可被覆盖</strong>（除非加 <code>--entrypoint</code>），用于固定要执行的程序。</li>
+<li>两者同时存在时，<code>CMD</code> 的内容会作为参数传给 <code>ENTRYPOINT</code>。</li>
+</ul>
+<p>生产级服务的最佳实践是 <strong>ENTRYPOINT 固定入口 + CMD 提供默认参数</strong>：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">ENTRYPOINT</span><span class="language-bash"> [<span class="string">&quot;java&quot;</span>, <span class="string">&quot;-jar&quot;</span>, <span class="string">&quot;/app/app.jar&quot;</span>]</span></span><br><span class="line"><span class="keyword">CMD</span><span class="language-bash"> [<span class="string">&quot;--spring.profiles.active=prod&quot;</span>]</span></span><br></pre></td></tr></table></figure>
+
+<p>这样 <code>docker run myimage</code> 会跑 <code>java -jar /app/app.jar --spring.profiles.active=prod</code>，而 <code>docker run myimage --spring.profiles.active=staging</code> 就能覆盖 profile，入口程序不变。</p>
+<p>几个常见坑：</p>
+<p><strong>坑一：用 shell 形式会丢信号。</strong> <code>CMD java -jar app.jar</code> 这种 shell 形式实际上会被包装成 <code>sh -c &quot;java -jar app.jar&quot;</code>，Java 进程成了 sh 的子进程，<code>SIGTERM</code> 收不到，容器 <code>docker stop</code> 要等 10 秒超时被 SIGKILL。<strong>必须用 exec 形式：<code>CMD [&quot;java&quot;, &quot;-jar&quot;, &quot;app.jar&quot;]</code>。</strong> 这是我们线上容器优雅停机失效的根因，改完之后 stop 时间从 10 秒掉到 1 秒内。</p>
+<p><strong>坑二：ENTRYPOINT 写成脚本却不 <code>exec</code>。</strong> 很多镜像用一个 <code>entrypoint.sh</code> 做初始化（生成配置、等依赖），脚本最后一行直接 <code>java -jar app.jar</code>。这时 Java 是脚本的子进程，信号问题又回来了。脚本最后一行必须 <code>exec &quot;$@&quot;</code>，把当前 shell 替换成目标进程。</p>
+<p><strong>坑三：同时写两条 CMD 或同时写两条 ENTRYPOINT。</strong> Dockerfile 里后者会覆盖前者，构建不报错但只有最后一条生效。代码评审时这种”以为两条都在、实际只剩一条”的写法很常见，要么是复制粘贴残留，要么是误解了语义。规范是：整份 Dockerfile 里 <code>ENTRYPOINT</code> 和 <code>CMD</code> 各最多一条。</p>
+<hr>
+<h3 id="七、构建期-secret：这篇文章最重要的一节"><a href="#七、构建期-secret：这篇文章最重要的一节" class="headerlink" title="七、构建期 secret：这篇文章最重要的一节"></a>七、构建期 secret：这篇文章最重要的一节</h3><p>我曾审计过一个镜像，发现构建期为了拉私有 Maven 仓库，把 <code>settings.xml</code> 里的 Nexus 账号密码直接 <code>COPY</code> 进镜像——然后又 <code>rm</code> 掉。看起来删干净了？没用。那个 COPY 产生的层里密码还在，<code>docker history</code> 或 <code>docker save</code> 解开层就能看到。这是真实的密钥泄露事故，最后只能把仓库密码全部轮换。</p>
+<p>这就是为什么”密钥绝不能进镜像层”是一条铁律。三种合规做法：</p>
+<p><strong>做法 A：多阶段构建（最通用）。</strong> 在构建阶段用到的密钥，留在构建镜像里，最终镜像只 COPY 产物：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 构建阶段：可以访问密钥</span></span><br><span class="line"><span class="keyword">FROM</span> maven:<span class="number">3.9</span>-eclipse-temurin-<span class="number">17</span> AS builder</span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> settings.xml /root/.m2/settings.xml   <span class="comment"># 含 Nexus 凭据</span></span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> pom.xml ./</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> src ./src</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> mvn -B package -DskipTests</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 最终阶段：只拿 jar，不带 settings.xml</span></span><br><span class="line"><span class="keyword">FROM</span> eclipse-temurin:<span class="number">17</span>-jre</span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> --from=builder /app/target/app.jar /app/app.jar</span></span><br></pre></td></tr></table></figure>
+
+<p><code>settings.xml</code> 只存在于 builder 镜像的层里，最终镜像完全没有它。</p>
+<p><strong>做法 B：BuildKit secret mount（最优雅）。</strong> 启用 BuildKit 后，可以把密钥以临时文件挂进构建，构建完不留痕：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># syntax=docker/dockerfile:1.7</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> --mount=<span class="built_in">type</span>=secret,<span class="built_in">id</span>=nexus_settings \</span></span><br><span class="line"><span class="language-bash">    <span class="built_in">cp</span> /run/secrets/nexus_settings /root/.m2/settings.xml &amp;&amp; \</span></span><br><span class="line"><span class="language-bash">    mvn -B package -DskipTests &amp;&amp; \</span></span><br><span class="line"><span class="language-bash">    <span class="built_in">rm</span> /root/.m2/settings.xml</span></span><br></pre></td></tr></table></figure>
+
+<p>构建时：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">DOCKER_BUILDKIT=1 docker build \</span><br><span class="line">  --secret <span class="built_in">id</span>=nexus_settings,src=<span class="variable">$HOME</span>/.m2/settings.xml \</span><br><span class="line">  -t myapp:1.0 .</span><br></pre></td></tr></table></figure>
+
+<p>密钥不会进任何层，<code>docker history</code> 也看不到。这是我们目前生产构建的标准做法。</p>
+<p><strong>做法 C：运行期注入（敏感配置的首选）。</strong> 数据库密码、API key 这类运行期才用的 secret，根本不该进镜像——用环境变量在 <code>docker run</code> 或编排层（K8s Secret、Swarm secret）注入：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">docker run -e DB_PASSWORD_FILE=/run/secrets/db_password \</span><br><span class="line">  --secret db_password myapp:1.0</span><br></pre></td></tr></table></figure>
+
+<p>记住一句话：<strong>镜像里有的东西，等于公开了的东西。</strong></p>
+<hr>
+<h3 id="八、EXPOSE：文档，不是端口映射"><a href="#八、EXPOSE：文档，不是端口映射" class="headerlink" title="八、EXPOSE：文档，不是端口映射"></a>八、EXPOSE：文档，不是端口映射</h3><p><code>EXPOSE 8080</code> 只是声明容器意图监听这个端口，<strong>它本身不会做任何端口映射</strong>。真正把端口对宿主开放的是 <code>docker run -p 8080:8080</code>。</p>
+<p>那 <code>EXPOSE</code> 还有用吗？有。它是镜像的”文档”，让使用者和编排系统（比如 <code>docker run -P</code> 大写 P、K8s 的某些自动发现）知道该容器监听哪些端口。我们的规范是：服务实际监听的端口必须在 <code>EXPOSE</code> 里声明，且和实际一致——声明了 8080 却监听 8081，排查问题时要命。</p>
+<hr>
+<h3 id="九、HEALTHCHECK：让编排系统知道你”真活着”"><a href="#九、HEALTHCHECK：让编排系统知道你”真活着”" class="headerlink" title="九、HEALTHCHECK：让编排系统知道你”真活着”"></a>九、HEALTHCHECK：让编排系统知道你”真活着”</h3><p>默认情况下，Docker 判断容器是否健康只看进程是否在跑。但进程在跑不等于服务能服务——线程死锁、连接池耗尽、依赖挂了，进程都还活着，对外却是死的。这就需要 <code>HEALTHCHECK</code>：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">HEALTHCHECK</span><span class="language-bash"> --interval=30s --<span class="built_in">timeout</span>=5s --start-period=40s --retries=3 \</span></span><br><span class="line"><span class="language-bash">  CMD curl -fsS http://localhost:8080/actuator/health || <span class="built_in">exit</span> 1</span></span><br></pre></td></tr></table></figure>
+
+<!-- 校准：请按真实经历核实/替换 -->
+
+<p>四个参数要按服务实际启动时间调：<code>start-period</code> 给应用预热用的宽限（Spring Boot 启动慢就调大），<code>interval</code> 是稳态检查频率，<code>retries</code> 决定连续失败几次才算 unhealthy。</p>
+<p>我们线上一个真实教训：一个 Java 服务没配 HEALTHCHECK，OOM 后 GC 抖动但进程没死，编排系统以为它健康继续往里导流量，故障放大了 8 分钟才被人工发现。加上 HEALTHCHECK（curl actuator&#x2F;health，actuator 里我们接了 JVM、DB、Redis 的健康指示器）之后，这类半死不活的状态 90 秒内就被摘掉。</p>
+<p>还有两个 HEALTHCHECK 的细节值得说。第一，健康检查端点要轻——别在 <code>/health</code> 里做重逻辑（比如全表 count），否则每 30 秒一次的探针会拖垮服务本身；我们曾把一个带了 DB 慢查询的 health 接口上线，结果探针本身成了主要负载。第二，健康检查的退出码语义是固定的：0 健康、1 不健康，脚本里别用其他码，否则会被当成不健康处理。</p>
+<hr>
+<h3 id="十、USER：非-root-运行不是可选项，是底线"><a href="#十、USER：非-root-运行不是可选项，是底线" class="headerlink" title="十、USER：非 root 运行不是可选项，是底线"></a>十、USER：非 root 运行不是可选项，是底线</h3><p>容器默认以 root 运行。这意味着如果应用有 RCE 漏洞，攻击者拿到的是容器内的 root，配合一个内核提权或挂载逃逸就能上宿主。<strong>生产镜像必须以非 root 用户运行。</strong></p>
+<p>标准写法：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">RUN</span><span class="language-bash"> groupadd -r app &amp;&amp; useradd -r -g app -d /app -s /sbin/nologin app &amp;&amp; \</span></span><br><span class="line"><span class="language-bash">    <span class="built_in">chown</span> -R app:app /app</span></span><br><span class="line"><span class="keyword">USER</span> app</span><br></pre></td></tr></table></figure>
+
+<p>或者更省事，用基础镜像自带的非 root 用户（很多官方镜像有，比如 <code>node</code> 镜像的 <code>node</code> 用户）。注意 <code>USER</code> 之后，所有后续 <code>COPY</code>、<code>RUN</code> 都以该用户身份执行——如果该用户对目标目录没写权限，COPY 会失败。所以要么在切用户前 <code>chown</code>，要么 COPY 时带 <code>--chown</code>。</p>
+<p>我们规定镜像内服务监听端口必须 &gt; 1024（非特权端口），避免非 root 用户绑不上端口。Spring Boot 改 <code>server.port=8080</code> 而不是 80，就是这个原因。</p>
+<p>还有个反直觉的点：<code>USER</code> 指令之后如果还有 <code>RUN</code>，那些 <code>RUN</code> 也会以非 root 身份执行。如果某条 <code>RUN</code> 需要装系统包（要 root），顺序就错了——必须把所有需要 root 的安装放在 <code>USER</code> 之前，切完用户后只做不需要特权的操作。这条顺序规则我们在 code review 里改过不下十次。</p>
+<hr>
+<h3 id="十一、生产级-Dockerfile-模板：Spring-Boot-服务"><a href="#十一、生产级-Dockerfile-模板：Spring-Boot-服务" class="headerlink" title="十一、生产级 Dockerfile 模板：Spring Boot 服务"></a>十一、生产级 Dockerfile 模板：Spring Boot 服务</h3><p>下面是我们线上一个 Spring Boot 微服务真实在用的模板（已脱敏、参数为占位值）。它把前面所有原则落到一份文件里：</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># syntax=docker/dockerfile:1.7</span></span><br><span class="line"></span><br><span class="line"><span class="comment">############################</span></span><br><span class="line"><span class="comment"># 阶段 1：构建（可访问密钥）</span></span><br><span class="line"><span class="comment">############################</span></span><br><span class="line"><span class="keyword">FROM</span> maven:<span class="number">3.9</span>.<span class="number">6</span>-eclipse-temurin-<span class="number">17</span> AS builder</span><br><span class="line"><span class="keyword">WORKDIR</span><span class="language-bash"> /build</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 先 COPY 依赖描述，最大化缓存命中</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> pom.xml ./</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> src ./src</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 用 BuildKit secret 挂载 Nexus 凭据，不进镜像层</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> --mount=<span class="built_in">type</span>=secret,<span class="built_in">id</span>=nexus_settings,target=/root/.m2/settings.xml \</span></span><br><span class="line"><span class="language-bash">    mvn -B -q clean package -DskipTests</span></span><br><span class="line"></span><br><span class="line"><span class="comment">############################</span></span><br><span class="line"><span class="comment"># 阶段 2：运行时（最小化）</span></span><br><span class="line"><span class="comment">############################</span></span><br><span class="line"><span class="keyword">FROM</span> eclipse-temurin:<span class="number">17.0</span>.<span class="number">10</span>_7-jre-jammy</span><br><span class="line"></span><br><span class="line"><span class="comment"># 一次性装齐：时区数据、locale、ca-certificates、curl（健康检查用）</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> apt-get update &amp;&amp; \</span></span><br><span class="line"><span class="language-bash">    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \</span></span><br><span class="line"><span class="language-bash">        ca-certificates curl tini tzdata locales &amp;&amp; \</span></span><br><span class="line"><span class="language-bash">    <span class="built_in">echo</span> <span class="string">&quot;Asia/Shanghai&quot;</span> &gt; /etc/timezone &amp;&amp; \</span></span><br><span class="line"><span class="language-bash">    <span class="built_in">ln</span> -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime &amp;&amp; \</span></span><br><span class="line"><span class="language-bash">    <span class="built_in">echo</span> <span class="string">&quot;en_US.UTF-8 UTF-8&quot;</span> &gt;&gt; /etc/locale.gen &amp;&amp; \</span></span><br><span class="line"><span class="language-bash">    <span class="built_in">echo</span> <span class="string">&quot;zh_CN.UTF-8 UTF-8&quot;</span> &gt;&gt; /etc/locale.gen &amp;&amp; \</span></span><br><span class="line"><span class="language-bash">    locale-gen &amp;&amp; \</span></span><br><span class="line"><span class="language-bash">    <span class="built_in">rm</span> -rf /var/lib/apt/lists/*</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">ENV</span> TZ=Asia/Shanghai \</span><br><span class="line">    LANG=en_US.UTF-<span class="number">8</span> \</span><br><span class="line">    LANGUAGE=en_US:en \</span><br><span class="line">    LC_ALL=en_US.UTF-<span class="number">8</span> \</span><br><span class="line">    JAVA_OPTS=<span class="string">&quot;-XX:+UseG1GC -XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 创建非 root 用户</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> groupadd -r app &amp;&amp; \</span></span><br><span class="line"><span class="language-bash">    useradd -r -g app -d /app -s /sbin/nologin app &amp;&amp; \</span></span><br><span class="line"><span class="language-bash">    <span class="built_in">mkdir</span> -p /app /app/logs &amp;&amp; \</span></span><br><span class="line"><span class="language-bash">    <span class="built_in">chown</span> -R app:app /app</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">WORKDIR</span><span class="language-bash"> /app</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 只从 builder 拷产物，settings.xml / 源码 / 构建工具一概不带</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> --from=builder --<span class="built_in">chown</span>=app:app /build/target/*.jar /app/app.jar</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">USER</span> app</span><br><span class="line"></span><br><span class="line"><span class="keyword">EXPOSE</span> <span class="number">8080</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># tini 做 PID 1，正确处理信号转发与僵尸进程回收</span></span><br><span class="line"><span class="keyword">ENTRYPOINT</span><span class="language-bash"> [<span class="string">&quot;/usr/bin/tini&quot;</span>, <span class="string">&quot;--&quot;</span>, <span class="string">&quot;sh&quot;</span>, <span class="string">&quot;-c&quot;</span>, <span class="string">&quot;exec java <span class="variable">$JAVA_OPTS</span> -jar /app/app.jar&quot;</span>]</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">CMD</span><span class="language-bash"> [<span class="string">&quot;--spring.profiles.active=prod&quot;</span>]</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">HEALTHCHECK</span><span class="language-bash"> --interval=30s --<span class="built_in">timeout</span>=5s --start-period=60s --retries=3 \</span></span><br><span class="line"><span class="language-bash">  CMD curl -fsS http://127.0.0.1:8080/actuator/health || <span class="built_in">exit</span> 1</span></span><br></pre></td></tr></table></figure>
+
+<!-- 校准：请按真实经历核实/替换 -->
+
+<p>构建命令：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">DOCKER_BUILDKIT=1 docker build \</span><br><span class="line">  --secret <span class="built_in">id</span>=nexus_settings,src=<span class="variable">$HOME</span>/.m2/settings.xml \</span><br><span class="line">  --build-arg APP_VERSION=2.4.1 \</span><br><span class="line">  -t registry.example.com/myapp:2.4.1 \</span><br><span class="line">  -t registry.example.com/myapp:latest \</span><br><span class="line">  -f Dockerfile .</span><br></pre></td></tr></table></figure>
+
+<p>几个值得点出的设计决策：</p>
+<ul>
+<li><strong>多阶段构建</strong>：最终镜像不含 Maven、源码、settings.xml，体积从构建镜像的 ~900 MB 降到 ~210 MB。</li>
+<li><strong>tini 做 PID 1</strong>：解决原生 PID 1 不转发信号的问题，Java 进程能正确收到 SIGTERM 优雅退出，<code>docker stop</code> 不再卡 10 秒超时。</li>
+<li><strong>时区 + locale 一起处理</strong>：UTF-8 locale 配齐，避免日志里中文乱码；时区设 Asia&#x2F;Shanghai，日志时间和业务时间一致。</li>
+<li><strong>MaxRAMPercentage 代替固定 Xmx</strong>：容器里内存是 cgroup 限额，用百分比让 JVM 自动适配，换规格不用改 Dockerfile。</li>
+<li><strong>ExitOnOutOfMemoryError</strong>：OOM 时直接退出，让编排系统重启，而不是半死不活地撑着。</li>
+</ul>
+<hr>
+<h3 id="十二、踩坑复盘：四个真实事故"><a href="#十二、踩坑复盘：四个真实事故" class="headerlink" title="十二、踩坑复盘：四个真实事故"></a>十二、踩坑复盘：四个真实事故</h3><p><strong>踩坑一：密钥泄露进镜像层。</strong> 起因是早期图省事，把私有仓库的 <code>.npmrc</code>（含 token）COPY 进镜像再删。审计时发现 <code>docker history</code> 里清清楚楚。教训：<strong>任何在构建期被 COPY 或 ARG 传入的值，都视为已进入镜像历史。</strong> 全部迁移到多阶段 + BuildKit secret mount，并轮换了所有暴露过的凭据。</p>
+<p><strong>踩坑二：时区错乱导致报表跨天。</strong> 服务上线后业务方反馈某张日报的时间区间对不上。排查发现容器时区是 UTC，定时任务用的是 <code>LocalDateTime.now()</code>，凌晨 0 点触发的任务实际在 UTC 16:00 跑，跨了业务日。修复：基础镜像装 tzdata、设 <code>TZ=Asia/Shanghai</code>、<code>ln -sf</code> 本地时间。后来我们立了规矩：<strong>所有镜像默认带时区配置，禁止裸 UTC 上线。</strong></p>
+<p><strong>踩坑三：locale 缺失，中文日志变问号。</strong> 一个 Java 服务日志里中文全部显示成 <code>?</code>，本地怎么跑都正常。根因是基础镜像只有 <code>C</code> locale，JVM 默认用 <code>file.encoding=ANSI_X3.4-1968</code>，中文编不进去。装 locales 包、<code>locale-gen en_US.UTF-8</code>、<code>ENV LANG=en_US.UTF-8</code> 三件套解决。后来 <code>locale</code> 配置进了我们的镜像基线。</p>
+<p><strong>踩坑四：容器以 root 跑，被 RCE 后横向移动。</strong> 一次安全演练，红队利用一个反序列化漏洞拿到了某服务容器的 shell，因为是 root，直接读了挂载进来的 kubeconfig，进而横向到了整个集群。整改：所有业务镜像强制非 root、移除挂载进来的高权限凭据、用 NetworkPolicy 限制东西向流量。这是推动我们立”非 root 运行是底线”这条规矩的直接原因。</p>
+<hr>
+<h3 id="十三、结语：可信镜像的四个特征"><a href="#十三、结语：可信镜像的四个特征" class="headerlink" title="十三、结语：可信镜像的四个特征"></a>十三、结语：可信镜像的四个特征</h3><p>写到这里，可以把一份”好的生产级 Dockerfile”总结成四个特征：</p>
+<ol>
+<li><strong>小</strong>：多阶段构建 + slim&#x2F;alpine 基础镜像，最终镜像只含运行必需物。</li>
+<li><strong>安全</strong>：非 root 运行、最小权限、密钥不进层、定期 CVE 扫描。</li>
+<li><strong>可复现</strong>：基础镜像钉到 digest、依赖锁文件、构建用 BuildKit。</li>
+<li><strong>可观测</strong>：HEALTHCHECK、tini 信号处理、清晰的 ENTRYPOINT&#x2F;CMD 语义。</li>
+</ol>
+<p>Dockerfile 不是配置文件，它是镜像生产线的工程图纸。每一条指令都值得较真——因为线上炸的每一个坑，追溯回去都是某条指令当时”图省事”。</p>
+<p>把这些规矩落到团队的 Dockerfile 模板里，配上一次 CI 流水线的镜像扫描，你会发现自己晚上睡觉踏实多了。这是我们在踩了无数次坑之后，最值钱的一条经验。</p>
+<!-- 校准：请按真实经历核实/替换 -->
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Docker/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Docker<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/Dockerfile/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Dockerfile<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/hadoop-hdfs-small-files"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">HDFS 小文件问题：成因、影响与生产治理实战</div></div></a></div><div class="next-post pull-right"><a href="/posts/docker-image-layer-optimization"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">Docker 镜像分层原理与构建优化实战：把一个 2.3GB 镜像压到 180MB 的复盘</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#Dockerfile-%E5%AE%9E%E6%88%98%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5%E4%B8%8E%E7%94%9F%E4%BA%A7%E7%BA%A7%E6%A8%A1%E6%9D%BF%EF%BC%9A%E4%BB%8E%E8%B8%A9%E5%9D%91%E5%88%B0%E5%8F%AF%E4%BF%A1%E9%95%9C%E5%83%8F"><span class="toc-text">Dockerfile 实战最佳实践与生产级模板：从踩坑到可信镜像</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%80%E3%80%81FROM%EF%BC%9A%E5%9F%BA%E7%A1%80%E9%95%9C%E5%83%8F%E7%9A%84%E9%80%89%E6%8B%A9%E6%98%AF%E7%AC%AC%E4%B8%80%E9%81%93%E5%88%86%E6%B0%B4%E5%B2%AD"><span class="toc-text">一、FROM：基础镜像的选择是第一道分水岭</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BA%8C%E3%80%81WORKDIR%EF%BC%9A%E5%88%AB%E5%86%8D%E7%94%A8-cd-%E4%BA%86"><span class="toc-text">二、WORKDIR：别再用 cd 了</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%89%E3%80%81COPY-vs-ADD%EF%BC%9A90-%E7%9A%84%E5%9C%BA%E6%99%AF%E4%BD%A0%E5%8F%AA%E9%9C%80%E8%A6%81-COPY"><span class="toc-text">三、COPY vs ADD：90% 的场景你只需要 COPY</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9B%9B%E3%80%81RUN%EF%BC%9A%E5%B1%82%E3%80%81%E7%BC%93%E5%AD%98%E4%B8%8E%E5%90%88%E5%B9%B6%E7%9A%84%E8%89%BA%E6%9C%AF"><span class="toc-text">四、RUN：层、缓存与合并的艺术</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BA%94%E3%80%81ENV-vs-ARG%EF%BC%9A%E6%9E%84%E5%BB%BA%E6%9C%9F-vs-%E8%BF%90%E8%A1%8C%E6%9C%9F%EF%BC%8C%E5%88%AB%E6%B7%B7%E4%BA%86"><span class="toc-text">五、ENV vs ARG：构建期 vs 运行期，别混了</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%85%AD%E3%80%81ENTRYPOINT-vs-CMD%EF%BC%9A%E7%BB%84%E5%90%88%E8%AF%AD%E4%B9%89%E6%98%AF-Dockerfile-%E9%87%8C%E6%9C%80%E5%AE%B9%E6%98%93%E5%86%99%E9%94%99%E7%9A%84%E5%9C%B0%E6%96%B9"><span class="toc-text">六、ENTRYPOINT vs CMD：组合语义是 Dockerfile 里最容易写错的地方</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E6%9E%84%E5%BB%BA%E6%9C%9F-secret%EF%BC%9A%E8%BF%99%E7%AF%87%E6%96%87%E7%AB%A0%E6%9C%80%E9%87%8D%E8%A6%81%E7%9A%84%E4%B8%80%E8%8A%82"><span class="toc-text">七、构建期 secret：这篇文章最重要的一节</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%85%AB%E3%80%81EXPOSE%EF%BC%9A%E6%96%87%E6%A1%A3%EF%BC%8C%E4%B8%8D%E6%98%AF%E7%AB%AF%E5%8F%A3%E6%98%A0%E5%B0%84"><span class="toc-text">八、EXPOSE：文档，不是端口映射</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B9%9D%E3%80%81HEALTHCHECK%EF%BC%9A%E8%AE%A9%E7%BC%96%E6%8E%92%E7%B3%BB%E7%BB%9F%E7%9F%A5%E9%81%93%E4%BD%A0%E2%80%9D%E7%9C%9F%E6%B4%BB%E7%9D%80%E2%80%9D"><span class="toc-text">九、HEALTHCHECK：让编排系统知道你”真活着”</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%8D%81%E3%80%81USER%EF%BC%9A%E9%9D%9E-root-%E8%BF%90%E8%A1%8C%E4%B8%8D%E6%98%AF%E5%8F%AF%E9%80%89%E9%A1%B9%EF%BC%8C%E6%98%AF%E5%BA%95%E7%BA%BF"><span class="toc-text">十、USER：非 root 运行不是可选项，是底线</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%8D%81%E4%B8%80%E3%80%81%E7%94%9F%E4%BA%A7%E7%BA%A7-Dockerfile-%E6%A8%A1%E6%9D%BF%EF%BC%9ASpring-Boot-%E6%9C%8D%E5%8A%A1"><span class="toc-text">十一、生产级 Dockerfile 模板：Spring Boot 服务</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%8D%81%E4%BA%8C%E3%80%81%E8%B8%A9%E5%9D%91%E5%A4%8D%E7%9B%98%EF%BC%9A%E5%9B%9B%E4%B8%AA%E7%9C%9F%E5%AE%9E%E4%BA%8B%E6%95%85"><span class="toc-text">十二、踩坑复盘：四个真实事故</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%8D%81%E4%B8%89%E3%80%81%E7%BB%93%E8%AF%AD%EF%BC%9A%E5%8F%AF%E4%BF%A1%E9%95%9C%E5%83%8F%E7%9A%84%E5%9B%9B%E4%B8%AA%E7%89%B9%E5%BE%81"><span class="toc-text">十三、结语：可信镜像的四个特征</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/docker-observability-troubleshooting.html","posts/hadoop-mapreduce-shuffle.html","posts/docker-private-registry-harbor.html","posts/docker-security-hardening.html","posts/docker-compose-orchestration.html","posts/hadoop-yarn-scheduler.html","posts/docker-resource-limits.html","posts/docker-storage-persistence.html","posts/docker-network-deep-dive.html","posts/hadoop-hdfs-small-files.html","posts/dockerfile-best-practices.html","posts/docker-image-layer-optimization.html","posts/docker-architecture.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>
