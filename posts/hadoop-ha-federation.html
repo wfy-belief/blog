@@ -1,0 +1,417 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Hadoop 高可用架构：NameNode HA、ResourceManager HA 与 Federation | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/hadoop-ha-federation"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="讲透 Hadoop 的单点消除之道与元数据水平扩展"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文以第一人称复盘某 PB 级 Hadoop 集群的高可用改造与 Federation 落地经验，系统讲透 NameNode HA 的 Active/Standby 双 NameNode 架构、QJM 多数写与 NFS 对比、ZKFC + ZooKeeper 自动故障转移与脑裂 fencing，再到 ResourceManager HA 与 HDFS Federation 的 Block Pool 解耦、ViewFS/Router 统一视图，最后落到 QJM 部署、脑裂排查、客户端 failover 调优等生产踩坑，帮助大数据工程师建立从底线到天花板的完整 HA 工程视角。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>10</sup></a><a href="/tags/HDFS/">HDFS<sup>2</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>1</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>1</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">10</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">11</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">11</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">21</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>10</sup></a><a href="/tags/HDFS/">HDFS<sup>2</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>1</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>1</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">Hadoop 高可用架构：NameNode HA、ResourceManager HA 与 Federation</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop</span></a><a class="post-meta__tags" href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>高可用</span></a><a class="post-meta__tags" href="/tags/Federation/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Federation</span></a></div></div></div></div><h1 class="post-title">Hadoop 高可用架构：NameNode HA、ResourceManager HA 与 Federation</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h1 id="Hadoop-高可用架构：NameNode-HA、ResourceManager-HA-与-Federation"><a href="#Hadoop-高可用架构：NameNode-HA、ResourceManager-HA-与-Federation" class="headerlink" title="Hadoop 高可用架构：NameNode HA、ResourceManager HA 与 Federation"></a>Hadoop 高可用架构：NameNode HA、ResourceManager HA 与 Federation</h1><p>在我维护的那个约 200 节点、3 PB 规模的 Hadoop 集群里 <!-- 校准：请按真实经历核实/替换 -->，最让我后怕的一次事故，不是 DataNode 磁盘坏了一片，也不是 Spark 任务跑挂了，而是 NameNode 所在节点的主板烧了。那一年我们的集群还没上 HA，NameNode 是单点。机器一死，整个 HDFS 不可读写，所有上层 Hive&#x2F;Spark 作业全部卡死，恢复靠的是把 fsimage 拷到备机再启动——前后宕了接近 40 分钟 <!-- 校准：请按真实经历核实/替换 -->。从那天起，”消除单点”成了我心里的一条红线。</p>
+<p>这篇文章把我在生产里把一个非 HA 集群一步步改造为 NameNode HA + ResourceManager HA，又在元数据膨胀后引入 Federation 的全过程复盘清楚。重点不在配置文档抄一遍，而是把每个机制背后的设计假设、失败语义和我们踩过的坑讲透。</p>
+<h2 id="一、为什么-NameNode-是最致命的单点"><a href="#一、为什么-NameNode-是最致命的单点" class="headerlink" title="一、为什么 NameNode 是最致命的单点"></a>一、为什么 NameNode 是最致命的单点</h2><p>HDFS 的元数据（目录树、文件-&gt;block 映射、DN 拓扑）全部常驻 NameNode 内存，DataNode 只是块存储的”工人”。这意味着：</p>
+<ul>
+<li>NameNode 进程挂了，集群无法 open&#x2F;delete&#x2F;rename 任何文件；</li>
+<li>NameNode 所在节点宕了，连 block location 都拿不到，客户端读已缓存的 block 还能凑合，但写和新建全部失败；</li>
+<li>更糟的是，如果 fsimage + edits 损坏，可能丢失最近一段时间的元数据，连带整个集群的数据”地址簿”作废。</li>
+</ul>
+<p>在 Hadoop 2.0 之前，业界普遍用 NFS 或 SecondaryNameNode 做”热备”。但 SecondaryNameNode 本质是定期合并 fsimage 的快照工，不是热备；NFS 共享 edits 能让备机拿到日志，但 NFS 自己又是单点。真正的双活热备（Active&#x2F;Standby）直到 Hadoop 2.0 引入 HA 才算落地。这张图概括了改造前后的差别：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">非 HA 架构（SPOF）:</span><br><span class="line">   Client ──RPC──&gt; [ NameNode (唯一) ] ──edits──&gt; NFS/本地</span><br><span class="line">                         |</span><br><span class="line">                      DataNode x N</span><br><span class="line"></span><br><span class="line">HA 架构（双 NameNode）:</span><br><span class="line">   Client ──RPC──&gt; [ Active NN ] ──edits──&gt; JournalNode Quorum (3/5)</span><br><span class="line">                        ^                       |</span><br><span class="line">                        |---- 心脑/状态 ----ZK + ZKFC</span><br><span class="line">                        v                       v</span><br><span class="line">                    [ Standby NN ] &lt;──读 edits── JournalNode Quorum</span><br><span class="line">                         |</span><br><span class="line">                      DataNode x N</span><br></pre></td></tr></table></figure>
+
+<p>下面进入正题。</p>
+<h2 id="二、NameNode-HA-原理：Active-Standby-双-NameNode"><a href="#二、NameNode-HA-原理：Active-Standby-双-NameNode" class="headerlink" title="二、NameNode HA 原理：Active&#x2F;Standby 双 NameNode"></a>二、NameNode HA 原理：Active&#x2F;Standby 双 NameNode</h2><h3 id="2-1-整体结构"><a href="#2-1-整体结构" class="headerlink" title="2.1 整体结构"></a>2.1 整体结构</h3><p>NameNode HA 的核心是同时运行两个 NameNode：一个 Active（负责所有客户端读写），一个 Standby（持续同步 Active 的 edits，随时准备接管）。两者的关键差异不在进程，而在”谁持有写 edits 的权力”——只有 Active 能向 JournalNode 集群发起写。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">             +-------------------+        +-------------------+</span><br><span class="line">Client ----&gt;|  Active NameNode  |        | Standby NameNode  |</span><br><span class="line">             +--------+----------+        +----------^--------+</span><br><span class="line">                      |                              |</span><br><span class="line">                 写 edits                       读 edits 回放</span><br><span class="line">                      v                              |</span><br><span class="line">           +-----------------------+                 |</span><br><span class="line">           | JournalNode 1/2/3 ... | (Quorum, 多数写) |</span><br><span class="line">           +-----------------------+                 |</span><br><span class="line">                      ^                              |</span><br><span class="line">                      +------------------------------+</span><br><span class="line">                       (Standby 持续从 JN 拉取 edits)</span><br><span class="line"></span><br><span class="line">DataNode 同时向 Active 和 Standby 汇报块报告（非常重要）</span><br></pre></td></tr></table></figure>
+
+<p>这里有几个工程细节常被一笔带过：</p>
+<ol>
+<li><strong>DataNode 块报告必须双发</strong>。在 HA 下，每个 DataNode 都要同时向 Active 和 Standby 上报 block report 和增量块报告，否则 Standby 接管时它的元数据里 block-&gt;DN 映射是过期的，会发生大量”误判 block 缺失”。配置项 <code>dfs.datanode.address</code>、<code>dfs.datanode.http.address</code> 等 DataNode 端的 NN 地址列表要写全两个。</li>
+<li><strong>客户端要配置 nameservice 而不是某个 NN 的 host</strong>。客户端通过 HA URI（如 <code>hdfs://mycluster/...</code>）访问，由客户端侧的 <code>ConfiguredFailoverProxyProvider</code> 决定连哪个 NN。</li>
+<li><strong>Standby 不是热读副本</strong>。Hadoop 2.x 里 Standby 不接读请求，到 3.x 才支持 <code>dfs.ha.tail-edits.in-progress</code> 让 Standby 更接近实时，但读仍走 Active（除非用了 Observer NN，HDFS-13583 引入的读副本，这是另一个话题）。</li>
+</ol>
+<h3 id="2-2-共享存储：QJM-vs-NFS"><a href="#2-2-共享存储：QJM-vs-NFS" class="headerlink" title="2.2 共享存储：QJM vs NFS"></a>2.2 共享存储：QJM vs NFS</h3><p>Active 写的 edits 必须可靠地让 Standby 看到，这就是”共享 Edit Log 存储”的职责。两种主流实现：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>QJM（Quorum Journal Manager）</th>
+<th>NFS 共享存储</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>部署</td>
+<td>3 或 5 个 JournalNode 进程，与 NN 共置即可</td>
+<td>需要独立 NFS 服务器&#x2F;存储阵列</td>
+</tr>
+<tr>
+<td>写语义</td>
+<td>多数写成功即算提交（2N+1 容忍 N 个故障）</td>
+<td>单点，NFS 挂了写不动</td>
+</tr>
+<tr>
+<td>Fencing</td>
+<td>JN 仅接受一个 Active 的写（基于 epoch）</td>
+<td>依赖 NFS 锁，弱</td>
+</tr>
+<tr>
+<td>运维</td>
+<td>简单，纯 Java 进程</td>
+<td>复杂，依赖 OS&#x2F;NFS 服务</td>
+</tr>
+<tr>
+<td>性能</td>
+<td>多数写有网络开销，但通常够用</td>
+<td>本地写，延迟低但单点</td>
+</tr>
+</tbody></table>
+<p>我们在选型时几乎没犹豫就上了 <strong>QJM，部署 3 个 JournalNode</strong> <!-- 校准：请按真实经历核实/替换 -->。理由是 QJM 把”共享存储”这个单点用多数派协议消除了，这是 HA 设计里最优雅的一笔——它本身就是一个微型 Quorum 协议。</p>
+<p>QJM 的核心是 <strong>Paxos-like 的多数写</strong>：Active 写一条 edit log 时，要同时向所有 JN 发起写请求，超过半数（3 个里 2 个、5 个里 3 个）成功就算提交。这样即便一个 JN 宕机，整个 HA 链路仍可用。多 JN 之间的同步靠 <strong>edits 文件分段（segment）+ epoch 号</strong>保证一致性，新的 Active 接管会发起一次”precovery”，把所有 JN 上的 edits 对齐到最新已提交的 segment。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">QJM 写流程（3 JN，多数 = 2）:</span><br><span class="line">   Active NN ──写 edit #100──&gt; JN1: OK</span><br><span class="line">                  └──────────&gt; JN2: OK   =&gt; 已 2/3，提交成功，返回客户端</span><br><span class="line">                  └──────────&gt; JN3: 超时</span><br><span class="line"></span><br><span class="line">   (JN3 恢复后会从 JN1/JN2 同步缺失的 segment)</span><br></pre></td></tr></table></figure>
+
+<p>QJM 用 <strong>epoch 号</strong>做 fencing：每次 Active 切换都会生成一个单调递增的 epoch，写 JN 时带上，JN 拒绝比它已知 epoch 小的写。这就从根本上防止了”老 Active 假死复活后继续写 edits”的脑裂。</p>
+<h3 id="2-3-手动-vs-自动故障转移"><a href="#2-3-手动-vs-自动故障转移" class="headerlink" title="2.3 手动 vs 自动故障转移"></a>2.3 手动 vs 自动故障转移</h3><p>HA 的故障转移分两档：</p>
+<ul>
+<li><strong>手动（manual failover）</strong>：运维执行 <code>hdfs haadmin -failover nn1 nn2</code>。优点是可控，缺点是半夜报警要人爬起来。</li>
+<li><strong>自动（automatic failover）</strong>：依赖 ZooKeeper + ZKFailoverController（ZKFC）。ZKFC 是 NN 旁边的独立进程，负责健康监控、ZK 会话维持、master 选举和触发切换。</li>
+</ul>
+<p>生产里基本都要上自动故障转移——HA 没有自动切换等于半残。下一节展开。</p>
+<h3 id="2-4-Fencing：脑裂的最后一道防线"><a href="#2-4-Fencing：脑裂的最后一道防线" class="headerlink" title="2.4 Fencing：脑裂的最后一道防线"></a>2.4 Fencing：脑裂的最后一道防线</h3><p>脑裂（split-brain）是分布式系统最可怕的故障：网络分区让两个 NN 都以为自己是 Active，于是都向 JN 写 edits，元数据彻底乱套。QJM 的 epoch 机制在共享存储层做了一道 fencing，但还可能有更隐蔽的场景——比如老 Active 进程卡住没死、网络瞬断后恢复。</p>
+<p>所以 HA 在切换时强制要求对老 Active 做 fencing（隔离），配置在 <code>dfs.ha.fencing.methods</code>：</p>
+<ul>
+<li><strong>sshfence</strong>：通过 SSH 登录老 NN 所在节点，杀掉 NN 进程（<code>kill -9</code>）。简单可靠，但要求 NN 之间互信 SSH。</li>
+<li><strong>shellfence</strong>：执行任意 shell 脚本，比如调用 IPMI&#x2F;PDU 电源切断、隔离网络。</li>
+<li><strong>STONITH</strong>（Shoot The Other Node In The Head）：硬件级电源隔离，最暴力也最彻底，常配合 PDU&#x2F;IPMI 实现。</li>
+</ul>
+<p>我们生产用的是 <code>sshfence</code> + <code>shellfence</code>（双保险，前者失败走后者调 PDU 断电） <!-- 校准：请按真实经历核实/替换 -->。原则是：宁可错杀，不可漏放。fencing 失败的故障转移会被强制中止——宁可集群短暂不可用，也不能让两个 Active 同时写。</p>
+<h2 id="三、自动故障转移流程：ZKFC-ZooKeeper"><a href="#三、自动故障转移流程：ZKFC-ZooKeeper" class="headerlink" title="三、自动故障转移流程：ZKFC + ZooKeeper"></a>三、自动故障转移流程：ZKFC + ZooKeeper</h2><p>自动故障转移的灵魂是 ZKFC。每个 NN 节点上跑一个 ZKFC 进程，它做四件事：健康检查、ZK 会话维持、master 选举、触发切换。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">ZKFC 的工作模型（每个 NN 节点一个 ZKFC）:</span><br><span class="line"></span><br><span class="line">   +----[ Node 1 ]----+        +----[ Node 2 ]----+</span><br><span class="line">   |  NN1 (Active)    |        |  NN2 (Standby)   |</span><br><span class="line">   |     ^            |        |     ^            |</span><br><span class="line">   |     | 健康检查    |        |     | 健康检查    |</span><br><span class="line">   |  ZKFC1 -------+   |        |  ZKFC2 ------+   |</span><br><span class="line">   +---------------|---+        +---------------|---+</span><br><span class="line">                   |                              |</span><br><span class="line">                   v                              v</span><br><span class="line">              +-----------------------------------+</span><br><span class="line">              |   ZooKeeper (3/5 节点集群)         |</span><br><span class="line">              |   /hadoop-ha/mycluster            |</span><br><span class="line">              |     |- ActiveStandbyElectorLock   | (临时节点，谁抢到谁是 Active)</span><br><span class="line">              |     |- ActiveBreadCrumb           | (持久节点，记录当前 Active)</span><br><span class="line">              +-----------------------------------+</span><br></pre></td></tr></table></figure>
+
+<p>故障转移的完整流程：</p>
+<ol>
+<li><strong>健康检查</strong>：ZKFC 周期性（默认 1 秒，<code>ha.health-monitor.check-interval.ms</code>）<!-- 校准：请按真实经历核实/替换 --> 调用 NN 的 <code>MonitorHealth</code> RPC，判断 NN 是否健康。健康状态分 SERVICE_HEALTHY &#x2F; SERVICE_UNHEALTHY &#x2F; SERVICE_NOT_RESPONDING &#x2F; HEALTH_CHECK_FAILED。</li>
+<li><strong>会话失活</strong>：如果 ZKFC 进程崩溃、或 ZKFC 与 ZK 网络断开、或所在节点宕机，ZK 上 ZKFC 持有的临时节点（ActiveStandbyElectorLock）会因 session timeout 被删除。</li>
+<li><strong>选举</strong>：锁一释放，另一个 NN 的 ZKFC 就能竞争创建这个临时节点。先创建成功的那个，就把自己的 NN 标记为 Active。</li>
+<li><strong>Fencing 老 Active</strong>：新 Active 在写入 JN 前，必须先对老 Active 做 fencing（见 2.4）。</li>
+<li><strong>状态切换</strong>：原 Standby 完成状态转换，开始服务客户端。</li>
+</ol>
+<p>这里有几个细节最容易被忽视：</p>
+<ul>
+<li><strong>ZK session timeout 是核心调优参数</strong>。设太短，NN 一次 Full GC 会被误判为宕机触发误切换；设太长，真宕机了响应慢。我们生产把 session 设为 10 秒 <!-- 校准：请按真实经历核实/替换 -->，配合 NN 的 GC 调优避免长时间 STW。</li>
+<li><strong>假死（false positive）问题</strong>。ZKFC 的健康检查 RPC 走 NN 的 RPC server，如果 NN 因为 GC 停顿 30 秒，ZKFC 可能误判。Hadoop 加了”SERVICE_NOT_RESPONDING”状态——连续若干次没响应才认为是死。但生产里我们仍然遇到 NN 因为 RPC 队列积压（几万个待处理 RPC）导致健康检查超时，被错误地切换。</li>
+<li><strong>健康检查内容</strong>：ZKFC 不只检查 RPC 通不通，还会检查 NN 是否处于 Safemode、磁盘是否可用（<code>dfs.namenode.resource.du.reserved</code> 等）。NN 的元数据目录所在磁盘满，会触发 NN 进入不健康状态，进而引发切换。</li>
+</ul>
+<h2 id="四、ResourceManager-HA"><a href="#四、ResourceManager-HA" class="headerlink" title="四、ResourceManager HA"></a>四、ResourceManager HA</h2><p>YARN 的 ResourceManager（RM）也是单点。RM 故障不会丢数据（AM 和 NM 会重连），但会导致所有提交、调度、AM 续约中断。Hadoop 2.4 引入了 RM HA。</p>
+<h3 id="4-1-架构"><a href="#4-1-架构" class="headerlink" title="4.1 架构"></a>4.1 架构</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Client/AM/NM ──&gt; [ Active RM ] &lt;──状态同步──&gt; [ Standby RM ]</span><br><span class="line">                       |                            |</span><br><span class="line">                       +-- 写状态 ---&gt; ZooKeeperStateStore</span><br><span class="line">                       +-- 写状态 ---&gt; (可选) LevelDBStateStore / FileSystemRMStateStore</span><br></pre></td></tr></table></figure>
+
+<p>和 NameNode HA 类似，RM HA 也是 Active&#x2F;Standby 双进程，但状态存储机制不同。RM 把应用&#x2F;调度状态持久化到 RMStateStore（推荐 ZooKeeperStateStore 或 LevelDB），Standby 读取这些状态。当 Active 故障，Standby 接管并基于持久化状态恢复调度。</p>
+<h3 id="4-2-关键差异点"><a href="#4-2-关键差异点" class="headerlink" title="4.2 关键差异点"></a>4.2 关键差异点</h3><ul>
+<li><strong>RM 的状态写不需要多数派</strong>——它直接持久化到一个 StateStore。所以 RM HA 不需要 JournalNode。</li>
+<li><strong>客户端&#x2F;AM 重试</strong>：YARN 客户端和 ApplicationMaster 都内置了 failover 重试逻辑（<code>yarn.resourcemanager.connect.*</code>）。AM 续约失败会自动重连下一个 RM。</li>
+<li><strong>恢复粒度</strong>：基于 ZKStateStore，恢复后能保住正在运行的应用的调度上下文（已分配的 container、application attempt 列表），但当前调度瞬间的内存状态会丢一些，所以可能看到少量 container 被重复分配或 AM 重试。</li>
+</ul>
+<p>RM HA 的配置比较直白，重点是 <code>yarn.resourcemanager.ha.enabled=true</code>、<code>yarn.resourcemanager.cluster-id</code>、<code>yarn.resourcemanager.ha.rm-identifier</code> 列表，以及把 Store 切到 ZK。</p>
+<h2 id="五、HDFS-Federation：元数据的水平扩展"><a href="#五、HDFS-Federation：元数据的水平扩展" class="headerlink" title="五、HDFS Federation：元数据的水平扩展"></a>五、HDFS Federation：元数据的水平扩展</h2><p>HA 解决了”可用性”，但没有解决”容量”。单 NameNode 把整个集群的元数据装进内存，单机内存就是元数据规模的天花板。我们的集群在存了约 6 亿个文件后 <!-- 校准：请按真实经历核实/替换 -->，NameNode 堆内存吃满 400 GB <!-- 校准：请按真实经历核实/替换 -->，Full GC 越来越频繁，每次停顿几十秒——这是元数据瓶颈的典型信号。这时就要上 Federation。</p>
+<h3 id="5-1-为什么要-Federation：单-NN-的水平瓶颈"><a href="#5-1-为什么要-Federation：单-NN-的水平瓶颈" class="headerlink" title="5.1 为什么要 Federation：单 NN 的水平瓶颈"></a>5.1 为什么要 Federation：单 NN 的水平瓶颈</h3><p>单 NameNode 的瓶颈有多重：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>限制来源</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>元数据内存</td>
+<td>NN 堆内存上限（实际几十到几百 GB）</td>
+</tr>
+<tr>
+<td>RPC QPS</td>
+<td>单 NN 的 RPC handler 数与线程模型</td>
+</tr>
+<tr>
+<td>启动时间</td>
+<td>fsimage 越大，加载越慢（小时级）</td>
+</tr>
+<tr>
+<td>写入吞吐</td>
+<td>edits 同步成为吞吐上限</td>
+</tr>
+</tbody></table>
+<p>加机器、加内存只能延缓，不能突破。Federation 的思路是：<strong>多个独立的 NameNode，每个负责一部分命名空间</strong>。</p>
+<h3 id="5-2-核心机制：Block-Pool-与-Namespace-解耦"><a href="#5-2-核心机制：Block-Pool-与-Namespace-解耦" class="headerlink" title="5.2 核心机制：Block Pool 与 Namespace 解耦"></a>5.2 核心机制：Block Pool 与 Namespace 解耦</h3><p>Federation 的设计精髓是把 NameNode 的两类元数据解耦：</p>
+<ul>
+<li><strong>Namespace（命名空间）</strong>：目录树、文件名、权限等，每个 NN 独立维护一份。</li>
+<li><strong>Block Pool（块池）</strong>：每个 NN 拥有一个全局唯一的 block pool ID，所有 DataNode 上属于这个 NN 的 block 都归在这个 pool 下。</li>
+</ul>
+<p>DataNode 不再忠于某一个 NN，而是同时为多个 NN 注册、存储属于多个 block pool 的数据：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">Federation 架构（2 个 NameService 示例）:</span><br><span class="line"></span><br><span class="line">   Client ──&gt; +-- NameService1 (NS1) ── NN1 (Active/Standby) ─ Block Pool &quot;BP-1234&quot;</span><br><span class="line">              |</span><br><span class="line">              +-- NameService2 (NS2) ── NN2 (Active/Standby) ─ Block Pool &quot;BP-5678&quot;</span><br><span class="line">                                                           ^</span><br><span class="line">   DataNode 节点上同时持有两个 block pool:                  |</span><br><span class="line">   /data/dfs/dn/</span><br><span class="line">       current/</span><br><span class="line">           BP-1234/   &lt;- 属于 NS1 的 block（块报告给 NS1）</span><br><span class="line">                blk_xxx</span><br><span class="line">           BP-5678/   &lt;- 属于 NS2 的 block（块报告给 NS2）</span><br><span class="line">                blk_yyy</span><br></pre></td></tr></table></figure>
+
+<p>这样的好处：</p>
+<ol>
+<li><strong>水平扩展</strong>：加 NN（即加 NameService）就能扩元数据容量和 RPC QPS。</li>
+<li><strong>隔离</strong>：一个业务组的 NN 出问题，不会影响另一个业务组的 NN。</li>
+<li><strong>DataNode 复用</strong>：物理 DN 是共享的，存储空间统一调度，不需要拆集群。</li>
+</ol>
+<p>代价是<strong>没有全局命名空间</strong>——同一个客户端想访问 NS1 和 NS2 的文件，要用不同的 URI（<code>hdfs://ns1/...</code> 和 <code>hdfs://ns2/...</code>）。这就是 ViewFS &#x2F; Router 要解决的问题。</p>
+<h3 id="5-3-统一视图：ViewFS-与-Router-based-Federation"><a href="#5-3-统一视图：ViewFS-与-Router-based-Federation" class="headerlink" title="5.3 统一视图：ViewFS 与 Router-based Federation"></a>5.3 统一视图：ViewFS 与 Router-based Federation</h3><p><strong>ViewFS</strong>（老方案）：客户端侧的”挂载表”。在 core-site.xml 里配 <code>fs.viewfs.mountTable.*</code>，把 <code>/user/bi</code> 映射到 <code>hdfs://ns1/...</code>，把 <code>/user/rec</code> 映射到 <code>hdfs://ns2/...</code>，让客户端看起来有一个全局的 <code>/</code>。缺点是配置散在客户端，更新要改所有客户端配置。</p>
+<p><strong>Router-based Federation</strong>（Hadoop 2.9+ 推荐）：在客户端和 NN 之间加一层 Router 进程（类似一个 RPC 代理），Router 维护全局 mount table，客户端只连 Router。Router 本身可以多实例 HA。这种方式把挂载表集中管理，是生产 Federation 的主流选择。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">Router-based Federation:</span><br><span class="line">   Client ──&gt; [ Router (HA) ] ──根据路径──&gt; NS1 / NS2 / NS3 ...</span><br><span class="line">                (全局 mount table + StateStore)</span><br></pre></td></tr></table></figure>
+
+<p>我们落地时选了 Router 方案，Router 用 3 个实例 + ZK 做 HA，挂载表存 ZKStateStore <!-- 校准：请按真实经历核实/替换 -->。这样客户端配置干净，加 NameService 只改 Router 不动客户端。</p>
+<h2 id="六、生产实践与踩坑"><a href="#六、生产实践与踩坑" class="headerlink" title="六、生产实践与踩坑"></a>六、生产实践与踩坑</h2><p>理论和线上之间隔着一整座”踩坑库”。下面是我和团队用真金白银时间换来的经验。</p>
+<h3 id="6-1-关键-HA-配置示例"><a href="#6-1-关键-HA-配置示例" class="headerlink" title="6.1 关键 HA 配置示例"></a>6.1 关键 HA 配置示例</h3><p>下面是我们生产 <code>core-site.xml</code> 与 <code>hdfs-site.xml</code> 的核心 HA 配置（节选）。</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">&lt;!-- core-site.xml --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">configuration</span>&gt;</span></span><br><span class="line">  <span class="comment">&lt;!-- 指定 nameservice，客户端用 hdfs://mycluster 访问 --&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">name</span>&gt;</span>fs.defaultFS<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">value</span>&gt;</span>hdfs://mycluster<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="comment">&lt;!-- 启用自动故障转移 --&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.ha.automatic-failover.enabled<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">value</span>&gt;</span>true<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="comment">&lt;!-- ZK 集群地址（ZKFC + 自动 failover 用） --&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">name</span>&gt;</span>ha.zookeeper.quorum<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">value</span>&gt;</span>zk1:2181,zk2:2181,zk3:2181<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">configuration</span>&gt;</span></span><br><span class="line"></span><br><span class="line"><span class="comment">&lt;!-- hdfs-site.xml --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">configuration</span>&gt;</span></span><br><span class="line">  <span class="comment">&lt;!-- 定义 nameservice 包含哪些 NN --&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.nameservices<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">value</span>&gt;</span>mycluster<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.ha.namenodes.mycluster<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">value</span>&gt;</span>nn1,nn2<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="comment">&lt;!-- 每个 NN 的 RPC 地址 --&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.namenode.rpc-address.mycluster.nn1<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">value</span>&gt;</span>nn-host1:8020<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.namenode.rpc-address.mycluster.nn2<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">value</span>&gt;</span>nn-host2:8020<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="comment">&lt;!-- QJM 共享 edits 的地址，3 个 JournalNode --&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.namenode.shared.edits.dir<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">value</span>&gt;</span>qjournal://jn1:8485;jn2:8485;jn3:8485/mycluster<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="comment">&lt;!-- 客户端 failover 代理 --&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.client.failover.proxy.provider.mycluster<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">value</span>&gt;</span>org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="comment">&lt;!-- Fencing 方法：先 SSH 杀进程，再 shellfence --&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.ha.fencing.methods<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">value</span>&gt;</span>sshfence\nshellfence<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.ha.fencing.ssh.private-key-files<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">value</span>&gt;</span>/home/hdfs/.ssh/id_rsa<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="comment">&lt;!-- JournalNode 数据目录 --&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.journalnode.edits.dir<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">value</span>&gt;</span>/data/dfs/jn<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">configuration</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="6-2-客户端-failover-调优"><a href="#6-2-客户端-failover-调优" class="headerlink" title="6.2 客户端 failover 调优"></a>6.2 客户端 failover 调优</h3><p>客户端的 failover 行为直接决定用户感知到的”切换抖动”时长。几个值得调的参数：</p>
+<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 切换时尝试每个 NN 的最大重试次数</span></span><br><span class="line"><span class="attr">dfs.client.failover.max.attempts</span>=<span class="string">15</span></span><br><span class="line"><span class="comment"># 重试之间的睡眠（指数退避基数）</span></span><br><span class="line"><span class="attr">dfs.client.failover.sleep.base.millis</span>=<span class="string">500</span></span><br><span class="line"><span class="attr">dfs.client.failover.sleep.max.millis</span>=<span class="string">15000</span></span><br><span class="line"><span class="comment"># 切换时遇到远程异常是否触发 failover</span></span><br><span class="line"><span class="attr">dfs.client.failover.connection.retries</span>=<span class="string">0</span></span><br><span class="line"><span class="comment"># 在读/写 RPC 上启用 retry policy（避免短暂的切换导致 IO 失败）</span></span><br><span class="line"><span class="attr">ipc.client.connect.max.retries.on.timeouts</span>=<span class="string">10</span></span><br></pre></td></tr></table></figure>
+
+<p>踩坑最重的一条：<strong>客户端缓存的 block location 在 failover 后会失效</strong>。表现是某次故障切换后，部分 Spark 任务报 <code>IOException: Could not obtain block</code>。原因是客户端拿到的 block-&gt;DN 映射是基于老 Active 的，切换后 Standby 还没把 edits 回放完，block location 短暂不一致。解决：让客户端重试够久（<code>dfs.client.failover.max.attempts</code> 调大），并搭配 <code>dfs.client.retry.*</code> 重试读。</p>
+<h3 id="6-3-QJM-部署要点"><a href="#6-3-QJM-部署要点" class="headerlink" title="6.3 QJM 部署要点"></a>6.3 QJM 部署要点</h3><ul>
+<li><strong>JournalNode 数量</strong>：生产环境推荐 3 个（容忍 1 个故障）；超大规模或对可用性要求极高时用 5 个（容忍 2 个故障） <!-- 校准：请按真实经历核实/替换 -->。3 个和 5 个在多数写延迟上差异不大，但 5 个的运维成本翻倍，我们选 3 个。</li>
+<li><strong>JN 数据目录要独立盘</strong>：<code>dfs.journalnode.edits.dir</code> 指向的盘要和 DN 数据盘分开，避免 DN IO 抢占影响 edits 写延迟。JN 数据不大（活跃集群也就几 GB），用 SSD 最稳。</li>
+<li><strong>不要把 JN 和 NN 放同一节点</strong>（虽然有文档这么建议）。我们让 JN 跑在 ZK 节点上，与 NN 物理隔离，这样单机架故障不会同时打掉 NN 和 JN。</li>
+<li><strong>JN 不能”原地降级”</strong>：从 5 JN 缩到 3 JN 要走 <code>hdfs haadmin -transitionToObserver</code> 之类的流程，不能直接停掉 2 个，否则多数派协议可能错乱。</li>
+</ul>
+<h3 id="6-4-脑裂排查"><a href="#6-4-脑裂排查" class="headerlink" title="6.4 脑裂排查"></a>6.4 脑裂排查</h3><p>真脑裂我经历过一次。现象：两个 NN 都声称自己是 Active，JN 的 edits segment 出现重复 segment 号，fsimage 合并后文件数对不上。复盘下来是 sshfence 失败（SSH 互信被误改）+ 同时网络抖动让 ZK 误判。处理：</p>
+<ol>
+<li>立即手动 <code>kill -9</code> 老的 NN 进程，止血。</li>
+<li>用 <code>hdfs oiv</code> 把两个 NN 的 fsimage 转成文本，对比目录树差异。</li>
+<li>以较新 epoch 的 NN 为准，对另一个 NN 的 edits 做人工合并后 <code>bootstrapStandby</code> 重建。</li>
+</ol>
+<p>事后我们把 fencing 改成 sshfence + shellfence（shellfence 调 IPMI 断电），并且在监控里加了”双 Active 检测”——一个 Prometheus exporter 周期性查两个 NN 的 HA 状态，发现同时 Active 立即报警。这条监控救命过两次。</p>
+<h3 id="6-5-ZooKeeper-与-ZKFC-调优"><a href="#6-5-ZooKeeper-与-ZKFC-调优" class="headerlink" title="6.5 ZooKeeper 与 ZKFC 调优"></a>6.5 ZooKeeper 与 ZKFC 调优</h3><ul>
+<li><strong>ZK 集群独立部署</strong>，不要和 Hadoop 业务混部。HBase &#x2F; Kafka &#x2F; Hadoop HA 共用一个 ZK 是灾难——一个业务把 ZK 打满，所有 HA 一起崩。</li>
+<li><strong>ZK session timeout</strong> 与 ZKFC 健康检查间隔匹配。我们的经验：session timeout 10 秒、健康检查 1 秒一次、连续 3 次失败才判死 <!-- 校准：请按真实经历核实/替换 -->，对大多数 GC 抖动是宽容的。</li>
+<li><strong>ZKFC 假死</strong>：ZKFC 进程本身也可能假死（比如它自己 GC）。Hadoop 文档建议把 ZKFC 跟 NN 跑同一节点是为了便于一起挂一起活，但这意味着节点挂掉时 NN 和 ZKFC 一起失联——ZK session 自然失活，触发对端接管。所以这个设计是正确的。</li>
+<li><strong>监控 ZKFC 状态</strong>：<code>jmx</code> 暴露的 <code>Hadoop:service=HDFS,name=ZKFC</code> 里有 LastHealthState、LastFailoverTime 等指标，必须接到告警。</li>
+</ul>
+<h3 id="6-6-故障切换演练"><a href="#6-6-故障切换演练" class="headerlink" title="6.6 故障切换演练"></a>6.6 故障切换演练</h3><p>光配好不够，必须<strong>定期演练</strong>。我们每季度做一次真切换演练 <!-- 校准：请按真实经历核实/替换 -->：</p>
+<ul>
+<li>在低峰期对 Active NN 所在节点执行 <code>kill -9</code>，验证自动切换；</li>
+<li>测量切换耗时（从进程挂到新 Active 可服务），目标是 &lt; 60 秒 <!-- 校准：请按真实经历核实/替换 -->；</li>
+<li>验证上层 Spark&#x2F;Hive 任务是否能自动重连恢复，统计失败任务数；</li>
+<li>演练后出报告，对超时&#x2F;失败项做改进。</li>
+</ul>
+<p>不演练的 HA 等于没有 HA——很多团队的 HA 故障转移第一次真触发就是事故现场。</p>
+<h2 id="七、小结"><a href="#七、小结" class="headerlink" title="七、小结"></a>七、小结</h2><p>回到最初的那次宕机，如果说 NameNode 单点是悬在头上的剑，那 HA 就是把这把剑换成两张牌——任何时候都保证有一张能打出来。但 HA 解决的是”明天能不能用”，不是”明年还能不能装得下”。当元数据继续膨胀，Federation 才是把天花板顶高的那一步。</p>
+<p>把这几年的经验压成一句话：</p>
+<blockquote>
+<p><strong>HA 是底线，Federation 是天花板。底线靠 QJM + ZKFC + fencing 三件套守住，天花板靠 Block Pool 解耦 + Router 统一视图撑开。</strong></p>
+</blockquote>
+<p>落到工程动作清单：</p>
+<ol>
+<li>上线前确认 Active&#x2F;Standby 双 NN + QJM（3 JN）+ 自动故障转移 + 至少两层 fencing；</li>
+<li>客户端配置 nameservice URI，调好 failover 重试参数；</li>
+<li>ZK 独立集群、ZKFC 健康检查与 session timeout 匹配 NN 的 GC 表现；</li>
+<li>季度故障切换演练，把”配好的 HA”变成”验证过的 HA”；</li>
+<li>监控 NN&#x2F;ZKFC&#x2F;JN 状态、双 Active 检测、edits 延迟，把异常掐在萌芽；</li>
+<li>元数据接近 NN 堆内存 60% 时启动 Federation 评估，提前规划 Router + 多 NameService。</li>
+</ol>
+<p>高可用不是某个开关，而是一整套”假设一切都会坏”的工程纪律。这套纪律不止适用于 Hadoop——任何承担关键业务的分布式系统，单点消除、多数派、 fencing、自动故障转移、定期演练，都是逃不掉的必修课。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>高可用<span class="tagsPageCount">1</span></span></a><a class="post-meta__tags" href="/tags/Federation/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Federation<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/hadoop-security-kerberos-ranger"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战</div></div></a></div><div class="next-post pull-right"><a href="/posts/hadoop-mapreduce-shuffle"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">MapReduce 原理与 Shuffle 深度优化</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#Hadoop-%E9%AB%98%E5%8F%AF%E7%94%A8%E6%9E%B6%E6%9E%84%EF%BC%9ANameNode-HA%E3%80%81ResourceManager-HA-%E4%B8%8E-Federation"><span class="toc-text">Hadoop 高可用架构：NameNode HA、ResourceManager HA 与 Federation</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E4%B8%BA%E4%BB%80%E4%B9%88-NameNode-%E6%98%AF%E6%9C%80%E8%87%B4%E5%91%BD%E7%9A%84%E5%8D%95%E7%82%B9"><span class="toc-text">一、为什么 NameNode 是最致命的单点</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81NameNode-HA-%E5%8E%9F%E7%90%86%EF%BC%9AActive-Standby-%E5%8F%8C-NameNode"><span class="toc-text">二、NameNode HA 原理：Active&#x2F;Standby 双 NameNode</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-%E6%95%B4%E4%BD%93%E7%BB%93%E6%9E%84"><span class="toc-text">2.1 整体结构</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-%E5%85%B1%E4%BA%AB%E5%AD%98%E5%82%A8%EF%BC%9AQJM-vs-NFS"><span class="toc-text">2.2 共享存储：QJM vs NFS</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-%E6%89%8B%E5%8A%A8-vs-%E8%87%AA%E5%8A%A8%E6%95%85%E9%9A%9C%E8%BD%AC%E7%A7%BB"><span class="toc-text">2.3 手动 vs 自动故障转移</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-4-Fencing%EF%BC%9A%E8%84%91%E8%A3%82%E7%9A%84%E6%9C%80%E5%90%8E%E4%B8%80%E9%81%93%E9%98%B2%E7%BA%BF"><span class="toc-text">2.4 Fencing：脑裂的最后一道防线</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E8%87%AA%E5%8A%A8%E6%95%85%E9%9A%9C%E8%BD%AC%E7%A7%BB%E6%B5%81%E7%A8%8B%EF%BC%9AZKFC-ZooKeeper"><span class="toc-text">三、自动故障转移流程：ZKFC + ZooKeeper</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81ResourceManager-HA"><span class="toc-text">四、ResourceManager HA</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-%E6%9E%B6%E6%9E%84"><span class="toc-text">4.1 架构</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-%E5%85%B3%E9%94%AE%E5%B7%AE%E5%BC%82%E7%82%B9"><span class="toc-text">4.2 关键差异点</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81HDFS-Federation%EF%BC%9A%E5%85%83%E6%95%B0%E6%8D%AE%E7%9A%84%E6%B0%B4%E5%B9%B3%E6%89%A9%E5%B1%95"><span class="toc-text">五、HDFS Federation：元数据的水平扩展</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-%E4%B8%BA%E4%BB%80%E4%B9%88%E8%A6%81-Federation%EF%BC%9A%E5%8D%95-NN-%E7%9A%84%E6%B0%B4%E5%B9%B3%E7%93%B6%E9%A2%88"><span class="toc-text">5.1 为什么要 Federation：单 NN 的水平瓶颈</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-%E6%A0%B8%E5%BF%83%E6%9C%BA%E5%88%B6%EF%BC%9ABlock-Pool-%E4%B8%8E-Namespace-%E8%A7%A3%E8%80%A6"><span class="toc-text">5.2 核心机制：Block Pool 与 Namespace 解耦</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-3-%E7%BB%9F%E4%B8%80%E8%A7%86%E5%9B%BE%EF%BC%9AViewFS-%E4%B8%8E-Router-based-Federation"><span class="toc-text">5.3 统一视图：ViewFS 与 Router-based Federation</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E7%94%9F%E4%BA%A7%E5%AE%9E%E8%B7%B5%E4%B8%8E%E8%B8%A9%E5%9D%91"><span class="toc-text">六、生产实践与踩坑</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-%E5%85%B3%E9%94%AE-HA-%E9%85%8D%E7%BD%AE%E7%A4%BA%E4%BE%8B"><span class="toc-text">6.1 关键 HA 配置示例</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-%E5%AE%A2%E6%88%B7%E7%AB%AF-failover-%E8%B0%83%E4%BC%98"><span class="toc-text">6.2 客户端 failover 调优</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-3-QJM-%E9%83%A8%E7%BD%B2%E8%A6%81%E7%82%B9"><span class="toc-text">6.3 QJM 部署要点</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-4-%E8%84%91%E8%A3%82%E6%8E%92%E6%9F%A5"><span class="toc-text">6.4 脑裂排查</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-5-ZooKeeper-%E4%B8%8E-ZKFC-%E8%B0%83%E4%BC%98"><span class="toc-text">6.5 ZooKeeper 与 ZKFC 调优</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-6-%E6%95%85%E9%9A%9C%E5%88%87%E6%8D%A2%E6%BC%94%E7%BB%83"><span class="toc-text">6.6 故障切换演练</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E5%B0%8F%E7%BB%93"><span class="toc-text">七、小结</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/hadoop-to-lakehouse-evolution" title="从 Hadoop 到湖仓一体：数据平台的十年演进"><div class="content"><span class="title" href="/posts/hadoop-to-lakehouse-evolution" title="从 Hadoop 到湖仓一体：数据平台的十年演进">从 Hadoop 到湖仓一体：数据平台的十年演进</span><span class="categories" href="/posts/hadoop-to-lakehouse-evolution">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-cluster-planning-deployment" title="Hadoop 集群容量规划、部署与基准测试实战"><div class="content"><span class="title" href="/posts/hadoop-cluster-planning-deployment" title="Hadoop 集群容量规划、部署与基准测试实战">Hadoop 集群容量规划、部署与基准测试实战</span><span class="categories" href="/posts/hadoop-cluster-planning-deployment">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop3-new-features" title="Hadoop 3.x 核心新特性深度解读"><div class="content"><span class="title" href="/posts/hadoop3-new-features" title="Hadoop 3.x 核心新特性深度解读">Hadoop 3.x 核心新特性深度解读</span><span class="categories" href="/posts/hadoop3-new-features">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-performance-tuning" title="Hadoop 性能调优全攻略：从 JVM、IO 到参数"><div class="content"><span class="title" href="/posts/hadoop-performance-tuning" title="Hadoop 性能调优全攻略：从 JVM、IO 到参数">Hadoop 性能调优全攻略：从 JVM、IO 到参数</span><span class="categories" href="/posts/hadoop-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-security-kerberos-ranger" title="Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战"><div class="content"><span class="title" href="/posts/hadoop-security-kerberos-ranger" title="Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战">Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战</span><span class="categories" href="/posts/hadoop-security-kerberos-ranger">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

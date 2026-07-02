@@ -1,0 +1,487 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Hadoop 集群容量规划、部署与基准测试实战 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/hadoop-cluster-planning-deployment"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="从硬件选型到基准测试，把一个生产级 Hadoop 集群立起来"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文复盘一次生产级 Hadoop 集群从容量规划到上线验收的完整过程。先给出磁盘、CPU、内存、网络的量化公式与典型配比，再讲硬件选型（JBOD、双网卡 bonding、ECC、冗余电源）背后的工程原因；随后对比裸机、Cloudera Manager、Ambari、K8s 四种部署形态，梳理 core/hdfs/yarn/mapred 等核心配置项；最后用 TestDFSIO、TeraSort 等基准测试给出读数解读方法，并附一份上线检查清单。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>10</sup></a><a href="/tags/HDFS/">HDFS<sup>2</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>1</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>1</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">10</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">11</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">11</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">21</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>10</sup></a><a href="/tags/HDFS/">HDFS<sup>2</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>1</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>1</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">Hadoop 集群容量规划、部署与基准测试实战</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop</span></a><a class="post-meta__tags" href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>容量规划</span></a><a class="post-meta__tags" href="/tags/%E8%BF%90%E7%BB%B4/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>运维</span></a></div></div></div></div><h1 class="post-title">Hadoop 集群容量规划、部署与基准测试实战</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h2 id="一、引言：规划是集群的基因"><a href="#一、引言：规划是集群的基因" class="headerlink" title="一、引言：规划是集群的基因"></a>一、引言：规划是集群的基因</h2><p>我在做第二次 Hadoop 集群交付时吃过一个亏：因为初期把 NameNode 堆按”当前文件数”估的，集群跑了一年，元数据涨到接近堆上限，扩容不得不先停机迁移元数据。这件事让我形成一个判断——Hadoop 集群的”基因”在上线那一天就基本定死了：磁盘是 JBOD 还是 RAID、机架拓扑怎么画、NameNode 堆多大、副本数几份，这些决定一旦落到线上，再改就是动结构、要停机、要全员值班的”大手术”。</p>
+<p>所以这篇文章我想倒回到集群还是一张空机柜的时候，讲清楚两件事：怎么在上线前把容量算对、把硬件选对、把配置填对；以及上线后用什么基准测试去验收、用什么检查清单去兜底。这是一个偏运维工程向的复盘，不讲架构哲学，只讲公式、数字、命令和踩过的坑。</p>
+<p>需要先声明：Hadoop 这里指的是 Hadoop 3.x 生态（HDFS&#x2F;YARN&#x2F;MR），下文涉及 EC（纠删码）、YARN 资源约束等特性均以 3.x 为准。<!-- 校准：请按真实经历核实/替换 --></p>
+<h2 id="二、容量规划：把数字先算清楚"><a href="#二、容量规划：把数字先算清楚" class="headerlink" title="二、容量规划：把数字先算清楚"></a>二、容量规划：把数字先算清楚</h2><p>容量规划是整个集群设计里最容易”拍脑袋”、也最贵的一步。下面我把每一项拆开，给公式和例子。</p>
+<h3 id="2-1-节点角色与配比"><a href="#2-1-节点角色与配比" class="headerlink" title="2.1 节点角色与配比"></a>2.1 节点角色与配比</h3><p>生产集群原则上必须做 Master&#x2F;Worker 分离，不要让 NameNode 和 DataNode 混部。原因有两个：NameNode 是全内存元数据服务，对 GC 抖动零容忍；DataNode 在做磁盘密集型校验时会把 I&#x2F;O 吃满，两者抢资源必然导致 RPC 延迟毛刺。</p>
+<p>典型节点角色划分如下表：</p>
+<table>
+<thead>
+<tr>
+<th>角色</th>
+<th>数量（建议）</th>
+<th>职责</th>
+<th>关键瓶颈</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>NameNode &#x2F; Standby NN</td>
+<td>2（HA）</td>
+<td>HDFS 元数据</td>
+<td>JVM 堆、RPC QPS</td>
+</tr>
+<tr>
+<td>JournalNode</td>
+<td>3（与 ZK 共用）</td>
+<td>编辑日志仲裁</td>
+<td>磁盘 fsync</td>
+</tr>
+<tr>
+<td>ResourceManager</td>
+<td>2（HA）</td>
+<td>YARN 调度</td>
+<td>调度吞吐</td>
+</tr>
+<tr>
+<td>ZKFailoverController</td>
+<td>与 NN 同机</td>
+<td>NN 主备切换</td>
+<td>&#x2F;</td>
+</tr>
+<tr>
+<td>HistoryServer &#x2F; Spark HS</td>
+<td>1~2</td>
+<td>作业历史</td>
+<td>堆</td>
+</tr>
+<tr>
+<td>DataNode &#x2F; NodeManager</td>
+<td>N</td>
+<td>存储与计算</td>
+<td>磁盘、网络、CPU</td>
+</tr>
+</tbody></table>
+<p>Worker 节点按定位分三类，选型完全不同：</p>
+<ul>
+<li><strong>存储型</strong>：磁盘多（10<del>12 块）、CPU 弱（16</del>32 核）、内存小（64~128GB）。适合纯 HDFS &#x2F; 冷数据 &#x2F; 备份场景。</li>
+<li><strong>计算型</strong>：磁盘少（4~6 块）、CPU 强（64+ 核）、内存大（256GB+）。适合 Spark &#x2F; Flink 重计算。</li>
+<li><strong>混合型</strong>：磁盘 8<del>12 块、CPU 32</del>64 核、内存 128~256GB。最常见的”一台顶一台”方案，也是下面公式默认的对象。<!-- 校准：请按真实经历核实/替换 --></li>
+</ul>
+<p>我倾向混合型起步，原因是可以用标签（YARN Node Label）后期把同一批机器切成存储池或计算池，灵活性最高。</p>
+<h3 id="2-2-磁盘容量公式"><a href="#2-2-磁盘容量公式" class="headerlink" title="2.2 磁盘容量公式"></a>2.2 磁盘容量公式</h3><p>这是我认为最容易算错的环节。直观想法是”100 台机器 × 每台 100TB &#x3D; 10PB”，但这个数和真实可用的”逻辑数据量”差得很远。我用的公式是：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">可用逻辑容量 = 裸容量总数 ÷ ( 副本数 × 增长率系数 × 预留系数 × 压缩比系数 )</span><br></pre></td></tr></table></figure>
+
+<p>每一项的含义：</p>
+<ul>
+<li><strong>裸容量总数</strong> &#x3D; 节点数 × 单节点磁盘数 × 单盘净容量（注意厂商 1TB&#x3D;1000GB，要 ÷1.024 折算）。</li>
+<li><strong>副本数</strong>：默认 3，热数据可能更多，冷数据可走 EC（RS-6-3）等效副本约 1.5。</li>
+<li><strong>增长率系数</strong>：预留未来 12~18 个月的增量，通常取 1.5（即留 50% 给增长）。</li>
+<li><strong>预留系数</strong>：HDFS 推荐 DFS 使用率不要超过 85%，超过 90% 进只读，所以这里取 1.18（对应 85% 上限）。</li>
+<li><strong>压缩比系数</strong>：如果开了列存&#x2F;文本压缩（如 Zstd），实际逻辑数据能再放大约 2~4 倍，按业务估。</li>
+</ul>
+<!-- 校准：请按真实经历核实/替换 -->
+
+<p>举个具体例子。假设我要建一个 50 节点的混合型集群，每台 10 块 8TB 数据盘，副本 3，不压缩：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">裸容量 = 50 × 10 × 8 / 1.024 ≈ 3906 TiB</span><br><span class="line">可用逻辑 = 3906 ÷ (3 × 1.5 × 1.18 × 1) ≈ 735 TiB</span><br></pre></td></tr></table></figure>
+
+<p>也就是说 3.9 PiB 的物理盘，真正能写进去的业务数据大约只有 735 TiB。这个数字在和业务方谈”够不够用两年”时一定要先抛出来，否则一定会出现”买了一年就觉得满了”的尴尬。</p>
+<p>补一句反向校验：HDFS Web UI 上看到的 <code>Configured Capacity</code> 就是 <code>dfs.datanode.data.dir</code> 各盘净容量之和，<code>DFS Used%</code> 是真实占用率。上线后第一件事是盯这两个数，超过 75% 就要规划扩容，别等到 85%。</p>
+<h3 id="2-3-CPU、内存与-AM-预留"><a href="#2-3-CPU、内存与-AM-预留" class="headerlink" title="2.3 CPU、内存与 AM 预留"></a>2.3 CPU、内存与 AM 预留</h3><p>YARN 的资源分配本质是”切蛋糕”。一台 64 核、256GB 的 Worker，并不是 64 核 &#x2F; 256GB 全给 Container，要做这些扣减：</p>
+<ol>
+<li><strong>OS + 守护进程</strong>：4 核 &#x2F; 8GB（DataNode、NodeManager、监控 Agent、日志）。</li>
+<li><strong>AM 预留</strong>：每个同时运行的 ApplicationMaster 至少 1<del>2GB，按并发作业数估，通常预留 8</del>16GB。</li>
+<li><strong>堆外 &#x2F; 直接内存</strong>：Container 跑 Spark&#x2F;Flink 时有堆外部分，按堆的 20% 留余量。</li>
+</ol>
+<p>落到 <code>yarn-site.xml</code> 上就是两个核心参数：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.nodemanager.resource.memory-mb<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>245760<span class="tag">&lt;/<span class="name">value</span>&gt;</span> <span class="comment">&lt;!-- 256GB - 10GB 预留，单位 MB --&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.nodemanager.resource.cpu-vcores<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>60<span class="tag">&lt;/<span class="name">value</span>&gt;</span> <span class="comment">&lt;!-- 64 核 - 4 核预留 --&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.scheduler.minimum-allocation-mb<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>2048<span class="tag">&lt;/<span class="name">value</span>&gt;</span> <span class="comment">&lt;!-- 单 Container 最小 2GB --&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.scheduler.maximum-allocation-mb<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>32768<span class="tag">&lt;/<span class="name">value</span>&gt;</span> <span class="comment">&lt;!-- 单 Container 最大 32GB --&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<!-- 校准：请按真实经历核实/替换 -->
+
+<p><strong>NameNode 堆</strong> 是另一个必须前置算准的值。经验值是每 100 万个文件（含块）约占 1GB 堆，加上 NameNode 自身结构和缓存开销，再留 30% 余量：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">NN Heap ≈ 文件数(百万) × 1GB × 1.3</span><br></pre></td></tr></table></figure>
+
+<p>如果预计三年后文件数到 3 亿，那 NN 堆就要给到 390GB 量级——这显然超出单机合理范围，这时候要反过来做：要么用联邦（HDFS Federation），要么用 EC 降低块数（一个大文件 3 副本是 N 个块，EC 是 N&#x2F;6 量级的条带），要么强制业务合并小文件。这就是”规划决定基因”的典型场景。<!-- 校准：请按真实经历核实/替换 --></p>
+<h3 id="2-4-网络拓扑与过载率"><a href="#2-4-网络拓扑与过载率" class="headerlink" title="2.4 网络拓扑与过载率"></a>2.4 网络拓扑与过载率</h3><p>Hadoop 默认采用机架感知（<code>net.topology.script.file.name</code>）来决定副本放置策略：第一副本本机，第二副本异地机架，第三副本与第二副本同机架不同节点。所以机架数量、每机架节点数、交换机层级直接决定数据可靠性与读写性能。</p>
+<p>生产集群通常采用”双层 leaf-spine”或”核心-汇聚-接入”三层架构，关键是控制 <strong>过载率（oversubscription ratio）</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">过载率 = 接入层下联总带宽 : 接入层上联总带宽</span><br></pre></td></tr></table></figure>
+
+<p>业界经验值：Hadoop 集群接入层上联过载率不要超过 3:1，存储型甚至要做到 1:1（非阻塞）。我曾经在一个过载率 4:1 的集群上跑 TeraSort，跨机架 shuffle 把上联打满，整集群吞吐掉了 40%。所以规划阶段就要明确：每机架 20 节点，每节点双 25G 上联，机架交换机至少要有 2×100G 上行到 spine，对应过载率 (20×50G):(2×100G)&#x3D;5:1，仍偏高——这种数字要提前抠。<!-- 校准：请按真实经历核实/替换 --></p>
+<p>机架数量没有硬公式，但有一个软规则：至少 2 个机架，否则副本策略退化；建议 ≥3 个机架，让 JournalNode&#x2F;ZooKeeper 能跨机架均匀分布，避免单机架故障丢仲裁多数。</p>
+<h2 id="三、硬件选型：每一个选择背后都有原因"><a href="#三、硬件选型：每一个选择背后都有原因" class="headerlink" title="三、硬件选型：每一个选择背后都有原因"></a>三、硬件选型：每一个选择背后都有原因</h2><p>容量算完后是硬件采购清单。Hadoop 社区有一份很有名的 <a target="_blank" rel="noopener" href="https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/ClusterSetup.html">Node Hardware</a> 建议，我把工程上”为什么这么选”讲清楚。</p>
+<h3 id="3-1-磁盘：JBOD，不做-RAID"><a href="#3-1-磁盘：JBOD，不做-RAID" class="headerlink" title="3.1 磁盘：JBOD，不做 RAID"></a>3.1 磁盘：JBOD，不做 RAID</h3><p>这是 Hadoop 选型里最容易和传统 DBA 起冲突的点。传统数据库要 RAID10 保数据安全，但 HDFS 的 DataNode 数据盘<strong>强烈建议 JBOD（Just a Bunch of Disks）</strong>，原因有三：</p>
+<ol>
+<li><strong>HDFS 已经在软件层做了三副本</strong>，磁盘再 RAID1 等于变相把有效容量再砍一半，性价比极低。</li>
+<li><strong>RAID 控制器是单点</strong>，坏一块卡整个节点的所有盘离线；JBOD 模式下坏一块盘只丢这一块的数据，HDFS 会自动从其他副本补齐。</li>
+<li><strong>顺序读写性能</strong>：JBOD 多盘独立，HDFS 把 <code>dfs.datanode.data.dir</code> 配成多个目录时，写入会按轮询或可用空间策略分散到各盘，吞吐是 RAID5&#x2F;6 的数倍。</li>
+</ol>
+<p>唯一的例外是 <strong>NameNode 的元数据盘</strong>，强烈建议 RAID1 或者更稳妥地配 HA（QJM&#x2F;Quorum Journal Manager + Standby）。NameNode 的 <code>dfs.namenode.name.dir</code> 一旦损坏，整个命名空间就丢了，必须做磁盘级冗余。</p>
+<p>磁盘转速建议 7200 RPM 企业级 NL-SAS 或 SATA SSD，<strong>不要用 SMR（叠瓦盘）</strong>。SMR 的随机改写性能极差，HDFS 的数据块校验、追加写会触发 SMR 内部重写，导致延迟飙到秒级——这点采购合同里要白纸黑字写清楚。</p>
+<h3 id="3-2-网卡：双网卡-bonding"><a href="#3-2-网卡：双网卡-bonding" class="headerlink" title="3.2 网卡：双网卡 bonding"></a>3.2 网卡：双网卡 bonding</h3><p>每台 Worker 至少两块 25G（或 10G）网卡，做 LACP bonding（mode&#x3D;4，802.3ad）配交换机侧 LAG。好处是带宽叠加 + 链路冗余，一根线断了业务不中断。<code>/etc/sysconfig/network-scripts/ifcfg-bond0</code> 里大致这样：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">BONDING_OPTS=<span class="string">&quot;mode=4 miimon=100 lacp_rate=1 xmit_hash_policy=layer3+4&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><code>xmit_hash_policy=layer3+4</code> 是为了让单连接的流量能跨两条线做负载均衡（按 IP+端口四元组哈希），否则 Hadoop 这种长连接走单条线会退化到”主备”语义。</p>
+<h3 id="3-3-内存：必须-ECC"><a href="#3-3-内存：必须-ECC" class="headerlink" title="3.3 内存：必须 ECC"></a>3.3 内存：必须 ECC</h3><p>DataNode 的 <code>dfs.datanode.data.dir</code> 里存的是数据块本身，但 HDFS 校验是周期性的（<code>dfs.datanode.scan.period.hours</code>，默认 3 周），如果内存位翻转导致校验时把”对的”判成”错的”或反过来，污染会在不经意间发生。所以<strong>ECC 内存是硬性要求</strong>，不是建议。这同时也是为什么不能拿廉价消费级主板搭集群——它们大多不带 ECC 支持。</p>
+<h3 id="3-4-电源与机箱"><a href="#3-4-电源与机箱" class="headerlink" title="3.4 电源与机箱"></a>3.4 电源与机箱</h3><p>生产集群每节点双电源（1+1 冗余），分别接 A&#x2F;B 两路市电；机柜 PDU 双路；整机柜断电时集群能容忍单机柜掉线。这些是数据中心基本规范，不展开。</p>
+<h2 id="四、部署方式：四选一的取舍"><a href="#四、部署方式：四选一的取舍" class="headerlink" title="四、部署方式：四选一的取舍"></a>四、部署方式：四选一的取舍</h2><p>Hadoop 集群立起来有四种主流姿势，我做个对比：</p>
+<table>
+<thead>
+<tr>
+<th>部署方式</th>
+<th>上手难度</th>
+<th>自动化程度</th>
+<th>版本管理</th>
+<th>监控告警</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>裸机手动（tar 包 + 配置管理）</td>
+<td>高</td>
+<td>低（需自配 Ansible）</td>
+<td>自管</td>
+<td>自己接</td>
+<td>学习、定制极强的特殊环境</td>
+</tr>
+<tr>
+<td>Cloudera Manager（CDP&#x2F;CDH）</td>
+<td>低</td>
+<td>高</td>
+<td>厂商锁版本</td>
+<td>自带</td>
+<td>企业生产、有预算</td>
+</tr>
+<tr>
+<td>Apache Ambari</td>
+<td>中</td>
+<td>高</td>
+<td>自选 HDP 版本</td>
+<td>自带</td>
+<td>开源派、中等规模</td>
+</tr>
+<tr>
+<td>容器化（K8s + Operator）</td>
+<td>很高</td>
+<td>高（与 K8s 统一）</td>
+<td>镜像化</td>
+<td>依赖 K8s 栈</td>
+<td>云原生、弹性扩缩容</td>
+</tr>
+</tbody></table>
+<!-- 校准：请按真实经历核实/替换 -->
+
+<p>我个人倾向：百台规模以内的生产集群选 Ambari，开箱即用且不锁版本；千台规模或企业级 SLA 选 Cloudera Manager，省运维人力但贵；K8s 方案（比如 云厂商的 ACK&#x2F;EMR on K8s、开源的 Apache YuniKorn + Operator）适合弹性场景，但 HDFS on K8s 的本地盘管理（Local Persistent Volume）和数据本地化问题还没完全成熟，纯存储负载我不推荐上 K8s。</p>
+<p>下面所有配置示例都按”裸机手动部署”来讲，因为只有裸机部署会逼你看清每一个参数，理解了之后用 CM&#x2F;Ambari 也只是把这些值填到 GUI 里。</p>
+<h2 id="五、关键配置文件清单"><a href="#五、关键配置文件清单" class="headerlink" title="五、关键配置文件清单"></a>五、关键配置文件清单</h2><p>Hadoop 的配置项非常多，但生产上线<strong>必填</strong>的就那么十几项。下面按文件给一份最小可用集。</p>
+<h3 id="5-1-core-site-xml"><a href="#5-1-core-site-xml" class="headerlink" title="5.1 core-site.xml"></a>5.1 <code>core-site.xml</code></h3><figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">&lt;!-- 默认 HDFS 入口，HA 下用 logical name --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>fs.defaultFS<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>hdfs://mycluster<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="comment">&lt;!-- Hadoop 临时目录，放 DataNode/NM 的运行态，建议独立磁盘 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>hadoop.tmp.dir<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>/data/hadoop/tmp<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="comment">&lt;!-- 机架感知脚本路径 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>net.topology.script.file.name<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>/etc/hadoop/conf/rack-topology.sh<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="5-2-hdfs-site-xml"><a href="#5-2-hdfs-site-xml" class="headerlink" title="5.2 hdfs-site.xml"></a>5.2 <code>hdfs-site.xml</code></h3><figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">&lt;!-- NameNode HA：nameservice ID --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.nameservices<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>mycluster<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="comment">&lt;!-- 两个 NN 的 RPC 地址 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.ha.namenodes.mycluster<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>nn1,nn2<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="comment">&lt;!-- 元数据目录，建议多目录+RAID1 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.namenode.name.dir<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>file:///data/hadoop/hdfs/name<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="comment">&lt;!-- 数据目录，JBOD，多盘逗号分隔 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.datanode.data.dir<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>file:///data/disk1/hdfs,file:///data/disk2/hdfs,file:///data/disk3/hdfs<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="comment">&lt;!-- 副本数 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.replication<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>3<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="comment">&lt;!-- HA 故障切换：自动 failover 必开 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.ha.automatic-failover.enabled<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>true<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="comment">&lt;!-- QJM 编辑日志地址 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.namenode.shared.edits.dir<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>qjournal://jn1:8485;jn2:8485;jn3:8485/mycluster<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="comment">&lt;!-- 单 NN 堆大小，按文件数算 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.namenode.handler.count<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>200<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="5-3-yarn-site-xml"><a href="#5-3-yarn-site-xml" class="headerlink" title="5.3 yarn-site.xml"></a>5.3 <code>yarn-site.xml</code></h3><figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">&lt;!-- RM HA --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.resourcemanager.ha.enabled<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>true<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.resourcemanager.cluster-id<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>yarn-cluster<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="comment">&lt;!-- 单节点可分配资源，见 2.3 节 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.nodemanager.resource.memory-mb<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>245760<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.nodemanager.resource.cpu-vcores<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>60<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="comment">&lt;!-- 物理内存检查建议关闭，否则 Spark/堆外会被误杀 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.nodemanager.pmem-check-enabled<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>false<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="comment">&lt;!-- 调度器：生产建议容量调度 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.resourcemanager.scheduler.class<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="comment">&lt;!-- 日志聚合，强烈建议开启 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.log-aggregation-enable<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>true<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="5-4-mapred-site-xml-与-workers、hadoop-env-sh"><a href="#5-4-mapred-site-xml-与-workers、hadoop-env-sh" class="headerlink" title="5.4 mapred-site.xml 与 workers、hadoop-env.sh"></a>5.4 <code>mapred-site.xml</code> 与 <code>workers</code>、<code>hadoop-env.sh</code></h3><figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>mapreduce.framework.name<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>yarn<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>mapreduce.map.memory.mb<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>2048<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>mapreduce.reduce.memory.mb<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>4096<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>mapreduce.jobhistory.address<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>historyserver:10020<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># workers：每行一个 Worker 主机名</span></span><br><span class="line">worker01</span><br><span class="line">worker02</span><br><span class="line">...</span><br><span class="line">worker50</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># hadoop-env.sh 关键项</span></span><br><span class="line"><span class="built_in">export</span> HDFS_NAMENODE_OPTS=<span class="string">&quot;-Xmx200g -XX:+UseG1GC <span class="variable">$&#123;HDFS_NAMENODE_OPTS&#125;</span>&quot;</span></span><br><span class="line"><span class="built_in">export</span> HDFS_DATANODE_OPTS=<span class="string">&quot;-Xmx4g <span class="variable">$&#123;HDFS_DATANODE_OPTS&#125;</span>&quot;</span></span><br><span class="line"><span class="built_in">export</span> YARN_RESOURCEMANAGER_OPTS=<span class="string">&quot;-Xmx16g <span class="variable">$&#123;YARN_RESOURCEMANAGER_OPTS&#125;</span>&quot;</span></span><br><span class="line"><span class="built_in">export</span> YARN_NODEMANAGER_OPTS=<span class="string">&quot;-Xmx2g <span class="variable">$&#123;YARN_NODEMANAGER_OPTS&#125;</span>&quot;</span></span><br></pre></td></tr></table></figure>
+
+<!-- 校准：请按真实经历核实/替换 -->
+
+<p><code>hadoop-env.sh</code> 里的堆参数一定要和 2.3 节算出来的对齐，并且优先用 G1GC（Hadoop 3.x 已默认，但显式声明更稳）。</p>
+<h2 id="六、基准测试：用数字验收，不靠手感"><a href="#六、基准测试：用数字验收，不靠手感" class="headerlink" title="六、基准测试：用数字验收，不靠手感"></a>六、基准测试：用数字验收，不靠手感</h2><p>集群装完，下一步是用公认基准去压一遍，得到一组可对比的数字。Hadoop 自带四个经典工具，对应不同维度：</p>
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>测试维度</th>
+<th>典型用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>TestDFSIO</strong></td>
+<td>HDFS 顺序读&#x2F;写吞吐</td>
+<td>验证磁盘和网络的存储带宽</td>
+</tr>
+<tr>
+<td><strong>TeraSort</strong></td>
+<td>端到端 MapReduce 吞吐</td>
+<td>综合压测，业界通用排序基准</td>
+</tr>
+<tr>
+<td><strong>NNThroughputBenchmark</strong></td>
+<td>NameNode RPC 吞吐</td>
+<td>元数据压力测试</td>
+</tr>
+<tr>
+<td><strong>MRBench</strong></td>
+<td>小作业循环开销</td>
+<td>调度器&#x2F;启动开销测试</td>
+</tr>
+</tbody></table>
+<!-- 校准：请按真实经历核实/替换 -->
+
+<h3 id="6-1-TestDFSIO-写测试"><a href="#6-1-TestDFSIO-写测试" class="headerlink" title="6.1 TestDFSIO 写测试"></a>6.1 TestDFSIO 写测试</h3><p>TestDFSIO 是最能直观反映”集群磁盘 + 网络存储侧”是否健康的工具。下面是一次写测试的标准命令，假设我要写 100GB 数据、每文件 1GB、副本 3：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 写测试</span></span><br><span class="line">hadoop jar <span class="variable">$HADOOP_HOME</span>/share/hadoop/mapreduce/hadoop-mapreduce-client-jobclient-*.jar \</span><br><span class="line">  TestDFSIO \</span><br><span class="line">  -D test.build.data=/benchmarks/DFSIO \</span><br><span class="line">  -write \</span><br><span class="line">  -nrFiles 100 \</span><br><span class="line">  -size 1GB \</span><br><span class="line">  -resFile /tmp/dfsio_write_result.txt</span><br><span class="line"></span><br><span class="line"><span class="comment"># 读测试（写完之后）</span></span><br><span class="line">hadoop jar <span class="variable">$HADOOP_HOME</span>/share/hadoop/mapreduce/hadoop-mapreduce-client-jobclient-*.jar \</span><br><span class="line">  TestDFSIO \</span><br><span class="line">  -D test.build.data=/benchmarks/DFSIO \</span><br><span class="line">  -<span class="built_in">read</span> \</span><br><span class="line">  -nrFiles 100 \</span><br><span class="line">  -size 1GB \</span><br><span class="line">  -resFile /tmp/dfsio_read_result.txt</span><br><span class="line"></span><br><span class="line"><span class="comment"># 清理</span></span><br><span class="line">hadoop jar <span class="variable">$HADOOP_HOME</span>/share/hadoop/mapreduce/hadoop-mapreduce-client-jobclient-*.jar \</span><br><span class="line">  TestDFSIO -clean</span><br></pre></td></tr></table></figure>
+
+<p>跑完后 <code>/tmp/dfsio_write_result.txt</code> 里有一行汇总，长这样（节选关键字段）：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">----- TestDFSIO ----- : write</span><br><span class="line">Date &amp; time: Wed Jul 02 12:00:00 CST 2026</span><br><span class="line">Number of files: 100</span><br><span class="line">Total MBytes processed: 102400</span><br><span class="line">Throughput mb/sec: 412.56</span><br><span class="line">Average IO rate mb/sec: 418.13</span><br><span class="line">IO rate std deviation: 24.7</span><br><span class="line">Test exec time sec: 252.3</span><br></pre></td></tr></table></figure>
+
+<!-- 校准：请按真实经历核实/替换 -->
+
+<p><strong>怎么解读这组数字</strong>，我一般这样看：</p>
+<ol>
+<li><strong>Throughput（聚合吞吐）</strong>：这是集群整体写带宽除以参与节点的结果。经验上，一台 12 块 SATA 盘的 Worker，单机写吞吐应该到 600<del>900 MB&#x2F;s。一个 50 节点的集群，理论聚合写到 30</del>45 GB&#x2F;s 量级。如果实测 Throughput 远低于这个数（比如只有个位数 MB&#x2F;s × 节点数），多半是网卡 bonding 没生效或磁盘控制器瓶颈。</li>
+<li><strong>Average IO rate 与 std deviation</strong>：平均值和标准差。标准差大说明节点间性能不均衡，可能是某几块盘老化、某台机器 BIOS 关了磁盘写缓存、或某机架网络抖动。生产集群要求 std&#x2F;avg 控制在 10% 以内。</li>
+<li><strong>Test exec time</strong>：单次测试总耗时，反过来也能算出整体吞吐，用来和上次基准做对比。</li>
+</ol>
+<p>和业界对比的话，<a target="_blank" rel="noopener" href="https://sortbenchmark.org/">Sort Benchmark</a> 和 Cloudera 公布的 <a target="_blank" rel="noopener" href="https://blog.cloudera.com/">TeraSort on 100TB</a> 是参考点；一个常规生产集群，TestDFSIO 写吞吐至少要打到磁盘标称带宽的 60% 以上才算”存储侧配置正确”。<!-- 校准：请按真实经历核实/替换 --></p>
+<h3 id="6-2-TeraSort：端到端综合测试"><a href="#6-2-TeraSort：端到端综合测试" class="headerlink" title="6.2 TeraSort：端到端综合测试"></a>6.2 TeraSort：端到端综合测试</h3><p>TeraSort 由三步组成：TeraGen 生成数据 → TeraSort 排序 → TeraValidate 校验。它同时压 HDFS 写、shuffle 网络、reduce 落盘，是公认的综合基准。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 生成 1TB 随机数据（约 10 亿条 100 字节记录）</span></span><br><span class="line">hadoop jar <span class="variable">$HADOOP_HOME</span>/share/hadoop/mapreduce/hadoop-mapreduce-examples-*.jar \</span><br><span class="line">  teragen -Dmapreduce.job.maps=200 1000000000 /benchmarks/terasort/input</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 排序</span></span><br><span class="line">hadoop jar <span class="variable">$HADOOP_HOME</span>/share/hadoop/mapreduce/hadoop-mapreduce-examples-*.jar \</span><br><span class="line">  terasort /benchmarks/terasort/input /benchmarks/terasort/output</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 校验结果是否真的有序</span></span><br><span class="line">hadoop jar <span class="variable">$HADOOP_HOME</span>/share/hadoop/mapreduce/hadoop-mapreduce-examples-*.jar \</span><br><span class="line">  teravalidate /benchmarks/terasort/output /benchmarks/terasort/validate</span><br></pre></td></tr></table></figure>
+
+<p>解读 TeraSort 的关键看三点：总耗时、shuffle 阶段带宽利用率、reduce 慢节点比例。一个健康集群跑 1TB TeraSort 应该在 5~10 分钟以内；如果超过 20 分钟，要查 <code>mapreduce.task.io.sort.mb</code> 是否过小导致频繁 spill、或者 <code>dfs.replication</code> 期间 shuffle 跨机架比例过高。</p>
+<h3 id="6-3-NNThroughputBenchmark"><a href="#6-3-NNThroughputBenchmark" class="headerlink" title="6.3 NNThroughputBenchmark"></a>6.3 NNThroughputBenchmark</h3><p>这是不依赖集群、直接压 NameNode RPC 的工具，主要看每秒能处理多少次 create&#x2F;mkdir&#x2F;getFileInfo。生产 NameNode 单节点一般能跑到 5~10 万 ops&#x2F;sec，低于这个数要查 JVM GC、handler 数、磁盘 fsync 延迟。<!-- 校准：请按真实经历核实/替换 --></p>
+<h2 id="七、上线检查清单"><a href="#七、上线检查清单" class="headerlink" title="七、上线检查清单"></a>七、上线检查清单</h2><p>基准测试跑完不等于能上线。我每次交付前都要过一遍这份清单：</p>
+<p><strong>高可用与故障切换</strong></p>
+<ul>
+<li><input disabled="" type="checkbox"> NameNode HA：手动 kill active NN，确认自动 failover 在 30 秒内完成，客户端无感重连。</li>
+<li><input disabled="" type="checkbox"> ResourceManager HA：同上验证。</li>
+<li><input disabled="" type="checkbox"> ZooKeeper 集群：3 或 5 节点，跨机架部署，<code>zkServer.sh status</code> 确认 leader&#x2F;follower 角色正常。</li>
+</ul>
+<p><strong>安全开关</strong></p>
+<ul>
+<li><input disabled="" type="checkbox"> Kerberos 是否开启（生产必须开，至少把 NN&#x2F;RM 保护起来）。</li>
+<li><input disabled="" type="checkbox"> HDFS 权限 <code>dfs.permissions.enabled=true</code>，umask 设置合理。</li>
+<li><input disabled="" type="checkbox"> 敏感端口（9000&#x2F;8020&#x2F;8088&#x2F;50070）通过防火墙或 Security Group 收敛。</li>
+</ul>
+<p><strong>监控</strong></p>
+<ul>
+<li><input disabled="" type="checkbox"> JMX 端口暴露，Prometheus 通过 JMX Exporter 采集 NN&#x2F;DN&#x2F;RM&#x2F;NM 指标。</li>
+<li><input disabled="" type="checkbox"> 关键告警：NN 堆使用率 &gt; 80%、DFS 使用率 &gt; 85%、Dead DataNode &gt; 0、JournalNode 离线、RPC 延迟 P99 &gt; 100ms。</li>
+<li><input disabled="" type="checkbox"> 磁盘 SMART 指标接监控，提前发现坏盘。</li>
+</ul>
+<p><strong>Balancer 与目录权限</strong></p>
+<ul>
+<li><input disabled="" type="checkbox"> <code>hdfs balancer</code> 能正常启动，阈值（<code>dfs.datanode.balance.bandwidthPerSec</code>）合理，建议非高峰跑。</li>
+<li><input disabled="" type="checkbox"> DataNode 数据目录 owner 为 <code>hdfs:hadoop</code>，权限 755，避免 YARN 容器误写。</li>
+<li><input disabled="" type="checkbox"> NameNode 元数据目录权限 700，只有 hdfs 用户可读写。</li>
+</ul>
+<p><strong>系统侧</strong></p>
+<ul>
+<li><input disabled="" type="checkbox"> 时钟同步：所有节点 NTP 或 Chrony 偏差 &lt; 50ms，否则 Kerberos 票据和 ZK 会话会异常。</li>
+<li><input disabled="" type="checkbox"> <code>vm.swappiness=1</code>（生产建议设 1 而不是 0，避免突发 OOM 但保留少量 swap 兜底）。</li>
+<li><input disabled="" type="checkbox"> <code>noatime,nodiratime</code> 挂载选项加到数据盘，减少元数据更新开销。</li>
+<li><input disabled="" type="checkbox"> 关掉透明大页（THP），Hadoop 的堆大且分配模式不规则，THP 反而带来延迟抖动。</li>
+<li><input disabled="" type="checkbox"> 文件描述符上限 <code>ulimit -n</code> 至少 65536。</li>
+</ul>
+<!-- 校准：请按真实经历核实/替换 -->
+
+<p>这份清单看起来琐碎，但每一条背后都是一个真实的事故。时钟不同步导致 Kerberos 整集群认证失败、swappiness 没调导致 GC 时换页把 NameNode 卡死、THP 没关让 DataNode 心跳超时被踢出集群——这些坑我都见过。</p>
+<h2 id="八、小结"><a href="#八、小结" class="headerlink" title="八、小结"></a>八、小结</h2><p>写到这，整条链路就清晰了：<strong>容量规划</strong>给出”该买多少、买多大”，<strong>硬件选型</strong>回答”为什么是 JBOD 而不是 RAID、为什么必须 ECC”，<strong>部署方式</strong>决定后续几年的运维姿势，<strong>配置文件</strong>是把规划落地成可运行系统的最后一公里，<strong>基准测试</strong>用一组可对比数字告诉所有人这台机器值不值这个钱，<strong>上线清单</strong>则是兜底。</p>
+<p>我越来越觉得，Hadoop 这种重型分布式系统的工程感，体现在”前置”两个字上。规划是科学——有公式、有经验值、有基准对比；运维是修行——日复一日地看监控、做扩容、复盘故障。规划做得越扎实，运维的日子越好过；反过来，规划偷的懒，运维会十倍地还回来。</p>
+<p>最后给一个经验总结，希望对你下次建集群有用：永远按”三年后的文件数”去配 NameNode 堆，永远按”业务峰值两倍”去估磁盘，永远把网络当成最容易成为瓶颈的资源——这三条做不到，集群就一定会在某个深夜用它最不愿意的方式提醒你。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>容量规划<span class="tagsPageCount">1</span></span></a><a class="post-meta__tags" href="/tags/%E8%BF%90%E7%BB%B4/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>运维<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/hadoop-to-lakehouse-evolution"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">从 Hadoop 到湖仓一体：数据平台的十年演进</div></div></a></div><div class="next-post pull-right"><a href="/posts/hadoop3-new-features"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">Hadoop 3.x 核心新特性深度解读</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E5%BC%95%E8%A8%80%EF%BC%9A%E8%A7%84%E5%88%92%E6%98%AF%E9%9B%86%E7%BE%A4%E7%9A%84%E5%9F%BA%E5%9B%A0"><span class="toc-text">一、引言：规划是集群的基因</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92%EF%BC%9A%E6%8A%8A%E6%95%B0%E5%AD%97%E5%85%88%E7%AE%97%E6%B8%85%E6%A5%9A"><span class="toc-text">二、容量规划：把数字先算清楚</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-%E8%8A%82%E7%82%B9%E8%A7%92%E8%89%B2%E4%B8%8E%E9%85%8D%E6%AF%94"><span class="toc-text">2.1 节点角色与配比</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-%E7%A3%81%E7%9B%98%E5%AE%B9%E9%87%8F%E5%85%AC%E5%BC%8F"><span class="toc-text">2.2 磁盘容量公式</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-CPU%E3%80%81%E5%86%85%E5%AD%98%E4%B8%8E-AM-%E9%A2%84%E7%95%99"><span class="toc-text">2.3 CPU、内存与 AM 预留</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-4-%E7%BD%91%E7%BB%9C%E6%8B%93%E6%89%91%E4%B8%8E%E8%BF%87%E8%BD%BD%E7%8E%87"><span class="toc-text">2.4 网络拓扑与过载率</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E7%A1%AC%E4%BB%B6%E9%80%89%E5%9E%8B%EF%BC%9A%E6%AF%8F%E4%B8%80%E4%B8%AA%E9%80%89%E6%8B%A9%E8%83%8C%E5%90%8E%E9%83%BD%E6%9C%89%E5%8E%9F%E5%9B%A0"><span class="toc-text">三、硬件选型：每一个选择背后都有原因</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-%E7%A3%81%E7%9B%98%EF%BC%9AJBOD%EF%BC%8C%E4%B8%8D%E5%81%9A-RAID"><span class="toc-text">3.1 磁盘：JBOD，不做 RAID</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-%E7%BD%91%E5%8D%A1%EF%BC%9A%E5%8F%8C%E7%BD%91%E5%8D%A1-bonding"><span class="toc-text">3.2 网卡：双网卡 bonding</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-%E5%86%85%E5%AD%98%EF%BC%9A%E5%BF%85%E9%A1%BB-ECC"><span class="toc-text">3.3 内存：必须 ECC</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4-%E7%94%B5%E6%BA%90%E4%B8%8E%E6%9C%BA%E7%AE%B1"><span class="toc-text">3.4 电源与机箱</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E9%83%A8%E7%BD%B2%E6%96%B9%E5%BC%8F%EF%BC%9A%E5%9B%9B%E9%80%89%E4%B8%80%E7%9A%84%E5%8F%96%E8%88%8D"><span class="toc-text">四、部署方式：四选一的取舍</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E5%85%B3%E9%94%AE%E9%85%8D%E7%BD%AE%E6%96%87%E4%BB%B6%E6%B8%85%E5%8D%95"><span class="toc-text">五、关键配置文件清单</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-core-site-xml"><span class="toc-text">5.1 core-site.xml</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-hdfs-site-xml"><span class="toc-text">5.2 hdfs-site.xml</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-3-yarn-site-xml"><span class="toc-text">5.3 yarn-site.xml</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-4-mapred-site-xml-%E4%B8%8E-workers%E3%80%81hadoop-env-sh"><span class="toc-text">5.4 mapred-site.xml 与 workers、hadoop-env.sh</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E5%9F%BA%E5%87%86%E6%B5%8B%E8%AF%95%EF%BC%9A%E7%94%A8%E6%95%B0%E5%AD%97%E9%AA%8C%E6%94%B6%EF%BC%8C%E4%B8%8D%E9%9D%A0%E6%89%8B%E6%84%9F"><span class="toc-text">六、基准测试：用数字验收，不靠手感</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-TestDFSIO-%E5%86%99%E6%B5%8B%E8%AF%95"><span class="toc-text">6.1 TestDFSIO 写测试</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-TeraSort%EF%BC%9A%E7%AB%AF%E5%88%B0%E7%AB%AF%E7%BB%BC%E5%90%88%E6%B5%8B%E8%AF%95"><span class="toc-text">6.2 TeraSort：端到端综合测试</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-3-NNThroughputBenchmark"><span class="toc-text">6.3 NNThroughputBenchmark</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E4%B8%8A%E7%BA%BF%E6%A3%80%E6%9F%A5%E6%B8%85%E5%8D%95"><span class="toc-text">七、上线检查清单</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81%E5%B0%8F%E7%BB%93"><span class="toc-text">八、小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/hadoop-to-lakehouse-evolution" title="从 Hadoop 到湖仓一体：数据平台的十年演进"><div class="content"><span class="title" href="/posts/hadoop-to-lakehouse-evolution" title="从 Hadoop 到湖仓一体：数据平台的十年演进">从 Hadoop 到湖仓一体：数据平台的十年演进</span><span class="categories" href="/posts/hadoop-to-lakehouse-evolution">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-cluster-planning-deployment" title="Hadoop 集群容量规划、部署与基准测试实战"><div class="content"><span class="title" href="/posts/hadoop-cluster-planning-deployment" title="Hadoop 集群容量规划、部署与基准测试实战">Hadoop 集群容量规划、部署与基准测试实战</span><span class="categories" href="/posts/hadoop-cluster-planning-deployment">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop3-new-features" title="Hadoop 3.x 核心新特性深度解读"><div class="content"><span class="title" href="/posts/hadoop3-new-features" title="Hadoop 3.x 核心新特性深度解读">Hadoop 3.x 核心新特性深度解读</span><span class="categories" href="/posts/hadoop3-new-features">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-performance-tuning" title="Hadoop 性能调优全攻略：从 JVM、IO 到参数"><div class="content"><span class="title" href="/posts/hadoop-performance-tuning" title="Hadoop 性能调优全攻略：从 JVM、IO 到参数">Hadoop 性能调优全攻略：从 JVM、IO 到参数</span><span class="categories" href="/posts/hadoop-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-security-kerberos-ranger" title="Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战"><div class="content"><span class="title" href="/posts/hadoop-security-kerberos-ranger" title="Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战">Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战</span><span class="categories" href="/posts/hadoop-security-kerberos-ranger">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

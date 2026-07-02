@@ -1,0 +1,498 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Hadoop 性能调优全攻略：从 JVM、IO 到参数 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/hadoop-performance-tuning"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="分层调优框架，把 Hadoop 集群榨干到最后一滴性能"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '从硬件、OS、磁盘、JVM、Hadoop 参数到作业本身，本文用一套分层定位框架梳理 Hadoop 性能调优的全链路。重点拆解 NameNode G1GC、DataNode IO、压缩选型与监控手段，并配真实复盘案例，帮你建立可观测、可量化的调优闭环。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>10</sup></a><a href="/tags/HDFS/">HDFS<sup>2</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>1</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>1</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">10</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">11</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">11</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">21</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>10</sup></a><a href="/tags/HDFS/">HDFS<sup>2</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>1</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>1</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">Hadoop 性能调优全攻略：从 JVM、IO 到参数</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop</span></a><a class="post-meta__tags" href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>性能调优</span></a><a class="post-meta__tags" href="/tags/JVM/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>JVM</span></a></div></div></div></div><h1 class="post-title">Hadoop 性能调优全攻略：从 JVM、IO 到参数</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h2 id="引言：调优不是玄学，是分层定位-量化度量"><a href="#引言：调优不是玄学，是分层定位-量化度量" class="headerlink" title="引言：调优不是玄学，是分层定位 + 量化度量"></a>引言：调优不是玄学，是分层定位 + 量化度量</h2><p>做大数据这些年被问得最多的问题之一就是：”我们这个 Hadoop 集群跑得慢，能不能帮忙调一下？”每次听到这种描述我心里都一沉——没有基线、没有现象、没有瓶颈定位，调优就成了玄学。我接手任何一个慢集群，第一件事不是动参数，而是先把”慢”这件事拆开问清楚：是 NameNode RPC 排队？是 Map 阶段 shuffle 卡住？是 Reduce 端磁盘 IO 打满？还是某个作业的数据倾斜把整体拖垮？</p>
+<p>调优真正的工作量在”诊断”而不是”改参数”。我给自己定了一条规矩：<strong>任何一个参数变更，都必须先有一个可量化的指标证明它需要改，并且改完之后这个指标能验证效果。</strong> 如果改完之后只能凭感觉说”好像快了”，那这个调优基本是无效的。</p>
+<p>这篇文章是我这几年在 PB 级集群上踩坑整理出来的分层调优方法论，从最底层的硬件 OS 一路讲到作业参数和压缩选型，最后用一个真实复盘案例串起来。希望能帮你建立一个可以复用的调优框架，而不是记一堆”别人说 <code>io.file.buffer.size=65536</code> 就快”的孤立结论。</p>
+<h2 id="分层调优框架：先把问题压到某一层"><a href="#分层调优框架：先把问题压到某一层" class="headerlink" title="分层调优框架：先把问题压到某一层"></a>分层调优框架：先把问题压到某一层</h2><p>我把 Hadoop 性能问题按从下到上分成五层，每一层都有典型的瓶颈形态和定位手段：</p>
+<table>
+<thead>
+<tr>
+<th>层级</th>
+<th>典型瓶颈</th>
+<th>主要观察指标</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>硬件 &#x2F; OS &#x2F; 网络</td>
+<td>CPU 频率、THP、swap、网卡带宽</td>
+<td><code>top</code>、<code>vmstat</code>、<code>sar -n DEV</code></td>
+</tr>
+<tr>
+<td>磁盘</td>
+<td>JBOD 不均、IO 队列、调度器</td>
+<td><code>iostat -x</code>、<code>iotop</code>、<code>dfs.du</code></td>
+</tr>
+<tr>
+<td>JVM</td>
+<td>Full GC、堆碎片、RPC 队列堆积</td>
+<td>GC 日志、<code>jstack</code>、JMX</td>
+</tr>
+<tr>
+<td>Hadoop 参数</td>
+<td>handler 不足、心跳超时、内存配置</td>
+<td>NameNode UI、RM UI、AM 日志</td>
+</tr>
+<tr>
+<td>作业本身</td>
+<td>数据倾斜、小文件、压缩选择不当</td>
+<td>Counter、Task 日志、shuffle 字节</td>
+</tr>
+</tbody></table>
+<p>这套框架的核心思想是<strong>先度量再调优</strong>。排查时从上往下定位作业现象，再从下往上验证瓶颈所在。最忌讳的是看到一个参数清单就开始逐条套，那只会越调越乱。下面每一层我都展开讲讲。</p>
+<h2 id="硬件与-OS-层：地基不牢，上层全白搭"><a href="#硬件与-OS-层：地基不牢，上层全白搭" class="headerlink" title="硬件与 OS 层：地基不牢，上层全白搭"></a>硬件与 OS 层：地基不牢，上层全白搭</h2><p>这一层是被忽视得最厉害的，但又是天花板。如果地基出了问题，JVM 调得再漂亮也救不回来。</p>
+<h3 id="磁盘：JBOD-而非-RAID，但-NameNode-例外"><a href="#磁盘：JBOD-而非-RAID，但-NameNode-例外" class="headerlink" title="磁盘：JBOD 而非 RAID，但 NameNode 例外"></a>磁盘：JBOD 而非 RAID，但 NameNode 例外</h3><p>DataNode 的数据盘强烈建议用 JBOD（Just a Bunch of Disks）直连，<strong>不要做 RAID0</strong>。原因有两个：一是 RAID0 的写性能随着盘数增加反而下降（条带开销），二是 Hadoop 本身有三副本机制，单盘故障只是少一个 volume，集群能自愈；而 RAID0 一块盘坏掉整个逻辑卷全完。我在一个 12 盘的 DataNode 上实测过，JBOD 相比 RAID0 在写吞吐上高出约 30%<!-- 校准：请按真实经历核实/替换 -->。</p>
+<p>但 NameNode 是个例外。NameNode 的元数据（fsimage 和 editlog）是整个集群的命根子，丢了就完蛋，所以 <strong>NameNode 的元数据盘要做 RAID1</strong>，而且最好配多目录（<code>dfs.namenode.name.dir</code>）指向不同的物理盘甚至不同的 HBA 卡，做同步写冗余。</p>
+<h3 id="HDD-与-SSD-的分层使用"><a href="#HDD-与-SSD-的分层使用" class="headerlink" title="HDD 与 SSD 的分层使用"></a>HDD 与 SSD 的分层使用</h3><p>不是所有数据都该放 SSD。冷数据、归档数据放高密度 HDD，热数据、NameNode 元数据、YARN 的本地化目录（<code>yarn.nodemanager.local-dirs</code>）放 SSD。HDFS 2.7+ 的存储策略（<code>HOT</code>&#x2F;<code>WARM</code>&#x2F;<code>COLD</code>&#x2F;<code>ALL_SSD</code>）配合 storage type 可以让你按目录指定存储介质。</p>
+<h3 id="网络：拓扑、非阻塞、冗余"><a href="#网络：拓扑、非阻塞、冗余" class="headerlink" title="网络：拓扑、非阻塞、冗余"></a>网络：拓扑、非阻塞、冗余</h3><p>Hadoop shuffle 对网络极度敏感。机架感知（<code>net.topology.script.file.name</code>）必须配，否则所有节点会被当作一个机架，block placement 退化成”两副本同机架”，一旦机架 ToR 交换机故障就会丢数据。核心交换要做非阻塞（non-blocking）架构，跨机架带宽至少是机架内带宽的 20%<!-- 校准：请按真实经历核实/替换 -->。万兆网络是底线，shuffle 密集的场景我建议上 25G 甚至 100G。</p>
+<h3 id="文件系统与内核参数"><a href="#文件系统与内核参数" class="headerlink" title="文件系统与内核参数"></a>文件系统与内核参数</h3><p>几个我必做的 OS 项：</p>
+<ul>
+<li><strong>文件系统</strong>：XFS 或 ext4，XFS 在大文件场景更稳，建议给 mkfs 时 <code>-b size=4096</code>。</li>
+<li><strong>关闭 swap</strong>：<code>swapoff -a</code>，并在 <code>/etc/fstab</code> 注释掉 swap 行。Hadoop 进程一旦被换出，GC 就会暴雷。也可以在 <code>sysctl.conf</code> 里把 <code>vm.swappiness</code> 设到 1 甚至 0。</li>
+<li><strong>关闭透明大页（THP）</strong>：THP 在高内存压力下会引发 khugepaged 抢 CPU，导致 JVM 卡顿。<code>echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled</code>。</li>
+<li><strong>文件描述符上限</strong>：<code>ulimit -n</code> 至少调到 65536，DataNode 打开句柄多时容易撞到默认 1024 的墙。</li>
+<li><strong>磁盘调度器</strong>：HDD 用 <code>deadline</code> 或 <code>mq-deadline</code>，SSD&#x2F;NVMe 用 <code>none</code> 或 <code>noop</code>。echo 调度器到 <code>/sys/block/sdX/queue/scheduler</code>。</li>
+</ul>
+<h2 id="NameNode-JVM-调优：最容易出”玄学慢”的地方"><a href="#NameNode-JVM-调优：最容易出”玄学慢”的地方" class="headerlink" title="NameNode JVM 调优：最容易出”玄学慢”的地方"></a>NameNode JVM 调优：最容易出”玄学慢”的地方</h2><p>NameNode 是整个集群的单点，所有 HDFS 操作都要过它。NameNode 一卡，全集群跟着卡。所以 NameNode 的 JVM 调优是 Hadoop 调优里最值得投入精力的部分。</p>
+<h3 id="堆内存规划"><a href="#堆内存规划" class="headerlink" title="堆内存规划"></a>堆内存规划</h3><p>NameNode 堆内存主要消耗在两块：**文件系统的命名空间镜像（fsimage 加载到内存的对象）**和 <strong>NN 端缓存的 block 位置信息</strong>。经验值是每 100 万个文件&#x2F;块对象大约吃 1GB 堆<!-- 校准：请按真实经历核实/替换 -->，再加上 block replication 缓存、lease 管理、RPC 缓冲，实际要预留 30%-50% 余量。</p>
+<p>规划公式我一般这么估：<code>Heap(GB) ≈ 文件数 × 1GB / 1e6 × 1.3</code>。比如一个集群有 5 亿文件，NameNode 堆至少要 65GB<!-- 校准：请按真实经历核实/替换 -->。堆不要无脑开大，超过 64GB 后 GC 的停顿时间会陡增，这时候就要认真选 GC 算法了。</p>
+<h3 id="G1GC-vs-CMS"><a href="#G1GC-vs-CMS" class="headerlink" title="G1GC vs CMS"></a>G1GC vs CMS</h3><p>Hadoop 2.x 时代 NameNode 默认 CMS，CMS 的痛点是碎片化严重和 Concurrent Mode Failure 时的 Full GC 停顿。Hadoop 3.x 默认 G1GC，对于大堆（&gt;32GB）场景我强烈推荐 G1，它通过 region 化的堆布局把停顿时间可控化。</p>
+<p>调 G1 的关键是 <code>-XX:MaxGCPauseMillis</code> 和 <code>-XX:G1HeapRegionSize</code>。NameNode 这种大堆、短存活对象多的场景，<code>G1HeapRegionSize</code> 建议 16MB 或 32MB（堆 64GB 时用 32MB）。<code>MaxGCPauseMillis</code> 设 200ms 是个常用起点，但要看实际 GC 日志调，如果发现 mixed GC 频繁但每次都很快，可以稍微放宽到 300ms 让它少做一些。</p>
+<p>下面是我线上 NameNode 用过的一组 G1GC 参数（堆 64GB），可以直接套用后再根据 GC 日志微调：</p>
+<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">-server</span> <span class="string">-Xmx64g -Xms64g</span></span><br><span class="line"><span class="attr">-XX</span>:<span class="string">+UseG1GC</span></span><br><span class="line"><span class="attr">-XX</span>:<span class="string">MaxGCPauseMillis=200</span></span><br><span class="line"><span class="attr">-XX</span>:<span class="string">G1HeapRegionSize=32m</span></span><br><span class="line"><span class="attr">-XX</span>:<span class="string">InitiatingHeapOccupancyPercent=35</span></span><br><span class="line"><span class="attr">-XX</span>:<span class="string">ParallelGCThreads=24</span></span><br><span class="line"><span class="attr">-XX</span>:<span class="string">ConcGCThreads=6</span></span><br><span class="line"><span class="attr">-XX</span>:<span class="string">+ExplicitGCInvokesConcurrent</span></span><br><span class="line"><span class="attr">-XX</span>:<span class="string">+ParallelRefProcEnabled</span></span><br><span class="line"><span class="attr">-XX</span>:<span class="string">+AlwaysPreTouch</span></span><br><span class="line"><span class="attr">-Xlog</span>:<span class="string">gc*:file=/var/log/hadoop/nn-gc.log:time,uptime,level,tags:filecount=10,filesize=100M</span></span><br><span class="line"><span class="attr">-XX</span>:<span class="string">+HeapDumpOnOutOfMemoryError</span></span><br><span class="line"><span class="attr">-XX</span>:<span class="string">HeapDumpPath=/var/log/hadoop/nn-heapdump</span></span><br></pre></td></tr></table></figure>
+
+<p>几个关键点的取舍说明：</p>
+<ul>
+<li><code>-Xms = -Xmx</code>：避免堆动态扩张时的停顿。</li>
+<li><code>InitiatingHeapOccupancyPercent=35</code>：触发并发标记的阈值，NameNode 长生命周期对象多，35% 比默认 45% 更早开始并发回收，能压低 mixed GC 频率。</li>
+<li><code>ParallelGCThreads=24</code>：和物理核数挂钩，一般取物理核数的 1&#x2F;4 到 1&#x2F;2 之间，避免 GC 抢业务线程太多。</li>
+<li><code>AlwaysPreTouch</code>：启动时就把所有堆页 touch 一遍，避免运行时缺页中断带来的尖刺。代价是启动慢，对 NameNode 完全可接受。</li>
+<li>GC 日志一定要落盘，10 个文件 × 100MB 滚动，这是事后定位 Full GC 的命根子。</li>
+</ul>
+<h3 id="RPC-handler-与队列"><a href="#RPC-handler-与队列" class="headerlink" title="RPC handler 与队列"></a>RPC handler 与队列</h3><p>堆调好只是第一步，NameNode 真正的吞吐瓶颈往往在 RPC。<code>dfs.namenode.handler.count</code> 默认 10，对生产集群远远不够。我一般按 DataNode 数量 + 客户端并发估算，几百台机器的集群开到 64-128<!-- 校准：请按真实经历核实/替换 -->。配合 <code>ipc.server.max.response.size</code> 和 <code>ipc.server.read.threadpool.maximum</code> 一起调，否则 handler 被慢请求阻塞，新请求堆积在 listener 队列。</p>
+<p>NameNode UI 上能直接看到 RPC 处理时间和队列长度，如果 <code>CallQueueLength</code> 持续高、<code>ProcessCallTime</code> 的 p99 超过几十毫秒，就是 handler 不够的信号，这时候加 handler 比加堆管用得多。</p>
+<h2 id="DataNode-与-IO-调优：把磁盘榨干"><a href="#DataNode-与-IO-调优：把磁盘榨干" class="headerlink" title="DataNode 与 IO 调优：把磁盘榨干"></a>DataNode 与 IO 调优：把磁盘榨干</h2><p>DataNode 的工作很简单也很重：源源不断地读写块。调优的核心是让多块盘充分并行、避免单盘成为热点。</p>
+<h3 id="handler-与多-volume-均衡"><a href="#handler-与多-volume-均衡" class="headerlink" title="handler 与多 volume 均衡"></a>handler 与多 volume 均衡</h3><p><code>dfs.datanode.handler.count</code> 默认 10，建议提到 20-40<!-- 校准：请按真实经历核实/替换 -->。但注意 handler 数不是越高越好，每个 handler 都会在 IO 上排队，handler 太多会让磁盘调度抖动加剧。</p>
+<p><code>dfs.datanode.data.dir</code> 配多 volume（比如 12 块盘就配 12 个目录），Hadoop 会基于剩余空间做 round-robin 写入。<strong>但 Hadoop 不会自动 rebalance 已有数据</strong>，新增盘后老盘可能被打满而新盘空着，这时候要手动跑 balancer 或者用 <code>hdfs diskbalancer</code> 做节点内均衡。</p>
+<p><code>dfs.datanode.failed.volumes.tolerated</code> 默认 0，意味着任何一块盘故障 DataNode 就退出。生产环境必须设为 ≥1（一般是 volume 总数的 1&#x2F;4 左右），否则一块坏盘就让整个节点下线太脆弱。</p>
+<h3 id="IO-缓冲与-balancer-带宽"><a href="#IO-缓冲与-balancer-带宽" class="headerlink" title="IO 缓冲与 balancer 带宽"></a>IO 缓冲与 balancer 带宽</h3><p><code>io.file.buffer.size</code> 控制 Hadoop 读写文件时的缓冲大小，默认 4KB 太小。我固定设成 65536（64KB），对大文件顺序读写吞吐提升明显。</p>
+<p>balancer 的带宽 <code>dfs.datanode.balance.bandwidthPerSec</code> 默认只有 1MB&#x2F;s<!-- 校准：请按真实经历核实/替换 -->，对 PB 级集群完全不够。但开太大会抢业务带宽，我一般在工作时间设 10-20MB&#x2F;s，业务低峰期动态调到 50MB&#x2F;s。HDFS 2.8+ 支持 <code>dfs.datanode.balance.max.concurrent.moves</code> 配合控制并发移动块数，比单纯调带宽更精细。</p>
+<p>磁盘调度器选错也会拖累 IO。HDD 必须用 <code>deadline</code> 或 <code>mq-deadline</code>，不要用默认的 <code>cfq</code>（桌面调度器，对数据库式负载很不友好）。SSD 用 <code>none</code>（直通），因为 SSD 自己有 FTL 调度。</p>
+<h2 id="压缩策略：map-输出和结果存储要分开选"><a href="#压缩策略：map-输出和结果存储要分开选" class="headerlink" title="压缩策略：map 输出和结果存储要分开选"></a>压缩策略：map 输出和结果存储要分开选</h2><p>压缩是性价比最高的优化之一：CPU 换 IO，在现代 CPU 过剩而 IO 紧张的集群上几乎是白送的性能。但不同压缩算法在压缩率、速度、可分裂性上差异巨大，要按用途选。</p>
+<table>
+<thead>
+<tr>
+<th>算法</th>
+<th>压缩率</th>
+<th>压缩速度</th>
+<th>解压速度</th>
+<th>可分裂</th>
+<th>典型用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>gzip</td>
+<td>高</td>
+<td>慢</td>
+<td>中</td>
+<td>否（除非带索引）</td>
+<td>历史归档、冷数据</td>
+</tr>
+<tr>
+<td>lzo</td>
+<td>中</td>
+<td>快</td>
+<td>很快</td>
+<td>是（需建索引）</td>
+<td>map 输出、中间数据</td>
+</tr>
+<tr>
+<td>snappy</td>
+<td>低</td>
+<td>极快</td>
+<td>极快</td>
+<td>否</td>
+<td>map 输出、临时数据</td>
+</tr>
+<tr>
+<td>zstd</td>
+<td>中高</td>
+<td>快（接近 snappy）</td>
+<td>快</td>
+<td>是（带帧格式）</td>
+<td>全能选手，新版首选</td>
+</tr>
+<tr>
+<td>brotli</td>
+<td>很高</td>
+<td>很慢</td>
+<td>中</td>
+<td>否</td>
+<td>文本类静态资源、不推荐大数</td>
+</tr>
+</tbody></table>
+<p>一个关键概念是<strong>可分裂性（splittable）</strong>。如果一个 100GB 的 gzip 文件要被 MapReduce 处理，因为它不可分裂，只能由一个 map task 串行读，并行度被打成 1。这对作业来说是灾难性的。所以<strong>存储层如果用压缩，必须用可分裂格式</strong>（lzo + 索引、zstd 帧、或者直接用 Parquet&#x2F;ORC 这种列存格式自带压缩和分裂）。</p>
+<p>map 输出（shuffle 数据）的压缩又是另一回事。这里追求的是 CPU 消耗低、解压快，因为每个 reduce 都要解。snappy 是 map 输出压缩的黄金标准，zstd 在新版 Hadoop 上也越来越流行。gzip 太慢，绝对不要用在 shuffle 上。</p>
+<p>下面是我在 mapred-site.xml 里配置压缩的常用片段，map 输出用 snappy，作业输出按需要切：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">&lt;!-- 启用 map 输出压缩，shuffle 阶段省网络 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>mapreduce.map.output.compress<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>true<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>mapreduce.map.output.compress.codec<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>org.apache.hadoop.io.compress.SnappyCodec<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"></span><br><span class="line"><span class="comment">&lt;!-- 作业最终输出压缩，按场景切换 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>mapreduce.output.fileoutputformat.compress<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>true<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>mapreduce.output.fileoutputformat.compress.codec<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>org.apache.hadoop.io.compress.GzipCodec<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line">  <span class="comment">&lt;!-- 归档场景用 GzipCodec；下游还要再跑 MR 就换 ZStandardCodec 或 LzopCodec --&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>mapreduce.output.fileoutputformat.compress.type<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>BLOCK<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>实际上现在大多数场景我更推荐直接上 Parquet + snappy 或 zstd，列存 + 字典编码 + 压缩三合一，比行存 + 压缩效率高一个量级。</p>
+<h2 id="关键参数清单：把最常调的列在一起"><a href="#关键参数清单：把最常调的列在一起" class="headerlink" title="关键参数清单：把最常调的列在一起"></a>关键参数清单：把最常调的列在一起</h2><p>下面这张表是我调优时会逐条扫一遍的”检查清单”，按组件分组，每条都标了含义和典型值范围。</p>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>参数</th>
+<th>含义</th>
+<th>典型值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>NameNode</td>
+<td><code>dfs.namenode.handler.count</code></td>
+<td>RPC 处理线程数</td>
+<td>64-128</td>
+</tr>
+<tr>
+<td>NameNode</td>
+<td><code>dfs.namenode.name.dir</code></td>
+<td>元数据目录（多盘冗余）</td>
+<td>RAID1 × 2-3</td>
+</tr>
+<tr>
+<td>NameNode</td>
+<td><code>dfs.namenode.fs-limits.max-directory-items</code></td>
+<td>单目录最大子项</td>
+<td>1048576</td>
+</tr>
+<tr>
+<td>NameNode</td>
+<td><code>dfs.blocksize</code></td>
+<td>块大小</td>
+<td>256MB&#x2F;512MB</td>
+</tr>
+<tr>
+<td>DataNode</td>
+<td><code>dfs.datanode.handler.count</code></td>
+<td>DN 数据传输 handler</td>
+<td>20-40</td>
+</tr>
+<tr>
+<td>DataNode</td>
+<td><code>dfs.datanode.data.dir</code></td>
+<td>数据 volume 列表</td>
+<td>12 块盘路径</td>
+</tr>
+<tr>
+<td>DataNode</td>
+<td><code>dfs.datanode.failed.volumes.tolerated</code></td>
+<td>允许故障 volume 数</td>
+<td>1-3</td>
+</tr>
+<tr>
+<td>DataNode</td>
+<td><code>dfs.datanode.balance.bandwidthPerSec</code></td>
+<td>balancer 每秒带宽</td>
+<td>10-50MB</td>
+</tr>
+<tr>
+<td>通用 IO</td>
+<td><code>io.file.buffer.size</code></td>
+<td>读写缓冲</td>
+<td>65536</td>
+</tr>
+<tr>
+<td>YARN</td>
+<td><code>yarn.nodemanager.resource.memory-mb</code></td>
+<td>节点可分配内存</td>
+<td>物理内存 × 0.8</td>
+</tr>
+<tr>
+<td>YARN</td>
+<td><code>yarn.scheduler.maximum-allocation-mb</code></td>
+<td>单容器内存上限</td>
+<td>与上同步</td>
+</tr>
+<tr>
+<td>YARN</td>
+<td><code>yarn.nodemanager.vmem-pmem-ratio</code></td>
+<td>虚拟内存比</td>
+<td>2.1（关掉更省心）</td>
+</tr>
+<tr>
+<td>YARN</td>
+<td><code>yarn.scheduler.fair.allocation-file</code></td>
+<td>公平调度分配文件</td>
+<td>按队列配</td>
+</tr>
+<tr>
+<td>MR</td>
+<td><code>mapreduce.map.memory.mb</code> &#x2F; <code>reduce.memory.mb</code></td>
+<td>容器内存</td>
+<td>2-4GB &#x2F; 4-8GB</td>
+</tr>
+<tr>
+<td>MR</td>
+<td><code>mapreduce.task.io.sort.mb</code></td>
+<td>map 端排序缓冲</td>
+<td>map 内存 × 0.5</td>
+</tr>
+<tr>
+<td>MR</td>
+<td><code>mapreduce.job.reduces</code></td>
+<td>reduce 数</td>
+<td>按 shuffle 字节 ÷ 1GB 估</td>
+</tr>
+</tbody></table>
+<h2 id="监控与定位手段：没有指标就没有调优"><a href="#监控与定位手段：没有指标就没有调优" class="headerlink" title="监控与定位手段：没有指标就没有调优"></a>监控与定位手段：没有指标就没有调优</h2><p>前面反复强调”先度量再调优”，这一节具体讲怎么度量。我把监控分成三个层次。</p>
+<h3 id="第一层：JMX-Prometheus"><a href="#第一层：JMX-Prometheus" class="headerlink" title="第一层：JMX + Prometheus"></a>第一层：JMX + Prometheus</h3><p>Hadoop 进程天然带 JMX，把所有内部指标都暴露出来。我用 JMX exporter（jmx_exporter Java agent）把 JMX 翻译成 Prometheus 格式，再由 Prometheus pull，Grafana 出图。重点关注的指标包括：</p>
+<ul>
+<li>NameNode：<code>NumStaleDataNodes</code>、<code>CapacityTotal</code>&#x2F;<code>CapacityUsed</code>、<code>FilesTotal</code>&#x2F;<code>BlocksTotal</code>、<code>TransactionsSinceLastCheckpoint</code>。</li>
+<li>DataNode：每个 volume 的 <code>DatanodeDiskIOStat</code>、<code>BytesWritten</code>&#x2F;<code>BytesRead</code>。</li>
+<li>RPC：<code>RpcQueueTimeNumOps</code>、<code>RpcProcessingTimeAvgTime</code>、<code>CallQueueLength</code>。</li>
+</ul>
+<p>RPC 的 <code>CallQueueLength</code> 和 <code>RpcProcessingTimeAvgTime</code> 是 NameNode 健康度的晴雨表。任何一次集群卡顿，Grafana 上这两个指标先跳。</p>
+<h3 id="第二层：GC-日志分析"><a href="#第二层：GC-日志分析" class="headerlink" title="第二层：GC 日志分析"></a>第二层：GC 日志分析</h3><p>GC 日志开启后用 GCViewer 或 GCEasy 解析。我重点看三个数：Full GC 频率、mixed GC 停顿的 p99、Concurrent Mark 的耗时占比。如果 mixed GC 频率超过每分钟一次，说明 <code>InitiatingHeapOccupancyPercent</code> 太高或者 region 太大，要往下调。</p>
+<h3 id="第三层：现场分析（jstack-jmap-火焰图）"><a href="#第三层：现场分析（jstack-jmap-火焰图）" class="headerlink" title="第三层：现场分析（jstack &#x2F; jmap &#x2F; 火焰图）"></a>第三层：现场分析（jstack &#x2F; jmap &#x2F; 火焰图）</h3><p>线上出问题时，先 <code>jstack &lt;pid&gt;</code> 抓栈，连抓三次间隔 1-2 秒，看线程都卡在哪。如果大量 RPC handler 卡在 <code>waitForBytes</code>，说明 IO 是瓶颈；如果卡在 <code>ArrayAllocator</code>，说明是元数据分配。<code>jmap -histo:live &lt;pid&gt;</code> 能看到对象直方图，NameNode 异常时常见的征兆是 <code>INodeFile</code> &#x2F; <code>BlockInfo</code> 实例数暴涨。</p>
+<p>火焰图是定位 CPU 热点的杀手锏。用 async-profiler 给 NameNode 抓 30 秒，火焰图里哪一段最宽就是热点。我曾经用这种方式定位过一个序列化反序列化库占用 40% CPU 的问题，靠看火焰图一眼就发现了。</p>
+<h2 id="一个真实调优复盘案例"><a href="#一个真实调优复盘案例" class="headerlink" title="一个真实调优复盘案例"></a>一个真实调优复盘案例</h2><p>最后用一个串起来的案例说明这套方法怎么落地。这个案例脱敏自一个日志分析集群。</p>
+<p><strong>现象</strong>：一个 200 节点的集群，每天凌晨跑一批 ETL 作业，最近几周 SLA 从 2 小时恶化到 5 小时<!-- 校准：请按真实经历核实/替换 -->，业务方投诉不断。</p>
+<p><strong>定位过程</strong>：</p>
+<ol>
+<li><strong>先看 RM 和 JobHistory</strong>：发现是某一个作业 <code>log_join_dedup</code> 的 reduce 阶段拖累整体，其他作业时间正常。这个作业的 reduce 数只有 50，但 shuffle 字节有 800GB<!-- 校准：请按真实经历核实/替换 -->。</li>
+<li><strong>看 Counter</strong>：reduce 端 <code>GC time elapsed</code> 占比 60%，<code>Spilled Records</code> 是 <code>Map output records</code> 的 4 倍，说明 reduce 内存不够，疯狂 spill。</li>
+<li><strong>看 NameNode 监控</strong>：<code>CallQueueLength</code> 在作业运行期间持续 &gt;200，<code>RpcProcessingTimeAvgTime</code> 从平时的 2ms 跳到 30ms。说明 NameNode RPC 也在被打。</li>
+<li><strong>看磁盘 IO</strong>：DataNode 上多块盘 util 接近 100%<!-- 校准：请按真实经历核实/替换 -->，但只是 reduce 写出阶段。</li>
+</ol>
+<p><strong>假设</strong>：</p>
+<ul>
+<li>主要矛盾：reduce 数太少 + reduce 内存不够，导致单 reduce 处理数据过多，疯狂 spill 触发磁盘 IO 打满。</li>
+<li>次要矛盾：NameNode RPC handler 不够，作业大量小文件 create 拖累 NN。</li>
+</ul>
+<p><strong>验证与改动</strong>：</p>
+<ol>
+<li>把 <code>mapreduce.job.reduces</code> 从 50 调到 400（按 shuffle 字节 ÷ 2GB 估算）。reduce 数上去后单 reduce 数据降到 2GB，spill 大幅减少。</li>
+<li><code>mapreduce.reduce.memory.mb</code> 从 2GB 提到 4GB，<code>mapreduce.reduce.java.opts</code> 同步提到 3.2GB（留 heap 外内存给 shuffle）。spill 消失。</li>
+<li>map 输出没开压缩。打开 <code>mapreduce.map.output.compress=true</code> + Snappy，shuffle 字节下降到原来的 1&#x2F;3。</li>
+<li>NameNode <code>dfs.namenode.handler.count</code> 从 32 调到 96，配合 G1GC 的 <code>InitiatingHeapOccupancyPercent</code> 从 45 降到 35。</li>
+</ol>
+<p><strong>结果</strong>：作业耗时从 5 小时降到 1.5 小时<!-- 校准：请按真实经历核实/替换 -->，NameNode RPC p99 回到 3ms 以内。一次改完验证、再改再验证，每一步都看指标变化，避免误判。</p>
+<p>这个案例的关键不是改了哪几个参数，而是<strong>用数据一步步逼出瓶颈</strong>。如果一开始就拍脑袋”调 reduce 数”或者”调 GC”，很可能改完没效果，因为多个矛盾是叠加的。</p>
+<h2 id="小结：调优的终点是可观测"><a href="#小结：调优的终点是可观测" class="headerlink" title="小结：调优的终点是可观测"></a>小结：调优的终点是可观测</h2><p>写到这里你应该能感受到，Hadoop 性能调优没有银弹。它本质上是一个<strong>用可观测性把不可见的瓶颈变得可见</strong>的过程：分层定位、量化度量、假设验证、回滚机制。具体改哪个参数反而是最不重要的部分——参数清单网上到处都是，真正稀缺的是”为什么这里要这么改”的判断力。</p>
+<p>回到开头那句话：<strong>调优不是玄学，是工程。</strong> 把每一层都铺上监控，把每一次改动都留下指标对比，把每一次复盘都沉淀成检查清单。久而久之你会发现，遇到新问题不再慌，因为路径是固定的：从作业现象往下钻一层、再一层，直到看见那个被忽略的瓶颈。这套方法论的复用价值，远比记住某条 <code>properties</code> 配置大得多。</p>
+<p>希望这篇梳理能帮你在下一次面对”集群慢”的灵魂拷问时，少走一些弯路。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>性能调优<span class="tagsPageCount">1</span></span></a><a class="post-meta__tags" href="/tags/JVM/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>JVM<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/hadoop3-new-features"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">Hadoop 3.x 核心新特性深度解读</div></div></a></div><div class="next-post pull-right"><a href="/posts/hadoop-security-kerberos-ranger"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E8%A8%80%EF%BC%9A%E8%B0%83%E4%BC%98%E4%B8%8D%E6%98%AF%E7%8E%84%E5%AD%A6%EF%BC%8C%E6%98%AF%E5%88%86%E5%B1%82%E5%AE%9A%E4%BD%8D-%E9%87%8F%E5%8C%96%E5%BA%A6%E9%87%8F"><span class="toc-text">引言：调优不是玄学，是分层定位 + 量化度量</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%88%86%E5%B1%82%E8%B0%83%E4%BC%98%E6%A1%86%E6%9E%B6%EF%BC%9A%E5%85%88%E6%8A%8A%E9%97%AE%E9%A2%98%E5%8E%8B%E5%88%B0%E6%9F%90%E4%B8%80%E5%B1%82"><span class="toc-text">分层调优框架：先把问题压到某一层</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%A1%AC%E4%BB%B6%E4%B8%8E-OS-%E5%B1%82%EF%BC%9A%E5%9C%B0%E5%9F%BA%E4%B8%8D%E7%89%A2%EF%BC%8C%E4%B8%8A%E5%B1%82%E5%85%A8%E7%99%BD%E6%90%AD"><span class="toc-text">硬件与 OS 层：地基不牢，上层全白搭</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%A3%81%E7%9B%98%EF%BC%9AJBOD-%E8%80%8C%E9%9D%9E-RAID%EF%BC%8C%E4%BD%86-NameNode-%E4%BE%8B%E5%A4%96"><span class="toc-text">磁盘：JBOD 而非 RAID，但 NameNode 例外</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#HDD-%E4%B8%8E-SSD-%E7%9A%84%E5%88%86%E5%B1%82%E4%BD%BF%E7%94%A8"><span class="toc-text">HDD 与 SSD 的分层使用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%BD%91%E7%BB%9C%EF%BC%9A%E6%8B%93%E6%89%91%E3%80%81%E9%9D%9E%E9%98%BB%E5%A1%9E%E3%80%81%E5%86%97%E4%BD%99"><span class="toc-text">网络：拓扑、非阻塞、冗余</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9F%E4%B8%8E%E5%86%85%E6%A0%B8%E5%8F%82%E6%95%B0"><span class="toc-text">文件系统与内核参数</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#NameNode-JVM-%E8%B0%83%E4%BC%98%EF%BC%9A%E6%9C%80%E5%AE%B9%E6%98%93%E5%87%BA%E2%80%9D%E7%8E%84%E5%AD%A6%E6%85%A2%E2%80%9D%E7%9A%84%E5%9C%B0%E6%96%B9"><span class="toc-text">NameNode JVM 调优：最容易出”玄学慢”的地方</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%A0%86%E5%86%85%E5%AD%98%E8%A7%84%E5%88%92"><span class="toc-text">堆内存规划</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#G1GC-vs-CMS"><span class="toc-text">G1GC vs CMS</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#RPC-handler-%E4%B8%8E%E9%98%9F%E5%88%97"><span class="toc-text">RPC handler 与队列</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#DataNode-%E4%B8%8E-IO-%E8%B0%83%E4%BC%98%EF%BC%9A%E6%8A%8A%E7%A3%81%E7%9B%98%E6%A6%A8%E5%B9%B2"><span class="toc-text">DataNode 与 IO 调优：把磁盘榨干</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#handler-%E4%B8%8E%E5%A4%9A-volume-%E5%9D%87%E8%A1%A1"><span class="toc-text">handler 与多 volume 均衡</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#IO-%E7%BC%93%E5%86%B2%E4%B8%8E-balancer-%E5%B8%A6%E5%AE%BD"><span class="toc-text">IO 缓冲与 balancer 带宽</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8E%8B%E7%BC%A9%E7%AD%96%E7%95%A5%EF%BC%9Amap-%E8%BE%93%E5%87%BA%E5%92%8C%E7%BB%93%E6%9E%9C%E5%AD%98%E5%82%A8%E8%A6%81%E5%88%86%E5%BC%80%E9%80%89"><span class="toc-text">压缩策略：map 输出和结果存储要分开选</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%B3%E9%94%AE%E5%8F%82%E6%95%B0%E6%B8%85%E5%8D%95%EF%BC%9A%E6%8A%8A%E6%9C%80%E5%B8%B8%E8%B0%83%E7%9A%84%E5%88%97%E5%9C%A8%E4%B8%80%E8%B5%B7"><span class="toc-text">关键参数清单：把最常调的列在一起</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%9B%91%E6%8E%A7%E4%B8%8E%E5%AE%9A%E4%BD%8D%E6%89%8B%E6%AE%B5%EF%BC%9A%E6%B2%A1%E6%9C%89%E6%8C%87%E6%A0%87%E5%B0%B1%E6%B2%A1%E6%9C%89%E8%B0%83%E4%BC%98"><span class="toc-text">监控与定位手段：没有指标就没有调优</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%AC%AC%E4%B8%80%E5%B1%82%EF%BC%9AJMX-Prometheus"><span class="toc-text">第一层：JMX + Prometheus</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%AC%AC%E4%BA%8C%E5%B1%82%EF%BC%9AGC-%E6%97%A5%E5%BF%97%E5%88%86%E6%9E%90"><span class="toc-text">第二层：GC 日志分析</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%AC%AC%E4%B8%89%E5%B1%82%EF%BC%9A%E7%8E%B0%E5%9C%BA%E5%88%86%E6%9E%90%EF%BC%88jstack-jmap-%E7%81%AB%E7%84%B0%E5%9B%BE%EF%BC%89"><span class="toc-text">第三层：现场分析（jstack &#x2F; jmap &#x2F; 火焰图）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E4%B8%AA%E7%9C%9F%E5%AE%9E%E8%B0%83%E4%BC%98%E5%A4%8D%E7%9B%98%E6%A1%88%E4%BE%8B"><span class="toc-text">一个真实调优复盘案例</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B0%8F%E7%BB%93%EF%BC%9A%E8%B0%83%E4%BC%98%E7%9A%84%E7%BB%88%E7%82%B9%E6%98%AF%E5%8F%AF%E8%A7%82%E6%B5%8B"><span class="toc-text">小结：调优的终点是可观测</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/hadoop-to-lakehouse-evolution" title="从 Hadoop 到湖仓一体：数据平台的十年演进"><div class="content"><span class="title" href="/posts/hadoop-to-lakehouse-evolution" title="从 Hadoop 到湖仓一体：数据平台的十年演进">从 Hadoop 到湖仓一体：数据平台的十年演进</span><span class="categories" href="/posts/hadoop-to-lakehouse-evolution">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-cluster-planning-deployment" title="Hadoop 集群容量规划、部署与基准测试实战"><div class="content"><span class="title" href="/posts/hadoop-cluster-planning-deployment" title="Hadoop 集群容量规划、部署与基准测试实战">Hadoop 集群容量规划、部署与基准测试实战</span><span class="categories" href="/posts/hadoop-cluster-planning-deployment">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop3-new-features" title="Hadoop 3.x 核心新特性深度解读"><div class="content"><span class="title" href="/posts/hadoop3-new-features" title="Hadoop 3.x 核心新特性深度解读">Hadoop 3.x 核心新特性深度解读</span><span class="categories" href="/posts/hadoop3-new-features">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-performance-tuning" title="Hadoop 性能调优全攻略：从 JVM、IO 到参数"><div class="content"><span class="title" href="/posts/hadoop-performance-tuning" title="Hadoop 性能调优全攻略：从 JVM、IO 到参数">Hadoop 性能调优全攻略：从 JVM、IO 到参数</span><span class="categories" href="/posts/hadoop-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-security-kerberos-ranger" title="Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战"><div class="content"><span class="title" href="/posts/hadoop-security-kerberos-ranger" title="Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战">Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战</span><span class="categories" href="/posts/hadoop-security-kerberos-ranger">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

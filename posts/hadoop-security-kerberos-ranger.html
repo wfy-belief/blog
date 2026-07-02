@@ -1,0 +1,490 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/hadoop-security-kerberos-ranger"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="从 Kerberos 三方认证到 Ranger 统一授权，落地 Hadoop 集群安全"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文复盘在生产集群落地 Hadoop 安全体系的完整路径：先讲透 Kerberos 三方认证握手与 principal/keytab 模型，再给出 core-site/hdfs-site 的关键配置与 SPNEGO、Delegation Token 实践，重点整理时钟偏差、DNS 反向解析、代理用户、ticket 续约等踩坑经验，最后覆盖 Ranger 策略模型、HDFS POSIX/ACL 权限，以及先认证后授权、灰度开启的落地建议。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>10</sup></a><a href="/tags/HDFS/">HDFS<sup>2</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>1</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>1</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">10</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">11</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">11</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">21</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>10</sup></a><a href="/tags/HDFS/">HDFS<sup>2</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>1</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>1</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop</span></a><a class="post-meta__tags" href="/tags/%E5%AE%89%E5%85%A8/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>安全</span></a><a class="post-meta__tags" href="/tags/Kerberos/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Kerberos</span></a></div></div></div></div><h1 class="post-title">Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h2 id="引言：Hadoop-默认的”假安全”"><a href="#引言：Hadoop-默认的”假安全”" class="headerlink" title="引言：Hadoop 默认的”假安全”"></a>引言：Hadoop 默认的”假安全”</h2><p>很多人第一次接触 Hadoop 安全时都会有一个错觉——集群装好了，NameNode 起来了，HDFS WebUI 也能访问，”应该挺安全的吧”。实际上，开箱即用的 Hadoop 是一个典型的”假安全”环境：只要你能在某台机器上执行 <code>hdfs dfs -ls /</code>，你就是超级用户。</p>
+<p>默认情况下，Hadoop 用的是 <code>SIMPLE</code> 认证。它的逻辑非常朴素——拿操作系统当前用户名（<code>whoami</code>）当身份，直接相信。这意味着什么？我在任意一台机器上 <code>useradd hdfs</code> 然后 <code>su - hdfs</code>，就能以 <code>hdfs</code> 这个超级用户身份读写整个 HDFS。在几百台机器、几十个业务方共用集群的企业环境里，这种”信任本机用户名”的模型是不可接受的。</p>
+<p>企业级的安全需求其实就两条：</p>
+<ol>
+<li><strong>认证（你是谁）</strong>：服务与服务、人与服务之间必须 mutually verify，身份不能伪造。</li>
+<li><strong>授权（你能做什么）</strong>：哪怕你是合法用户，也只能访问被授权的资源，且每一次访问都要被审计。</li>
+</ol>
+<p>Hadoop 生态给出的标准答案是：<strong>Kerberos 做认证，Ranger&#x2F;Sentry 做授权，审计日志全程留痕</strong>。这篇文章是我这几年在生产集群上落地这套体系的一次复盘，重点把原理讲透、把坑标出来，给后来人一条能走的路径。</p>
+<hr>
+<h2 id="Kerberos-原理：把三方握手讲明白"><a href="#Kerberos-原理：把三方握手讲明白" class="headerlink" title="Kerberos 原理：把三方握手讲明白"></a>Kerberos 原理：把三方握手讲明白</h2><p>Kerberos 是 MIT 设计的网络认证协议，核心思想是用一个可信第三方（KDC）来发放”票据”，让通信双方不用直接共享口令也能相互确认身份。Hadoop 用的就是它。</p>
+<h3 id="关键角色与概念"><a href="#关键角色与概念" class="headerlink" title="关键角色与概念"></a>关键角色与概念</h3><p>先把这个名词表理清楚，不然后面看配置全是天书：</p>
+<table>
+<thead>
+<tr>
+<th>角色&#x2F;概念</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>KDC</strong>（Key Distribution Center）</td>
+<td>可信第三方，部署在 KDC 服务器上，由 AS + TGS + 数据库组成</td>
+</tr>
+<tr>
+<td><strong>AS</strong>（Authentication Server）</td>
+<td>认证服务器，负责给用户发放 TGT</td>
+</tr>
+<tr>
+<td><strong>TGS</strong>（Ticket Granting Server）</td>
+<td>票据授权服务器，负责给具体服务发放 Service Ticket</td>
+</tr>
+<tr>
+<td><strong>Principal</strong></td>
+<td>Kerberos 里的”账号”，格式 <code>primary/instance@REALM</code></td>
+</tr>
+<tr>
+<td><strong>Realm</strong></td>
+<td>Kerberos 的管理域，习惯上全大写，如 <code>EXAMPLE.COM</code></td>
+</tr>
+<tr>
+<td><strong>Keytab</strong></td>
+<td>存放 principal 与对应密钥的文件，让服务&#x2F;脚本无需人工输入口令</td>
+</tr>
+<tr>
+<td><strong>TGT</strong>（Ticket Granting Ticket）</td>
+<td>AS 发给用户的”身份凭证”，拿它去换具体服务的 ticket</td>
+</tr>
+<tr>
+<td><strong>Service Ticket</strong></td>
+<td>访问某个具体服务时出示的票据</td>
+</tr>
+<tr>
+<td><strong>Session Key</strong></td>
+<td>通信双方在本次会话里用的对称密钥</td>
+</tr>
+</tbody></table>
+<h3 id="三方握手流程"><a href="#三方握手流程" class="headerlink" title="三方握手流程"></a>三方握手流程</h3><p>以”用户 alice 要访问 NameNode”为例，完整的认证链路是这样的：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">alice           AS              TGS          NameNode</span><br><span class="line"> |               |               |              |</span><br><span class="line"> |--1.认证请求--&gt;|               |              |</span><br><span class="line"> |   (用alice口令加密的预鉴别)   |              |</span><br><span class="line"> |               |               |              |</span><br><span class="line"> |&lt;--2.TGT-------|               |              |</span><br><span class="line"> |   (用alice密钥加密,含session key)|           |</span><br><span class="line"> |               |               |              |</span><br><span class="line"> |--3.请求NN ticket(tgt)---------&gt;|             |</span><br><span class="line"> |                               |              |</span><br><span class="line"> |&lt;--4.NN Service Ticket---------|              |</span><br><span class="line"> |   (alice/NN共享的session key) |              |</span><br><span class="line"> |                               |              |</span><br><span class="line"> |--5.出示Service Ticket------------------------&gt;|</span><br><span class="line"> |                               |   6.验证通过 |</span><br><span class="line"> |&lt;--7.建立加密通信会话-------------------------|</span><br></pre></td></tr></table></figure>
+
+<p>拆开讲：</p>
+<ol>
+<li><strong>alice → AS</strong>：alice 本地用自己口令派生密钥，向 AS 请求 TGT。AS 在自己数据库里查 alice，验证预鉴别字段。</li>
+<li><strong>AS → alice</strong>：AS 返回两样东西——一份给 alice 的会话密钥（用 alice 密钥加密）、一份 TGT。TGT 里装着 alice 的身份和会话密钥，用 <strong>TGS 自己的密钥</strong>加密——也就是说，alice 解不开 TGT，但能拿着它去 TGS 兑换。</li>
+<li><strong>alice → TGS</strong>：alice 拿 TGT + 想访问的服务名（<code>nn/nn-host@REALM</code>）请求 Service Ticket。</li>
+<li><strong>TGS → alice</strong>：TGS 解开 TGT 拿到会话密钥，用它加密一份新的 alice-NameNode 会话密钥，连同 Service Ticket（用 <strong>NameNode 的密钥</strong>加密）返回。</li>
+<li><strong>alice → NameNode</strong>：alice 把 Service Ticket 发给 NameNode，附上用会话密钥加密的 authenticator（含时间戳）。</li>
+<li><strong>NameNode 验证</strong>：NameNode 用自己 keytab 里的密钥解开 Service Ticket，拿到会话密钥；再用会话密钥解开 authenticator，校验时间戳是否在允许偏差内（防重放）。通过即认证成功。</li>
+<li>后续通信用会话密钥加密（可选）。</li>
+</ol>
+<p>这套设计的精妙之处在于：alice 的口令从不出现在网络上；NameNode 永远不需要直接和 KDC 通信来验证用户，它只要相信自己 keytab 里的密钥；TGT 短期有效（通常 10 小时）<!-- 校准：请按真实经历核实/替换 -->，丢了风险可控。</p>
+<h3 id="Principal-命名约定"><a href="#Principal-命名约定" class="headerlink" title="Principal 命名约定"></a>Principal 命名约定</h3><p>Hadoop 里 principal 命名是有规矩的，最常见的形式是：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nn/_HOST@EXAMPLE.COM</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><code>nn</code>：服务名（NameNode 用 <code>nn</code>，DataNode 用 <code>dn</code>，ResourceManager 用 <code>rm</code>，NodeManager 用 <code>nm</code>，HTTP 用 <code>HTTP</code>）。</li>
+<li><code>_HOST</code>：占位符。Hadoop 启动时会把它替换成当前机器的 FQDN。这一招非常关键——它让你可以用一份配置文件下发到所有机器，每个机器自动用自己主机名生成正确的 principal。</li>
+<li><code>@EXAMPLE.COM</code>：Realm。</li>
+</ul>
+<p>用户 principal 没有服务名，就是 <code>alice@EXAMPLE.COM</code> 或 <code>alice/admin@EXAMPLE.COM</code>。</p>
+<h3 id="Renewable-Ticket-与-keytab"><a href="#Renewable-Ticket-与-keytab" class="headerlink" title="Renewable Ticket 与 keytab"></a>Renewable Ticket 与 keytab</h3><p>生产环境里，长跑任务（比如一个跑 8 小时的 Spark 作业）如果 ticket 过期就崩了。Kerberos 给了两条退路：</p>
+<ul>
+<li><strong>Renewable Ticket</strong>：TGT 在 <code>maxrenewablelife</code>（比如 7 天）内可以被续约，不用重新输口令。<code>kinit -R</code> 就是续约。</li>
+<li><strong>keytab</strong>：把 principal 的密钥导出到文件，程序用 <code>UserGroupInformation.loginUserFromKeytab()</code> 自动登录，到期自动续。</li>
+</ul>
+<hr>
+<h2 id="Hadoop-集成-Kerberos：从配置到落地"><a href="#Hadoop-集成-Kerberos：从配置到落地" class="headerlink" title="Hadoop 集成 Kerberos：从配置到落地"></a>Hadoop 集成 Kerberos：从配置到落地</h2><h3 id="核心开关：core-site-xml"><a href="#核心开关：core-site-xml" class="headerlink" title="核心开关：core-site.xml"></a>核心开关：core-site.xml</h3><p>认证模式是全局开关，在 <code>core-site.xml</code> 里：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>hadoop.security.authentication<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>kerberos<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>hadoop.security.authorization<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>true<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>hadoop.security.auth_to_local<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span></span><br><span class="line">    RULE:[1:$1@$0](.*@EXAMPLE.COM)s/@.*//</span><br><span class="line">    DEFAULT</span><br><span class="line">  <span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>hadoop.rpc.protection<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>authentication,integrity,privacy<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><code>authentication=kerberos</code> + <code>authorization=true</code> 是开 Kerberos 的组合拳，缺一不可。</li>
+<li><code>auth_to_local</code> 规则把 <code>alice@EXAMPLE.COM</code> 这种完整 principal 映射成本地系统用户 <code>alice</code>，这是 HDFS 文件 owner、YARN 队列权限判定的依据。</li>
+<li><code>rpc.protection</code> 决定 RPC 通信是只认证、还是认证+完整性校验、还是认证+加密。生产建议开到 <code>privacy</code>，但会有 10% 左右的 CPU 开销 <!-- 校准：请按真实经历核实/替换 -->。</li>
+</ul>
+<h3 id="各组件的-principal-与-keytab"><a href="#各组件的-principal-与-keytab" class="headerlink" title="各组件的 principal 与 keytab"></a>各组件的 principal 与 keytab</h3><p>每个服务进程都需要一个属于它自己的 keytab。典型清单：</p>
+<table>
+<thead>
+<tr>
+<th>服务</th>
+<th>Principal</th>
+<th>常用 keytab 路径</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>NameNode</td>
+<td><code>nn/_HOST@REALM</code></td>
+<td><code>/etc/security/keytabs/nn.service.keytab</code></td>
+</tr>
+<tr>
+<td>DataNode</td>
+<td><code>dn/_HOST@REALM</code></td>
+<td><code>/etc/security/keytabs/dn.service.keytab</code></td>
+</tr>
+<tr>
+<td>JournalNode</td>
+<td><code>jn/_HOST@REALM</code></td>
+<td><code>/etc/security/keytabs/jn.service.keytab</code></td>
+</tr>
+<tr>
+<td>ResourceManager</td>
+<td><code>rm/_HOST@REALM</code></td>
+<td><code>/etc/security/keytabs/rm.service.keytab</code></td>
+</tr>
+<tr>
+<td>NodeManager</td>
+<td><code>nm/_HOST@REALM</code></td>
+<td><code>/etc/security/keytabs/nm.service.keytab</code></td>
+</tr>
+<tr>
+<td>HTTP (SPNEGO)</td>
+<td><code>HTTP/_HOST@REALM</code></td>
+<td><code>/etc/security/keytabs/spnego.service.keytab</code></td>
+</tr>
+</tbody></table>
+<p>下面是一段 <code>hdfs-site.xml</code> 的安全配置片段，覆盖 NameNode 和 DataNode：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">&lt;!-- NameNode Kerberos --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.namenode.keytab.file<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>/etc/security/keytabs/nn.service.keytab<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.namenode.kerberos.principal<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>nn/_HOST@EXAMPLE.COM<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.namenode.kerberos.internal.spnego.principal<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>HTTP/_HTTP@EXAMPLE.COM<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"></span><br><span class="line"><span class="comment">&lt;!-- DataNode Kerberos --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.datanode.keytab.file<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>/etc/security/keytabs/dn.service.keytab<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.datanode.kerberos.principal<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>dn/_HOST@EXAMPLE.COM<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"></span><br><span class="line"><span class="comment">&lt;!-- DataNode 必须配 SASL，否则 secure 模式下数据传输端口会起不来 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.data.transfer.protection<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>authentication<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.encrypt.data.transfer<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>true<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"></span><br><span class="line"><span class="comment">&lt;!-- WebHDFS / NameNode WebUI 的 SPNEGO --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.web.authentication.kerberos.principal<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>HTTP/_HOST@EXAMPLE.COM<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.web.authentication.kerberos.keytab<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>/etc/security/keytabs/spnego.service.keytab<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>几个容易忽略的点：</p>
+<ul>
+<li><strong>DataNode 必须开 <code>dfs.data.transfer.protection</code></strong>。开了 Kerberos 之后，DataNode 的数据传输端口（默认 50010）如果还用 plaintext，整个安全体系就漏了——攻击者只要知道 block id 就能直接读写 block。</li>
+<li><strong>SPNEGO</strong> 是 HTTP 上的 Kerberos 认证机制。NameNode WebUI、WebHDFS、YARN WebUI 默认是匿名的，开了 SPNEGO 之后，浏览器要装 Kerberos 支持（如 Firefox 配置 <code>network.negotiate-auth.trusted-uris</code>）才能访问。</li>
+</ul>
+<h3 id="principal-创建与-keytab-生成的-bash-示例"><a href="#principal-创建与-keytab-生成的-bash-示例" class="headerlink" title="principal 创建与 keytab 生成的 bash 示例"></a>principal 创建与 keytab 生成的 bash 示例</h3><p>在 KDC 服务器（比如装了 <code>krb5-server</code> 的那台）上执行：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#!/bin/bash</span></span><br><span class="line"><span class="comment"># 在 KDC 主机上以 root 运行</span></span><br><span class="line">REALM=<span class="string">&quot;EXAMPLE.COM&quot;</span></span><br><span class="line">KEYTAB_DIR=<span class="string">&quot;/etc/security/keytabs&quot;</span></span><br><span class="line"><span class="built_in">mkdir</span> -p <span class="variable">$KEYTAB_DIR</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 1. 在 KDC 数据库里创建 principal</span></span><br><span class="line"><span class="comment"># 服务 principal 用 -randkey，避免设置口令（服务用 keytab 即可）</span></span><br><span class="line">kadmin.local -q <span class="string">&quot;addprinc -randkey nn/nn-host.example.com@<span class="variable">$REALM</span>&quot;</span></span><br><span class="line">kadmin.local -q <span class="string">&quot;addprinc -randkey dn/dn-host.example.com@<span class="variable">$REALM</span>&quot;</span></span><br><span class="line">kadmin.local -q <span class="string">&quot;addprinc -randkey HTTP/nn-host.example.com@<span class="variable">$REALM</span>&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 导出 keytab（-k 指定文件，-e 指定加密类型）</span></span><br><span class="line"><span class="comment"># 强烈建议固定加密类型，避免不同 JDK/MIT 版本之间不兼容</span></span><br><span class="line">kadmin.local -q <span class="string">&quot;ktadd -k <span class="variable">$KEYTAB_DIR</span>/nn.service.keytab -e aes256-cts-hmac-sha1-96,aes128-cts-hmac-sha1-96 nn/nn-host.example.com@<span class="variable">$REALM</span>&quot;</span></span><br><span class="line">kadmin.local -q <span class="string">&quot;ktadd -k <span class="variable">$KEYTAB_DIR</span>/dn.service.keytab -e aes256-cts-hmac-sha1-96,aes128-cts-hmac-sha1-96 dn/dn-host.example.com@<span class="variable">$REALM</span>&quot;</span></span><br><span class="line">kadmin.local -q <span class="string">&quot;ktadd -k <span class="variable">$KEYTAB_DIR</span>/spnego.service.keytab -e aes256-cts-hmac-sha1-96,aes128-cts-hmac-sha1-96 HTTP/nn-host.example.com@<span class="variable">$REALM</span>&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 权限与属主：keytab 文件必须只能被对应服务用户读</span></span><br><span class="line"><span class="built_in">chown</span> hdfs:hadoop <span class="variable">$KEYTAB_DIR</span>/nn.service.keytab <span class="variable">$KEYTAB_DIR</span>/dn.service.keytab</span><br><span class="line"><span class="built_in">chown</span> hdfs:hadoop <span class="variable">$KEYTAB_DIR</span>/spnego.service.keytab</span><br><span class="line"><span class="built_in">chmod</span> 400 <span class="variable">$KEYTAB_DIR</span>/*.keytab</span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 验证：列出 keytab 内容</span></span><br><span class="line">klist -kt <span class="variable">$KEYTAB_DIR</span>/nn.service.keytab</span><br><span class="line"></span><br><span class="line"><span class="comment"># 5. 分发到对应机器（用 scp / 配置管理工具）</span></span><br><span class="line"><span class="comment"># 注意：传输也要加密，且不要把 keytab 拷到不相关的机器上</span></span><br></pre></td></tr></table></figure>
+
+<p>aes256 加密类型需要 JCE Unlimited Strength（JDK 8u161 之后默认开启，更早版本要手动装 policy 文件），否则 JVM 会报 <code>KrbException: Encryption type AES256 CTS mode with HMAC SHA1 96 is not supported</code>。</p>
+<h3 id="Delegation-Token：别让-KDC-成瓶颈"><a href="#Delegation-Token：别让-KDC-成瓶颈" class="headerlink" title="Delegation Token：别让 KDC 成瓶颈"></a>Delegation Token：别让 KDC 成瓶颈</h3><p>Kerberos 有一个天然瓶颈——所有认证都要回 KDC 兜一圈。如果每个 MapReduce&#x2F;Spark task 都去拿 Service Ticket，KDC 瞬间被打爆。Hadoop 的解法是 <strong>Delegation Token</strong>：</p>
+<ul>
+<li>客户端先通过 Kerberos 认证拿到 NameNode 的会话。</li>
+<li>然后向 NameNode 申请一个 Delegation Token（一种轻量级、长期有效的凭证）。</li>
+<li>后续 task 把这个 token 序列化到 job 的 credentials 里，直接拿 token 访问 HDFS，不再碰 KDC。</li>
+</ul>
+<p>Token 默认有效期 1 天（<code>dfs.namenode.delegation.token.max-lifetime</code>），可续约 7 天 <!-- 校准：请按真实经历核实/替换 -->。长跑任务必须配 <code>kinit -R</code> 续 TGT、配 token renewer（<code>mapreduce.job.hdfs-servers.token-renewal</code>）续 token，两个续约机制是叠加的。</p>
+<hr>
+<h2 id="实战踩坑：这些坑我替你踩过了"><a href="#实战踩坑：这些坑我替你踩过了" class="headerlink" title="实战踩坑：这些坑我替你踩过了"></a>实战踩坑：这些坑我替你踩过了</h2><p>理论都好懂，落地全是坑。下面这些是我在生产环境真踩过的，按严重程度排序。</p>
+<h3 id="坑-1：时钟偏差"><a href="#坑-1：时钟偏差" class="headerlink" title="坑 1：时钟偏差"></a>坑 1：时钟偏差</h3><p>Kerberos 的 authenticator 里带时间戳防重放，AS&#x2F;TGS&#x2F;Service 三方时钟必须接近。默认允许的偏差是 5 分钟（300 秒）<!-- 校准：请按真实经历核实/替换 -->。超过这个值直接报：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">Clock skew too great (37) — PROCESS_TGS</span><br></pre></td></tr></table></figure>
+
+<p>生产环境强制所有节点上 <code>chrony</code> 或 <code>ntp</code>，并且要监控时钟偏差。如果实在无法对齐，可以在 <code>krb5.conf</code> 里放宽：</p>
+<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">[libdefaults]</span></span><br><span class="line">    <span class="attr">clockskew</span> = <span class="string">300</span></span><br></pre></td></tr></table></figure>
+
+<p>或者在 KDC 的 <code>kdc.conf</code> 里：</p>
+<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">[kdcdefaults]</span></span><br><span class="line">    <span class="attr">kdc_max_clockskew</span> = <span class="string">300</span></span><br></pre></td></tr></table></figure>
+
+<p>但我不建议放宽——5 分钟已经是很宽容的阈值了，放宽只会让重放攻击窗口变大。</p>
+<h3 id="坑-2：DNS-反向解析与-HOST"><a href="#坑-2：DNS-反向解析与-HOST" class="headerlink" title="坑 2：DNS 反向解析与 _HOST"></a>坑 2：DNS 反向解析与 <code>_HOST</code></h3><p>前面说过 <code>_HOST</code> 占位符会被替换成 FQDN。Hadoop 这里有个隐藏逻辑——它会做<strong>反向 DNS 解析</strong>确认主机名。如果机器的反向解析没配好（比如 <code>dig -x &lt;IP&gt;</code> 返回的不是期望的 FQDN，而是某个奇怪的域名），就会出现：</p>
+<ul>
+<li><code>nn.service.keytab</code> 里导出的 principal 是 <code>nn/nn-host.example.com@REALM</code></li>
+<li>但 JVM 启动时 <code>_HOST</code> 被解析成了 <code>nn-host</code>（短名）或某个错误 FQDN</li>
+<li>principal 不匹配，登录失败：<code>Server not found in Kerberos database (7)</code></li>
+</ul>
+<p>排查办法：在出问题的机器上跑 <code>hostname -f</code> 和 <code>dig -x &lt;本机IP&gt;</code>，看两者是否一致。修正 <code>/etc/hosts</code> 和反向 DNS 是最稳的做法。实在不行，可以在 <code>hdfs-site.xml</code> 里显式写死 principal（牺牲一份配置走天下的便利）。</p>
+<h3 id="坑-3：keytab-文件权限与属主"><a href="#坑-3：keytab-文件权限与属主" class="headerlink" title="坑 3：keytab 文件权限与属主"></a>坑 3：keytab 文件权限与属主</h3><p>keytab 等于口令，权限泄露等于身份被盗用。最常见的错误是：</p>
+<ul>
+<li>keytab 用 <code>chmod 644</code>，结果集群上任何用户都能 <code>kinit -kt</code> 冒充该服务。</li>
+<li>keytab 属主写成了 <code>root</code>，HDFS 进程以 <code>hdfs</code> 用户跑，读不了。</li>
+</ul>
+<p>正确做法见上面的脚本：<code>chmod 400</code> + <code>chown &lt;服务用户&gt;:hadoop</code>。建议加一道监控——定期 <code>find /etc/security/keytabs -perm /o+r</code>，发现可被其他用户读的 keytab 立即告警。</p>
+<h3 id="坑-4：User-Impersonation（代理用户）"><a href="#坑-4：User-Impersonation（代理用户）" class="headerlink" title="坑 4：User Impersonation（代理用户）"></a>坑 4：User Impersonation（代理用户）</h3><p>很多上层组件（HiveServer2、Oozie、Presto）需要以”自己的身份”登录 Kerberos，然后<strong>代理</strong>真实用户去访问 HDFS。比如 HiveServer2 用 <code>hive</code> principal 登录，但执行查询时要以 <code>alice</code> 的身份读写 <code>/user/alice/warehouse</code>。</p>
+<p>这个能力必须在 <code>core-site.xml</code> 里显式授权，否则 HiveServer2 默认就只能以 <code>hive</code> 自己的身份操作：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>hadoop.proxyuser.hive.hosts<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>*<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>hadoop.proxyuser.hive.groups<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>data_analyst,bigdata<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>hadoop.proxyuser.hive.users<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>alice,bob,carol<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>上面的配置允许 <code>hive</code> 用户从任意 host 代理 <code>data_analyst</code>&#x2F;<code>bigdata</code> 组的用户，或显式列出的 <code>alice/bob/carol</code>。生产里 <code>hosts</code> 不要写 <code>*</code>，至少要限定到 HiveServer2 所在机器。</p>
+<h3 id="坑-5：Ticket-过期与自动续约"><a href="#坑-5：Ticket-过期与自动续约" class="headerlink" title="坑 5：Ticket 过期与自动续约"></a>坑 5：Ticket 过期与自动续约</h3><p>TGT 过期是长跑任务的头号杀手。症状是任务跑一半，HDFS 报：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Failed on local exception: java.io.IOException: org.apache.hadoop.security.AccessControlException:</span><br><span class="line">Client cannot authenticate via Kerberos: KrbException: Identifier doesn&#x27;t match expected value ...</span><br></pre></td></tr></table></figure>
+
+<p>解决办法：</p>
+<ul>
+<li><strong>服务进程</strong>：用 keytab 登录，<code>UserGroupInformation</code> 内部会自动续约（前提是 ticket 是 renewable）。</li>
+<li><strong>交互式用户 &#x2F; 提交 job 的网关机</strong>：配 <code>k5start</code> 或 <code>renewd</code> 后台定期 <code>kinit -R</code>。</li>
+<li><strong>Cron 兜底</strong>：<code>0 */6 * * * kinit -R</code> 每 6 小时续约一次 <!-- 校准：请按真实经历核实/替换 -->。</li>
+<li><strong>检查 renewable</strong>：<code>klist</code> 输出里如果有 <code>renew until</code> 时间，说明 renewable 生效；如果没有，检查 <code>krb5.conf</code> 的 <code>maxrenewablelife</code> 和 <code>kdc.conf</code> 的 <code>max_life</code>&#x2F;<code>max_renewable_life</code>。</li>
+</ul>
+<h3 id="坑-6：KDC-单点"><a href="#坑-6：KDC-单点" class="headerlink" title="坑 6：KDC 单点"></a>坑 6：KDC 单点</h3><p>KDC 挂了 &#x3D; 全集群没法新登录（已登录的 ticket 在有效期内还能用）。这个绝对不能单点。MIT Kerberos 支持主从 KDC，配合 <code>kprop</code> 增量同步数据库；或者用 Active Directory 当 KDC（Windows 环境常见）。建议至少主从两台，监控 <code>krb5kdc</code> 进程和同步延迟。</p>
+<hr>
+<h2 id="Ranger：统一授权与审计"><a href="#Ranger：统一授权与审计" class="headerlink" title="Ranger：统一授权与审计"></a>Ranger：统一授权与审计</h2><p>认证解决”你是谁”，授权解决”你能做什么”。Hadoop 原生的授权是散落在各组件里的——HDFS 有 POSIX 权限和 ACL，Hive 有 SQL 标准的 GRANT&#x2F;REVOKE，Kafka 有 ACL……运维要给一个新业务方开通权限，得在十几个地方配置，痛苦且易错。</p>
+<p>Ranger（Apache 项目，最初 Hortonworks 主导）的价值就是把这些授权统一到一个面板。</p>
+<h3 id="Policy-模型"><a href="#Policy-模型" class="headerlink" title="Policy 模型"></a>Policy 模型</h3><p>Ranger 的核心是 <strong>Policy</strong>，每个 policy 由三部分组成：</p>
+<table>
+<thead>
+<tr>
+<th>组成</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Resource</strong></td>
+<td>被保护的对象，如 HDFS 的 <code>/finance/*</code>、Hive 的 <code>db.table.col</code>、Kafka 的 <code>topic</code></td>
+</tr>
+<tr>
+<td><strong>Condition</strong></td>
+<td>匹配条件，如访问者所属组、来源 IP、时间窗口</td>
+</tr>
+<tr>
+<td><strong>Allow &#x2F; Deny</strong></td>
+<td>允许或拒绝的权限组合，如 <code>read/write/execute</code></td>
+</tr>
+</tbody></table>
+<p>一个 policy 可以同时配 allow 和 deny 列表。Deny 优先于 allow——这是 Ranger 区别于 POSIX 的关键。HDFS 的 POSIX 只有 allow 模型，一旦给了 owner 就只能靠改 owner 收回；Ranger 可以用一条 deny policy 直接拉黑。</p>
+<h3 id="插件架构"><a href="#插件架构" class="headerlink" title="插件架构"></a>插件架构</h3><p>Ranger 不直接拦截请求，而是把策略<strong>下发到各组件的插件</strong>，由插件在请求路径上做本地决策：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">HDFS NameNode / HiveServer2 / Kafka Broker / HBase RegionServer</span><br><span class="line">        |              |              |              |</span><br><span class="line">        +--------------+----poll------&gt; Ranger Admin Server</span><br><span class="line">                       |              |</span><br><span class="line">                       v              v</span><br><span class="line">                  本地策略缓存 + 审计日志异步回传</span><br></pre></td></tr></table></figure>
+
+<p>这种”插件本地决策 + 审计异步上报”的设计避免了授权变成单点，但有个副作用——策略更新有延迟（默认 30 秒拉一次 <!-- 校准：请按真实经历核实/替换 -->），紧急拉黑不能立刻生效。</p>
+<h3 id="Ranger-与-HDFS-POSIX-ACL-的关系"><a href="#Ranger-与-HDFS-POSIX-ACL-的关系" class="headerlink" title="Ranger 与 HDFS POSIX&#x2F;ACL 的关系"></a>Ranger 与 HDFS POSIX&#x2F;ACL 的关系</h3><p>这是最容易混的地方。开了 Ranger HDFS 插件后，HDFS 的访问控制其实走两层：</p>
+<ol>
+<li><strong>Ranger 策略检查</strong>：如果命中任何 deny policy，直接拒绝；如果命中 allow policy，直接放行。</li>
+<li><strong>如果 Ranger 没有匹配的 policy，回退到 HDFS 原生 POSIX&#x2F;ACL</strong>。</li>
+</ol>
+<p>也就是说 Ranger 不是替换 POSIX，而是覆盖在其上。Ranger 里有开关 <code>Enable Native Authorization</code>（<code>xasecure.add-hadoop-authorization</code>）控制是否回退。生产建议关掉回退，所有权限都收到 Ranger 里管，否则两套体系混着，审计和排错会让人崩溃。</p>
+<h3 id="审计日志"><a href="#审计日志" class="headerlink" title="审计日志"></a>审计日志</h3><p>Ranger 的审计日志是它相对原生 ACL 最大的加分项。每一次 access（不论 allow 还是 deny）都会记录：</p>
+<ul>
+<li>谁（user&#x2F;group）、什么时间、从哪个 IP、访问了什么 resource、做了什么操作、结果是 allow 还是 deny、命中的是哪条 policy。</li>
+</ul>
+<p>日志默认存到 Solr，也支持 HDFS &#x2F; Elasticsearch。这份审计数据对合规（GDPR、等保）是刚需。</p>
+<h3 id="行级-列级权限"><a href="#行级-列级权限" class="headerlink" title="行级 &#x2F; 列级权限"></a>行级 &#x2F; 列级权限</h3><p>HDFS 的权限粒度只能到文件，但 Hive 表经常需要更细——比如财务表里 salary 列只能 HR 看，或者订单表里 region&#x3D;华东的数据只能华东团队看。Ranger 提供：</p>
+<ul>
+<li><strong>列级 masking</strong>：对敏感列做脱敏（hash、null、partial mask）。</li>
+<li><strong>行级 filtering</strong>：基于条件的行过滤，比如给 HR 组配上 <code>WHERE department = &#39;HR&#39;</code>。</li>
+</ul>
+<p>这两项在数据中台里用得非常频繁，是把 Ranger 从”运维工具”升级成”数据治理平台”的关键能力。</p>
+<hr>
+<h2 id="HDFS-权限体系：POSIX-ACL"><a href="#HDFS-权限体系：POSIX-ACL" class="headerlink" title="HDFS 权限体系：POSIX + ACL"></a>HDFS 权限体系：POSIX + ACL</h2><p>即便用了 Ranger，理解 HDFS 原生权限仍然是基础，因为 Ranger 没覆盖的地方还要靠它兜底。</p>
+<h3 id="POSIX-权限"><a href="#POSIX-权限" class="headerlink" title="POSIX 权限"></a>POSIX 权限</h3><p>和 Linux 一样，三组 owner&#x2F;group&#x2F;other，每组 rwx：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">drwxr-xr-x   alice  bigdata      /user/alice</span><br></pre></td></tr></table></figure>
+
+<p>HDFS 的 <code>r</code> 决定能否读和 list，<code>w</code> 决定能否写和创建&#x2F;删除子项，<code>x</code> 对目录决定能否进入、对文件一般无意义。超级用户是 <code>hdfs</code>（NameNode 进程的运行用户）。</p>
+<p>POSIX 的痛点很明显：只能给 owner、group、other 三类主体授权，无法给”既不是 owner 也不在 group 里的特定用户”单独给权限。</p>
+<h3 id="ACL（Access-Control-List）"><a href="#ACL（Access-Control-List）" class="headerlink" title="ACL（Access Control List）"></a>ACL（Access Control List）</h3><p>HDFS 支持 POSIX ACL 扩展，给特定用户&#x2F;组单独授权：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 给 bob 单独授予 /shared/data 的读写</span></span><br><span class="line">hdfs dfs -setfacl -m user:bob:rw- /shared/data</span><br><span class="line"></span><br><span class="line"><span class="comment"># 给 finance 组只读</span></span><br><span class="line">hdfs dfs -setfacl -m group:finance:r-- /shared/data</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看</span></span><br><span class="line">hdfs dfs -getfacl /shared/data</span><br></pre></td></tr></table></figure>
+
+<p>ACL 解决了细粒度问题，但有代价：</p>
+<ul>
+<li>NameNode 内存占用增加（每个文件多带一份 ACL）。</li>
+<li>默认权限计算变复杂，容易出错。</li>
+</ul>
+<p>生产建议：ACL 用作”例外授权”，大规模权限治理还是交给 Ranger。NameNode 上 <code>dfs.namenode.acls.enabled</code> 要显式打开才能用。</p>
+<hr>
+<h2 id="落地路径建议：先认证，后授权，灰度开关"><a href="#落地路径建议：先认证，后授权，灰度开关" class="headerlink" title="落地路径建议：先认证，后授权，灰度开关"></a>落地路径建议：先认证，后授权，灰度开关</h2><p>把这么多东西塞到一个跑着几百个业务的集群上，绝不是一次性切换。我推荐的路径：</p>
+<ol>
+<li><strong>预生产集群全量验证</strong>：在等规模集群上完整跑通 Kerberos + Ranger，把所有业务作业（关键路径、ETL、Ad-hoc）都跑一遍，先发现明显问题。</li>
+<li><strong>Kerberos 先行</strong>：先只开认证，不开 Ranger。这一步最大的震动是上层组件的代理用户配置和长任务续约。监控 KDC QPS、登录失败率。</li>
+<li><strong>Ranger 灰度接入</strong>：从一个组件开始（通常是 Hive，因为业务方痛点最明显），逐个组件开插件。开之前先把现有 POSIX&#x2F;ACL 权限导出成 Ranger policy，保证切换前后行为一致。</li>
+<li><strong>审计先行，强制在后</strong>：Ranger 插件可以开 <code>audit only</code> 模式，只记日志不强制。先跑一周，看日志里有没有预期外的 deny，再切换到 enforce。</li>
+<li><strong>回滚预案</strong>：每个开关都有对应的回滚配置（关掉 <code>hadoop.security.authorization</code>、关掉 Ranger 插件）。灰度期内 24 小时 oncall，准备好配置回滚脚本。</li>
+</ol>
+<p>一条经验：<strong>认证强、授权松，比认证松、授权强要安全</strong>。先把身份认证做扎实，授权可以慢慢调；反过来则形同虚设。</p>
+<hr>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>Hadoop 安全体系不是某一个开关，而是一条从身份到资源、覆盖每一次访问的链路：</p>
+<ul>
+<li><strong>Kerberos</strong> 解决”你是谁”——通过 KDC 三方握手 + principal&#x2F;keytab + TGT&#x2F;Service Ticket，让服务与服务、人与服务之间相互验证身份。理解了 <code>_HOST</code> 占位符、renewable ticket、auth_to_local 映射，配置就不慌了。</li>
+<li><strong>Ranger</strong> 解决”你能做什么”——用统一的 policy 模型覆盖 HDFS&#x2F;Hive&#x2F;Kafka&#x2F;HBase，用 deny 优先 + 审计日志把治理能力拉满。</li>
+<li><strong>HDFS POSIX + ACL</strong> 是兜底的原生权限，理解它是排错的基础。</li>
+</ul>
+<p>落地这套体系，技术之外更难的是组织和流程：每个业务方都要改连接串、配 keytab、调续约；权限梳理要和业务方逐条对账。但一旦跑通，集群才真正具备了承载多租户、敏感数据、合规审计的能力——这才是企业级大数据平台的地基。把坑踩在前面，把灰度做扎实，这条路是走得通的。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/%E5%AE%89%E5%85%A8/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>安全<span class="tagsPageCount">1</span></span></a><a class="post-meta__tags" href="/tags/Kerberos/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Kerberos<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/hadoop-performance-tuning"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">Hadoop 性能调优全攻略：从 JVM、IO 到参数</div></div></a></div><div class="next-post pull-right"><a href="/posts/hadoop-ha-federation"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">Hadoop 高可用架构：NameNode HA、ResourceManager HA 与 Federation</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E8%A8%80%EF%BC%9AHadoop-%E9%BB%98%E8%AE%A4%E7%9A%84%E2%80%9D%E5%81%87%E5%AE%89%E5%85%A8%E2%80%9D"><span class="toc-text">引言：Hadoop 默认的”假安全”</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Kerberos-%E5%8E%9F%E7%90%86%EF%BC%9A%E6%8A%8A%E4%B8%89%E6%96%B9%E6%8F%A1%E6%89%8B%E8%AE%B2%E6%98%8E%E7%99%BD"><span class="toc-text">Kerberos 原理：把三方握手讲明白</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%85%B3%E9%94%AE%E8%A7%92%E8%89%B2%E4%B8%8E%E6%A6%82%E5%BF%B5"><span class="toc-text">关键角色与概念</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%89%E6%96%B9%E6%8F%A1%E6%89%8B%E6%B5%81%E7%A8%8B"><span class="toc-text">三方握手流程</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Principal-%E5%91%BD%E5%90%8D%E7%BA%A6%E5%AE%9A"><span class="toc-text">Principal 命名约定</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Renewable-Ticket-%E4%B8%8E-keytab"><span class="toc-text">Renewable Ticket 与 keytab</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Hadoop-%E9%9B%86%E6%88%90-Kerberos%EF%BC%9A%E4%BB%8E%E9%85%8D%E7%BD%AE%E5%88%B0%E8%90%BD%E5%9C%B0"><span class="toc-text">Hadoop 集成 Kerberos：从配置到落地</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%A0%B8%E5%BF%83%E5%BC%80%E5%85%B3%EF%BC%9Acore-site-xml"><span class="toc-text">核心开关：core-site.xml</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%90%84%E7%BB%84%E4%BB%B6%E7%9A%84-principal-%E4%B8%8E-keytab"><span class="toc-text">各组件的 principal 与 keytab</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#principal-%E5%88%9B%E5%BB%BA%E4%B8%8E-keytab-%E7%94%9F%E6%88%90%E7%9A%84-bash-%E7%A4%BA%E4%BE%8B"><span class="toc-text">principal 创建与 keytab 生成的 bash 示例</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Delegation-Token%EF%BC%9A%E5%88%AB%E8%AE%A9-KDC-%E6%88%90%E7%93%B6%E9%A2%88"><span class="toc-text">Delegation Token：别让 KDC 成瓶颈</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%AE%9E%E6%88%98%E8%B8%A9%E5%9D%91%EF%BC%9A%E8%BF%99%E4%BA%9B%E5%9D%91%E6%88%91%E6%9B%BF%E4%BD%A0%E8%B8%A9%E8%BF%87%E4%BA%86"><span class="toc-text">实战踩坑：这些坑我替你踩过了</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-1%EF%BC%9A%E6%97%B6%E9%92%9F%E5%81%8F%E5%B7%AE"><span class="toc-text">坑 1：时钟偏差</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-2%EF%BC%9ADNS-%E5%8F%8D%E5%90%91%E8%A7%A3%E6%9E%90%E4%B8%8E-HOST"><span class="toc-text">坑 2：DNS 反向解析与 _HOST</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-3%EF%BC%9Akeytab-%E6%96%87%E4%BB%B6%E6%9D%83%E9%99%90%E4%B8%8E%E5%B1%9E%E4%B8%BB"><span class="toc-text">坑 3：keytab 文件权限与属主</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-4%EF%BC%9AUser-Impersonation%EF%BC%88%E4%BB%A3%E7%90%86%E7%94%A8%E6%88%B7%EF%BC%89"><span class="toc-text">坑 4：User Impersonation（代理用户）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-5%EF%BC%9ATicket-%E8%BF%87%E6%9C%9F%E4%B8%8E%E8%87%AA%E5%8A%A8%E7%BB%AD%E7%BA%A6"><span class="toc-text">坑 5：Ticket 过期与自动续约</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-6%EF%BC%9AKDC-%E5%8D%95%E7%82%B9"><span class="toc-text">坑 6：KDC 单点</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Ranger%EF%BC%9A%E7%BB%9F%E4%B8%80%E6%8E%88%E6%9D%83%E4%B8%8E%E5%AE%A1%E8%AE%A1"><span class="toc-text">Ranger：统一授权与审计</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#Policy-%E6%A8%A1%E5%9E%8B"><span class="toc-text">Policy 模型</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%8F%92%E4%BB%B6%E6%9E%B6%E6%9E%84"><span class="toc-text">插件架构</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Ranger-%E4%B8%8E-HDFS-POSIX-ACL-%E7%9A%84%E5%85%B3%E7%B3%BB"><span class="toc-text">Ranger 与 HDFS POSIX&#x2F;ACL 的关系</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%AE%A1%E8%AE%A1%E6%97%A5%E5%BF%97"><span class="toc-text">审计日志</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%A1%8C%E7%BA%A7-%E5%88%97%E7%BA%A7%E6%9D%83%E9%99%90"><span class="toc-text">行级 &#x2F; 列级权限</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#HDFS-%E6%9D%83%E9%99%90%E4%BD%93%E7%B3%BB%EF%BC%9APOSIX-ACL"><span class="toc-text">HDFS 权限体系：POSIX + ACL</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#POSIX-%E6%9D%83%E9%99%90"><span class="toc-text">POSIX 权限</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ACL%EF%BC%88Access-Control-List%EF%BC%89"><span class="toc-text">ACL（Access Control List）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E8%90%BD%E5%9C%B0%E8%B7%AF%E5%BE%84%E5%BB%BA%E8%AE%AE%EF%BC%9A%E5%85%88%E8%AE%A4%E8%AF%81%EF%BC%8C%E5%90%8E%E6%8E%88%E6%9D%83%EF%BC%8C%E7%81%B0%E5%BA%A6%E5%BC%80%E5%85%B3"><span class="toc-text">落地路径建议：先认证，后授权，灰度开关</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B0%8F%E7%BB%93"><span class="toc-text">小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/hadoop-to-lakehouse-evolution" title="从 Hadoop 到湖仓一体：数据平台的十年演进"><div class="content"><span class="title" href="/posts/hadoop-to-lakehouse-evolution" title="从 Hadoop 到湖仓一体：数据平台的十年演进">从 Hadoop 到湖仓一体：数据平台的十年演进</span><span class="categories" href="/posts/hadoop-to-lakehouse-evolution">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-cluster-planning-deployment" title="Hadoop 集群容量规划、部署与基准测试实战"><div class="content"><span class="title" href="/posts/hadoop-cluster-planning-deployment" title="Hadoop 集群容量规划、部署与基准测试实战">Hadoop 集群容量规划、部署与基准测试实战</span><span class="categories" href="/posts/hadoop-cluster-planning-deployment">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop3-new-features" title="Hadoop 3.x 核心新特性深度解读"><div class="content"><span class="title" href="/posts/hadoop3-new-features" title="Hadoop 3.x 核心新特性深度解读">Hadoop 3.x 核心新特性深度解读</span><span class="categories" href="/posts/hadoop3-new-features">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-performance-tuning" title="Hadoop 性能调优全攻略：从 JVM、IO 到参数"><div class="content"><span class="title" href="/posts/hadoop-performance-tuning" title="Hadoop 性能调优全攻略：从 JVM、IO 到参数">Hadoop 性能调优全攻略：从 JVM、IO 到参数</span><span class="categories" href="/posts/hadoop-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-security-kerberos-ranger" title="Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战"><div class="content"><span class="title" href="/posts/hadoop-security-kerberos-ranger" title="Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战">Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战</span><span class="categories" href="/posts/hadoop-security-kerberos-ranger">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

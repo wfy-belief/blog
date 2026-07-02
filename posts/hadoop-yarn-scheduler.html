@@ -1,0 +1,575 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>YARN 架构剖析与调度器调优实战 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/hadoop-yarn-scheduler"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="从 ResourceManager 到 Container，讲透 YARN 调度器选型与调优"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: 'YARN 是 Hadoop 的核心资源管理层，本文从 ResourceManager、ApplicationMaster、NodeManager、Container 四个角色切入，梳理一次应用的完整生命周期，再深入对比 FIFO、Capacity、Fair 三种调度器的内部机制与选型权衡，最后结合某集群的真实生产问题——队列饿死、AM hang、NM 不健康、容器被 OOM kill——给出一套可落地的调优参数与监控指标体系。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>10</sup></a><a href="/tags/HDFS/">HDFS<sup>2</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>1</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>1</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">10</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">11</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">11</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">21</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>10</sup></a><a href="/tags/HDFS/">HDFS<sup>2</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>1</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>1</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">YARN 架构剖析与调度器调优实战</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop</span></a><a class="post-meta__tags" href="/tags/YARN/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>YARN</span></a><a class="post-meta__tags" href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>资源调度</span></a></div></div></div></div><h1 class="post-title">YARN 架构剖析与调度器调优实战</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h2 id="引言"><a href="#引言" class="headerlink" title="引言"></a>引言</h2><p>YARN（Yet Another Resource Negotiator）从 Hadoop 2.x 开始接管了 MapReduce 1.x 里 JobTracker 那一坨”资源管理 + 任务调度”耦合在一起的职责，把集群变成一个通用的资源调度平台。它的核心贡献不是把 MapReduce 跑得更快，而是让 Spark、Flink、Tez、Storm（通过 YARN 模式）这些计算框架能共享同一批机器、同一个 HDFS，按需申请、按量归还。</p>
+<p>我维护过一个约 200 个 NodeManager 节点的某集群，常年混跑 Spark 批处理、Flink 流任务和零散的 Hive on Tez 查询。踩过调度器选型的坑、被 OOM kill 折磨过、也排查过 ApplicationMaster 卡死导致整个应用僵死的事故。这篇文章把这些东西系统整理出来，给同样在做 Hadoop 平台的同学一个参照。</p>
+<h2 id="核心角色与架构"><a href="#核心角色与架构" class="headerlink" title="核心角色与架构"></a>核心角色与架构</h2><p>YARN 的架构可以浓缩成四个核心角色：ResourceManager、ApplicationMaster、NodeManager、Container。理解清楚它们的边界，是后续所有调优的前提。</p>
+<h3 id="ResourceManager（RM）"><a href="#ResourceManager（RM）" class="headerlink" title="ResourceManager（RM）"></a>ResourceManager（RM）</h3><p>RM 是全局的”大脑”，部署在管控节点上，承担两类职责：</p>
+<ul>
+<li><strong>Scheduler</strong>：纯粹的资源分配器。它只关心”哪个节点有空闲资源、哪个队列还能分”，不关心应用本身的状态。当 NM 通过心跳上报节点资源、AM 通过心跳申请资源时，Scheduler 根据 SchedulerApplication 的资源请求和队列策略做分配决策，把 Container 分配出去。Scheduler 本身是事件驱动的，调度逻辑被抽象成可插拔的策略（FIFO &#x2F; Capacity &#x2F; Fair）。</li>
+<li><strong>ApplicationsManager</strong>：负责接收客户端提交的应用、启动对应的 ApplicationMaster、监控 AM 的存活并在 AM 失败时重试。它维护应用的全局状态机（NEW → NEW_SAVING → SUBMITTED → ACCEPTED → RUNNING → … → FINISHED&#x2F;FAILED&#x2F;KILLED）。</li>
+</ul>
+<p>RM 本身是单点，但它通过嵌入式的 leader 选举 + 状态持久化到 RM State Store（ZK &#x2F; FileSystem &#x2F; LevelDB）实现 HA。我们线上用的是 ZK 做 RM HA 和状态存储，failover 大概在 30 秒内能完成 <!-- 校准：请按真实经历核实/替换 -->。</p>
+<h3 id="ApplicationMaster（AM）"><a href="#ApplicationMaster（AM）" class="headerlink" title="ApplicationMaster（AM）"></a>ApplicationMaster（AM）</h3><p>AM 是”每应用一个”的轻量级任务主管，自己就跑在一个 Container 里（通常叫 <code>container_e02_xxxx_0001_000001</code> 这种）。它的职责包括：</p>
+<ol>
+<li>向 RM 注册自己（registerApplicationMaster），上报自己所在 NM 和 RPC 端口。</li>
+<li>通过 <code>AMRMClientAsync</code> 心跳（默认 1 秒）向 RM 申请资源，把拿到的 Container 进一步交给 NM 启动。</li>
+<li>监控自己管理的 task 容器状态（通过 NM 的状态更新事件或自己轮询）。</li>
+<li>任务完成后，向 RM 注销（finishApplicationMaster），释放 AM 自己的 Container。</li>
+</ol>
+<p>AM 的容错是关键。如果 AM 所在 NM 挂了或者 AM 进程崩了，RM 会按 <code>yarn.resourcemanager.am.max-attempts</code>（默认 2）重试。重试次数耗尽，整个应用才标记为 FAILED。这点对长跑的 Flink 作业尤其要留意——我们把 Flink 作业的 <code>max-attempts</code> 调到了 4 <!-- 校准：请按真实经历核实/替换 -->，给偶尔的 NM 重启留点缓冲。</p>
+<h3 id="NodeManager（NM）"><a href="#NodeManager（NM）" class="headerlink" title="NodeManager（NM）"></a>NodeManager（NM）</h3><p>NM 是每台机器的守护进程，干三件事：</p>
+<ul>
+<li><strong>Container 生命周期管理</strong>：接收 AM（经 RM 转发或直接 NM RPC）的 <code>startContainers</code> 请求，启动 Container 进程，运行结束回收。</li>
+<li><strong>资源监控</strong>：定期（默认 3 秒）采样本节点所有 Container 的资源使用，通过心跳上报 RM。一旦 Container 实际使用超过预设上限，NM 会主动 kill 掉它（这是后面 OOM kill 的来源）。</li>
+<li><strong>健康检查脚本</strong>：<code>yarn.nodemanager.health-checker.script.path</code> 指向一个脚本，定期执行，用来发现坏盘、目录满、磁盘 IO 异常等硬件问题。一旦脚本输出”unhealthy”，NM 会向 RM 上报 <code>UNHEALTHY</code> 状态，RM 就不再往这节点分配新 Container。</li>
+</ul>
+<p>NM 的本地目录（<code>yarn.nodemanager.local-dirs</code> 存放 Container 工作目录、<code>yarn.nodemanager.log-dirs</code> 存放日志）建议配多块盘轮转，单盘写满不至于整个节点挂掉。</p>
+<h3 id="Container"><a href="#Container" class="headerlink" title="Container"></a>Container</h3><p>Container 是 YARN 的资源隔离单元，本质上是”一份资源契约 + 一个进程”。资源契约规定了内存（MB）和 vcore 上限，进程在 cgroup（或更老的 ulimit）层面被限制。3.x 之后还引入了通用的 resource types（GPU、FPGA、自定义），通过 NM 端的 <code>yarn.nodemanager.resource.&lt;type&gt;.available</code> 上报，Container 申请时可以指定。</p>
+<h2 id="应用生命周期完整流程"><a href="#应用生命周期完整流程" class="headerlink" title="应用生命周期完整流程"></a>应用生命周期完整流程</h2><p>把上面四个角色串起来，一个应用从提交到结束的完整链路是这样的：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">1. client: yarn jar app.jar → RM ClientRMService.submitApplication</span><br><span class="line">2. RM:    状态 NEW_SAVING → 持久化 → SUBMITTED → ACCEPTED</span><br><span class="line">3. RM:    Scheduler 从队列分配第一个 Container（&quot;AM Container&quot;）给某个 NM</span><br><span class="line">4. NM:    启动 AM Container，AM 进程起来</span><br><span class="line">5. AM:    registerApplicationMaster(RM) → 状态 RUNNING</span><br><span class="line">6. AM:    while 任务没完成:</span><br><span class="line">            AMRMClient allocate(heartbeat) → 申请 N 个 Container</span><br><span class="line">            RM Scheduler 分配 → 拿到 allocatedContainers</span><br><span class="line">            for each container: NMClient startContainer(NM)</span><br><span class="line">7. NM:    起 task 进程，监控，状态变更事件回传给 AM</span><br><span class="line">8. AM:    所有 task 完成 → finishApplicationMaster(FINISHED)</span><br><span class="line">9. RM:    unregister，应用状态 FINISHED，通知 NM 清理 Container</span><br></pre></td></tr></table></figure>
+
+<p>几个容易踩的细节：</p>
+<ul>
+<li>第 6 步里，AM 的 <code>allocate</code> 心跳<strong>必须周期性调用</strong>，否则 RM 会认为 AM 失联（默认 <code>yarn.am.liveness-monitor.expiry-interval-ms</code> &#x3D; 10 分钟）把它 kill 掉。所以即使 AM 暂时不需要新资源，也要发空心跳。</li>
+<li>资源请求支持”本地性提示”（locality），AM 可以告诉 Scheduler：”我希望分配在存了数据块 H1 的节点上”，Scheduler 会优先满足本地性，找不到再退而求次。延迟调度（delay scheduling）就是为这种本地性权衡设计的。</li>
+</ul>
+<h2 id="调度器深度对比"><a href="#调度器深度对比" class="headerlink" title="调度器深度对比"></a>调度器深度对比</h2><p>调度器是 YARN 最值得花时间的部分。三种内置调度器差异巨大，选错直接影响多租户体验。</p>
+<h3 id="FIFO-Scheduler"><a href="#FIFO-Scheduler" class="headerlink" title="FIFO Scheduler"></a>FIFO Scheduler</h3><p>最朴素：所有应用排一个队列，先来先服务。优点是简单、吞吐高（无锁、无公平性计算）；致命缺点是一个大应用可以把后续所有应用全部堵死。生产环境几乎没人用，除了纯单租户的离线集群。</p>
+<h3 id="Capacity-Scheduler（CS）"><a href="#Capacity-Scheduler（CS）" class="headerlink" title="Capacity Scheduler（CS）"></a>Capacity Scheduler（CS）</h3><p>我们生产用的就是 CS。它的核心思想是”层级队列 + 弹性共享”。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">root</span><br><span class="line">├── prod（生产）       min=60%, max=100%</span><br><span class="line">│   ├── realtime       min=40% of prod</span><br><span class="line">│   └── batch</span><br><span class="line">└── dev（开发）        min=30%, max=80%</span><br></pre></td></tr></table></figure>
+
+<p>关键参数：</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>yarn.scheduler.capacity.&lt;queue&gt;.capacity</code></td>
+<td>队列的最小保证容量（百分比），所有同层队列加起来应该等于 100</td>
+</tr>
+<tr>
+<td><code>yarn.scheduler.capacity.&lt;queue&gt;.maximum-capacity</code></td>
+<td>队列能”借”到的最大上限，超过就只能等别的队列还资源</td>
+</tr>
+<tr>
+<td><code>yarn.scheduler.capacity.&lt;queue&gt;.user-limit-factor</code></td>
+<td>单用户能占用队列容量的倍数（默认 1，即最多用满队列 capacity）</td>
+</tr>
+<tr>
+<td><code>yarn.scheduler.capacity.&lt;queue&gt;.maximum-applications</code></td>
+<td>队列最大并发应用数</td>
+</tr>
+<tr>
+<td><code>yarn.scheduler.capacity.&lt;queue&gt;.acl_submit_applications</code></td>
+<td>提交 ACL，多租户隔离的最后一道闸</td>
+</tr>
+<tr>
+<td><code>yarn.scheduler.capacity.&lt;queue&gt;.state</code></td>
+<td>RUNNING &#x2F; STOPPED（停止接收新应用）</td>
+</tr>
+</tbody></table>
+<p>CS 的精髓在于 <code>maximum-capacity</code>：平时 prod 队列只有 min&#x3D;60%，但 dev 空闲时 prod 能弹性借资源到 100%；dev 反过来也能在 prod 空闲时借，但被 <code>max=80%</code> 卡住，防止开发把生产挤垮。这就是”弹性 + 隔离”。</p>
+<p><code>user-limit-factor</code> 我们调过几次。某业务组多个用户共用一个 dev 队列，默认 factor&#x3D;1 时一个用户跑大作业，别人全排队。改到 0.5 后单用户最多用队列一半，多用户并发好很多 <!-- 校准：请按真实经历核实/替换 -->。</p>
+<h3 id="Fair-Scheduler（FS）"><a href="#Fair-Scheduler（FS）" class="headerlink" title="Fair Scheduler（FS）"></a>Fair Scheduler（FS）</h3><p>FS 的核心是 pool（池），按 weight 而不是百分比来切分资源。<code>weight</code> 越大，分配到的资源越多。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">allocations.xml:</span><br><span class="line">&lt;pool name=&quot;prod&quot;&gt;</span><br><span class="line">  &lt;weight&gt;3&lt;/weight&gt;</span><br><span class="line">  &lt;maxRunningApps&gt;20&lt;/maxRunningApps&gt;</span><br><span class="line">  &lt;schedulingMode&gt;fair&lt;/schedulingMode&gt;</span><br><span class="line">  &lt;preemption&gt;true&lt;/preemption&gt;</span><br><span class="line">&lt;/pool&gt;</span><br><span class="line">&lt;pool name=&quot;dev&quot;&gt;</span><br><span class="line">  &lt;weight&gt;1&lt;/weight&gt;</span><br><span class="line">&lt;/pool&gt;</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>机制</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>schedulingMode=fair</code></td>
+<td>池内按公平分配</td>
+</tr>
+<tr>
+<td><code>schedulingMode=fifo</code></td>
+<td>池内按提交顺序</td>
+</tr>
+<tr>
+<td><code>maxRunningApps</code></td>
+<td>池内并发上限</td>
+</tr>
+<tr>
+<td><code>preemption</code></td>
+<td>当某池长期欠公平（starvation），强制从富余池抢回 container</td>
+</tr>
+<tr>
+<td><code>fairSharePreemptionThreshold</code></td>
+<td>池实际拿到 &lt; fairShare × 阈值（默认 0.5）持续一段时间，触发抢占</td>
+</tr>
+<tr>
+<td><code>delay scheduling</code></td>
+<td>为本地性牺牲短期公平，默认等 <code>yarn.scheduler.fair.locality-threshold.node=0</code>（即多少比例的调度机会）</td>
+</tr>
+</tbody></table>
+<p>FS 的抢占比 CS 优雅，因为 CS 的抢占是后来加的（<code>yarn.resourcemanager.scheduler.monitor.enable</code>），需要配合 policies，配置相对繁琐。</p>
+<h3 id="选型建议"><a href="#选型建议" class="headerlink" title="选型建议"></a>选型建议</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>单租户、追求吞吐</td>
+<td>FIFO</td>
+</tr>
+<tr>
+<td>多租户、强 SLA、组织结构清晰</td>
+<td><strong>Capacity Scheduler</strong></td>
+</tr>
+<tr>
+<td>多租户、抢占需求强、pool 权重灵活</td>
+<td><strong>Fair Scheduler</strong></td>
+</tr>
+<tr>
+<td>Hortonworks &#x2F; CDP 默认</td>
+<td>Capacity Scheduler（HDP 默认）</td>
+</tr>
+<tr>
+<td>CDH 5.x 默认</td>
+<td>Fair Scheduler（老 CDH 默认）</td>
+</tr>
+</tbody></table>
+<p>我的实战倾向是 CS——配置直观、和企业 AD&#x2F;LDAP 的 ACL 集成成熟、CDP&#x2F;HDP 生态默认就走它。除非你们平台对抢占公平性极度敏感，否则 CS 已经够用。</p>
+<h2 id="资源模型"><a href="#资源模型" class="headerlink" title="资源模型"></a>资源模型</h2><h3 id="传统模型：memory-vcore"><a href="#传统模型：memory-vcore" class="headerlink" title="传统模型：memory + vcore"></a>传统模型：memory + vcore</h3><ul>
+<li><strong>memory（MB）</strong>：<code>yarn.nodemanager.resource.memory-mb</code> 是这个节点能提供给 YARN 的总物理内存上限（要给 OS、NM 本身、DataNode 留余量）。</li>
+<li><strong>vcores</strong>：<code>yarn.nodemanager.resource.cpu-vcores</code> 是虚拟核数，可以大于物理核（按经验，1 物理核 &#x3D; 2~4 vcore，看任务 CPU 密集程度）。</li>
+</ul>
+<p>Container 申请时通过 <code>Resource</code> 对象指定 <code>memory</code> 和 <code>vcores</code>，NM 通过 cgroup <code>memory.limit_in_bytes</code> 和 <code>cpu.cfs_quota_us</code> 做硬限制。</p>
+<h3 id="3-x-的扩展：resource-types"><a href="#3-x-的扩展：resource-types" class="headerlink" title="3.x 的扩展：resource types"></a>3.x 的扩展：resource types</h3><p>Hadoop 3.0 引入了自定义资源类型。比如 GPU：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">&lt;!-- yarn-site.xml --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.resource-types<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>yarn.io/gpu<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.nodemanager.resource-plugins<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>yarn-io/gpu<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.nodemanager.resource-plugins.gpu.path-to-discovery-executables<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>/usr/local/cuda/bin/nvidia-smi<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>这样 NM 会通过 <code>nvidia-smi</code> 自动发现 GPU 数量并上报，AM 申请 Container 时可以写 <code>&lt;resource name=&quot;yarn.io/gpu&quot; value=&quot;2&quot;/&gt;</code>。FPGA、其他自定义资源同理。这对跑深度学习推理、GPU 加速的 ETL 很有用，我所在集群接入了 8 张卡的 GPU 节点专门跑推理模型 <!-- 校准：请按真实经历核实/替换 -->。</p>
+<h3 id="resource-profile"><a href="#resource-profile" class="headerlink" title="resource profile"></a>resource profile</h3><p>3.1 引入，可以预定义一组资源组合模板，AM 申请时直接引用 profile 名字而不是逐项指定。社区用得不多，企业内部封装倒是方便。</p>
+<h2 id="关键调优参数"><a href="#关键调优参数" class="headerlink" title="关键调优参数"></a>关键调优参数</h2><p>把我线上维护时反复调过的参数列出来，按类别分组：</p>
+<h3 id="NM-资源配置"><a href="#NM-资源配置" class="headerlink" title="NM 资源配置"></a>NM 资源配置</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认</th>
+<th>建议</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>yarn.nodemanager.resource.memory-mb</code></td>
+<td>8192</td>
+<td>物理内存 × 0.8</td>
+<td>给系统留 20%</td>
+</tr>
+<tr>
+<td><code>yarn.nodemanager.resource.cpu-vcores</code></td>
+<td>8</td>
+<td>物理核 × 2</td>
+<td>视任务类型</td>
+</tr>
+<tr>
+<td><code>yarn.nodemanager.vmem-pmem-ratio</code></td>
+<td>2.1</td>
+<td>2.1~3</td>
+<td>虚拟内存&#x2F;物理内存比</td>
+</tr>
+<tr>
+<td><code>yarn.nodemanager.pmem-check-enabled</code></td>
+<td>true</td>
+<td>true</td>
+<td>物理内存超限 kill</td>
+</tr>
+<tr>
+<td><code>yarn.nodemanager.vmem-check-enabled</code></td>
+<td>true</td>
+<td><strong>false</strong></td>
+<td>Java 任务虚拟内存经常爆，建议关</td>
+</tr>
+</tbody></table>
+<h3 id="Scheduler-配置"><a href="#Scheduler-配置" class="headerlink" title="Scheduler 配置"></a>Scheduler 配置</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>yarn.resourcemanager.scheduler.client.thread-count</code></td>
+<td>50</td>
+<td>处理 AM 心跳的线程数，集群大要调高</td>
+</tr>
+<tr>
+<td><code>yarn.scheduler.maximum-allocation-mb</code></td>
+<td>8192</td>
+<td>单 Container 内存上限</td>
+</tr>
+<tr>
+<td><code>yarn.scheduler.maximum-allocation-vcores</code></td>
+<td>4</td>
+<td>单 Container vcore 上限</td>
+</tr>
+<tr>
+<td><code>yarn.scheduler.minimum-allocation-mb</code></td>
+<td>1024</td>
+<td>单 Container 内存下限（影响粒度）</td>
+</tr>
+<tr>
+<td><code>yarn.resourcemanager.scheduler.increment-allocation-mb</code></td>
+<td>1024</td>
+<td>CS 弹性分配粒度</td>
+</tr>
+</tbody></table>
+<h3 id="AM-与-container"><a href="#AM-与-container" class="headerlink" title="AM 与 container"></a>AM 与 container</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>yarn.resourcemanager.am.max-attempts</code></td>
+<td>2</td>
+<td>AM 重试次数</td>
+</tr>
+<tr>
+<td><code>yarn.am.liveness-monitor.expiry-interval-ms</code></td>
+<td>600000</td>
+<td>AM 心跳超时</td>
+</tr>
+<tr>
+<td><code>yarn.rm.container-allocation.expiry-interval-ms</code></td>
+<td>600000</td>
+<td>分配出去的 Container 未启动就过期</td>
+</tr>
+</tbody></table>
+<h3 id="Fair-Scheduler-专属"><a href="#Fair-Scheduler-专属" class="headerlink" title="Fair Scheduler 专属"></a>Fair Scheduler 专属</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>yarn.scheduler.fair.preemption</code></td>
+<td>false</td>
+<td>开抢占</td>
+</tr>
+<tr>
+<td><code>yarn.scheduler.fair.preemption.cluster-utilization-threshold</code></td>
+<td>0.8</td>
+<td>集群利用率高于此才触发抢占</td>
+</tr>
+<tr>
+<td><code>yarn.scheduler.fair.locality-threshold.node</code></td>
+<td>-1</td>
+<td>节点本地性延迟阈值（按调度机会比例）</td>
+</tr>
+<tr>
+<td><code>yarn.scheduler.fair.locality-threshold.rack</code></td>
+<td>-1</td>
+<td>机架本地性延迟阈值</td>
+</tr>
+<tr>
+<td><code>yarn.scheduler.fair.max.assign</code></td>
+<td>-1</td>
+<td>一次心跳最多分配 container 数</td>
+</tr>
+</tbody></table>
+<h2 id="生产问题复盘"><a href="#生产问题复盘" class="headerlink" title="生产问题复盘"></a>生产问题复盘</h2><p>参数列表是死的，问题排查才是经验。下面三个是我印象最深的故障。</p>
+<h3 id="问题一：dev-队列被一个-Spark-作业饿死整个-prod"><a href="#问题一：dev-队列被一个-Spark-作业饿死整个-prod" class="headerlink" title="问题一：dev 队列被一个 Spark 作业饿死整个 prod"></a>问题一：dev 队列被一个 Spark 作业饿死整个 prod</h3><p>现象：某天 prod 队列里的 Flink 作业全部 pending，dev 队列里一个 memory 调错的 Spark 作业占了 1000+ vcore。</p>
+<p>根因：Capacity Scheduler 的 <code>maximum-capacity</code> 设成了 100（即不限制），dev 可以无限弹性。那个 Spark 作业内存配错（executor 内存写小了），导致 YARN 以为它能很快结束、一直给资源。</p>
+<p>解决：</p>
+<ol>
+<li>把 dev 队列 <code>maximum-capacity</code> 从 100 调到 40 <!-- 校准：请按真实经历核实/替换 -->。</li>
+<li>给所有 dev 队列设 <code>maximum-applications=50</code>，防止小集群灌爆。</li>
+<li>如果用 Fair Scheduler，<code>preemption=true</code> + <code>fairSharePreemptionThreshold=0.5</code>，prod 会被自动让回资源——这是 FS 比 CS 强的地方。</li>
+</ol>
+<h3 id="问题二：ApplicationMaster-hang，整个应用僵死"><a href="#问题二：ApplicationMaster-hang，整个应用僵死" class="headerlink" title="问题二：ApplicationMaster hang，整个应用僵死"></a>问题二：ApplicationMaster hang，整个应用僵死</h3><p>现象：一个 Hive on Tez 查询卡住，AM 状态还是 RUNNING 但所有 task 都不动。</p>
+<p>排查：<code>yarn application -status &lt;appId&gt;</code> 看 AM 所在 NM，上去 <code>jstack &lt;amPid&gt;</code> 发现 AM 线程在等一个 NM 的 RPC 响应，而那个 NM 因为磁盘满已经上报 UNHEALTHY——但 AM 自己没感知，进程没崩，所以 RM 也不会重试 AM。</p>
+<p>教训：</p>
+<ul>
+<li>NM 健康检查脚本要覆盖”日志目录满”，默认脚本只检查坏盘和系统盘满。</li>
+<li>监控要专门看 <code>yarn_nodemanager_health</code>，UNHEALTHY 的节点第一时间 drain 掉。</li>
+<li>这种”AM 不崩但 hang”是最坑的，靠 RM 的 max-attempts 救不了。我们的做法是给关键 Flink 作业加了个外部 watchdog：连续 N 分钟 checkpoint 没推进就主动 kill application 重启 <!-- 校准：请按真实经历核实/替换 -->。</li>
+</ul>
+<h3 id="问题三：Container-被-OOM-kill"><a href="#问题三：Container-被-OOM-kill" class="headerlink" title="问题三：Container 被 OOM kill"></a>问题三：Container 被 OOM kill</h3><p>现象：Spark executor 跑着跑着被 NM kill，日志里有 <code>Container [pid] is running beyond physical memory limits</code>。</p>
+<p>排查：用户在 Spark 里配了 <code>executorMemory=8g</code>，但 YARN Container 默认会按 <code>executorMemory + overhead</code> 算（overhead 是 10%），实际申请的 Container memory 是 8.8g。再加上 JVM 堆外内存（Netty、堆外缓存），真实 RSS 超过 8.8g，被 NM 的 <code>pmem-check-enabled</code> 杀掉。</p>
+<p>但更隐蔽的是另一个开关：<code>vmem-check-enabled</code>。Java 任务虚拟内存（按 <code>ulimit -v</code> 算的，包含 mmap、JIT、线程栈等）很容易爆，不是真实内存压力却被 NM 误杀。</p>
+<p>解决：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.nodemanager.vmem-check-enabled<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>false<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.nodemanager.pmem-check-enabled<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>true<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>yarn.nodemanager.vmem-pmem-ratio<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>2.1<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>关闭 vmem 检查，保留 pmem 检查——这是 Java 集群的事实标准配置。再让 Spark 用户把 <code>spark.yarn.executor.memoryOverhead</code> 显式调到 2g 左右，问题消失。</p>
+<h3 id="问题四：vcore-配高导致-CPU-过载"><a href="#问题四：vcore-配高导致-CPU-过载" class="headerlink" title="问题四：vcore 配高导致 CPU 过载"></a>问题四：vcore 配高导致 CPU 过载</h3><p>现象：节点 CPU iowait 飙高、load average 长期 60+，但 YARN 看每个 Container 都”在限制内”。</p>
+<p>根因：运维把 <code>yarn.nodemanager.resource.cpu-vcores</code> 从 32（物理核）配成了 96，以为 CPU 是 IO 密集任务可以超卖。结果一个 batch 任务全是 Spark hash shuffle，CPU 上下文切换爆炸。</p>
+<p>教训：vcore 超卖要看任务类型。CPU 密集（Spark SQL、机器学习训练）按 1:1 配；IO 密集（Hive 简单查询、DistCp）按 1:2 或 1:3 可以。我们最后把 vcore 降回 40 <!-- 校准：请按真实经历核实/替换 -->，配合 cgroup <code>cpu.cfs_quota_us</code> 做软限制，load 才稳。</p>
+<h2 id="监控指标"><a href="#监控指标" class="headerlink" title="监控指标"></a>监控指标</h2><p>YARN 暴露的 JMX 指标是平台运维的眼睛。我们接 Prometheus + Grafana 重点监控这些：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+<th>告警阈值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ClusterMetricsNumActiveNMs</code></td>
+<td>活跃 NM 数</td>
+<td>跌幅 &gt; 10% 立即告警</td>
+</tr>
+<tr>
+<td>每队列 <code>allocatedMB / availableMB</code></td>
+<td>队列资源使用率</td>
+<td>&gt; 90% 持续 10 分钟</td>
+</tr>
+<tr>
+<td>每队列 <code>pendingContainers</code></td>
+<td>pending 容器数</td>
+<td>&gt; 50 持续 15 分钟（饥饿）</td>
+</tr>
+<tr>
+<td>每队列 <code>activeApplications</code></td>
+<td>运行中应用数</td>
+<td>接近 maximum-applications</td>
+</tr>
+<tr>
+<td>Fair Scheduler 的 <code>fairShare vs steadyFairShare</code></td>
+<td>抢占是否在发生</td>
+<td>steadyFairShare 持续低于 minShare</td>
+</tr>
+<tr>
+<td>RM <code>rpcProcessingTimeAvgTime</code></td>
+<td>RM RPC 延迟</td>
+<td>&gt; 100ms</td>
+</tr>
+<tr>
+<td>NM <code>containersKilled</code></td>
+<td>被 kill 容器数（OOM、抢占）</td>
+<td>突增告警</td>
+</tr>
+</tbody></table>
+<p>RM 的 JMX endpoint 是 <code>http://&lt;rm&gt;:8088/jmx</code>，NM 是 <code>http://&lt;nm&gt;:8042/jmx</code>。Prometheus 抓取间隔 30 秒，pending container 这个指标尤其重要——它是平台最容易”温水煮青蛙”的问题，用户作业卡很久不一定有报错。</p>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>YARN 看起来是 Hadoop 体系里”老掉牙”的部分，但越往深挖越发现里面的权衡很讲究：调度器选型（CS 的 capacity&#x2F;maximum-capacity vs FS 的 weight&#x2F;preemption）是组织结构和 SLA 的折中，资源模型（memory&#x2F;vcore&#x2F;resource types）是隔离强度和吞吐的折中，AM 的容错策略（max-attempts）是可靠性和资源占用的折中。把这套东西吃透，不止是能调好 Hadoop，对理解 Kubernetes 的调度、Mesos 的 offer 模型都有帮助——资源调度的底层逻辑是相通的。</p>
+<p>落到实战，我个人最看重的三件事：第一，监控 <code>pendingContainers</code> 和 <code>ClusterMetricsNumActiveNMs</code>，这是平台健康的两条命脉；第二，对每个业务队列严格设 <code>maximum-capacity</code> 和 <code>user-limit-factor</code>，多租户的悲剧永远来自”我以为他会自己控制”；第三，<code>vmem-check-enabled=false</code> 几乎是 Java 集群的必选项，不然你会花一半时间在解释”为什么我的 Spark 没爆内存却被 kill”上。</p>
+<p>调度系统没有银弹，但对参数和故障模式的熟悉程度，决定了你能不能在凌晨三点出事时十秒定位问题。希望这篇复盘能帮到同样在折腾 YARN 的同学。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/YARN/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>YARN<span class="tagsPageCount">1</span></span></a><a class="post-meta__tags" href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>资源调度<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/hadoop-mapreduce-shuffle"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">MapReduce 原理与 Shuffle 深度优化</div></div></a></div><div class="next-post pull-right"><a href="/posts/hadoop-hdfs-small-files"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">HDFS 小文件问题：成因、影响与生产治理实战</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E8%A8%80"><span class="toc-text">引言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%A0%B8%E5%BF%83%E8%A7%92%E8%89%B2%E4%B8%8E%E6%9E%B6%E6%9E%84"><span class="toc-text">核心角色与架构</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ResourceManager%EF%BC%88RM%EF%BC%89"><span class="toc-text">ResourceManager（RM）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ApplicationMaster%EF%BC%88AM%EF%BC%89"><span class="toc-text">ApplicationMaster（AM）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#NodeManager%EF%BC%88NM%EF%BC%89"><span class="toc-text">NodeManager（NM）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Container"><span class="toc-text">Container</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BA%94%E7%94%A8%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F%E5%AE%8C%E6%95%B4%E6%B5%81%E7%A8%8B"><span class="toc-text">应用生命周期完整流程</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E8%B0%83%E5%BA%A6%E5%99%A8%E6%B7%B1%E5%BA%A6%E5%AF%B9%E6%AF%94"><span class="toc-text">调度器深度对比</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#FIFO-Scheduler"><span class="toc-text">FIFO Scheduler</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Capacity-Scheduler%EF%BC%88CS%EF%BC%89"><span class="toc-text">Capacity Scheduler（CS）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Fair-Scheduler%EF%BC%88FS%EF%BC%89"><span class="toc-text">Fair Scheduler（FS）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%80%89%E5%9E%8B%E5%BB%BA%E8%AE%AE"><span class="toc-text">选型建议</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E8%B5%84%E6%BA%90%E6%A8%A1%E5%9E%8B"><span class="toc-text">资源模型</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BC%A0%E7%BB%9F%E6%A8%A1%E5%9E%8B%EF%BC%9Amemory-vcore"><span class="toc-text">传统模型：memory + vcore</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-x-%E7%9A%84%E6%89%A9%E5%B1%95%EF%BC%9Aresource-types"><span class="toc-text">3.x 的扩展：resource types</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#resource-profile"><span class="toc-text">resource profile</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%B3%E9%94%AE%E8%B0%83%E4%BC%98%E5%8F%82%E6%95%B0"><span class="toc-text">关键调优参数</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#NM-%E8%B5%84%E6%BA%90%E9%85%8D%E7%BD%AE"><span class="toc-text">NM 资源配置</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Scheduler-%E9%85%8D%E7%BD%AE"><span class="toc-text">Scheduler 配置</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#AM-%E4%B8%8E-container"><span class="toc-text">AM 与 container</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Fair-Scheduler-%E4%B8%93%E5%B1%9E"><span class="toc-text">Fair Scheduler 专属</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%94%9F%E4%BA%A7%E9%97%AE%E9%A2%98%E5%A4%8D%E7%9B%98"><span class="toc-text">生产问题复盘</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%97%AE%E9%A2%98%E4%B8%80%EF%BC%9Adev-%E9%98%9F%E5%88%97%E8%A2%AB%E4%B8%80%E4%B8%AA-Spark-%E4%BD%9C%E4%B8%9A%E9%A5%BF%E6%AD%BB%E6%95%B4%E4%B8%AA-prod"><span class="toc-text">问题一：dev 队列被一个 Spark 作业饿死整个 prod</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%97%AE%E9%A2%98%E4%BA%8C%EF%BC%9AApplicationMaster-hang%EF%BC%8C%E6%95%B4%E4%B8%AA%E5%BA%94%E7%94%A8%E5%83%B5%E6%AD%BB"><span class="toc-text">问题二：ApplicationMaster hang，整个应用僵死</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%97%AE%E9%A2%98%E4%B8%89%EF%BC%9AContainer-%E8%A2%AB-OOM-kill"><span class="toc-text">问题三：Container 被 OOM kill</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%97%AE%E9%A2%98%E5%9B%9B%EF%BC%9Avcore-%E9%85%8D%E9%AB%98%E5%AF%BC%E8%87%B4-CPU-%E8%BF%87%E8%BD%BD"><span class="toc-text">问题四：vcore 配高导致 CPU 过载</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%9B%91%E6%8E%A7%E6%8C%87%E6%A0%87"><span class="toc-text">监控指标</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B0%8F%E7%BB%93"><span class="toc-text">小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/hadoop-to-lakehouse-evolution" title="从 Hadoop 到湖仓一体：数据平台的十年演进"><div class="content"><span class="title" href="/posts/hadoop-to-lakehouse-evolution" title="从 Hadoop 到湖仓一体：数据平台的十年演进">从 Hadoop 到湖仓一体：数据平台的十年演进</span><span class="categories" href="/posts/hadoop-to-lakehouse-evolution">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-cluster-planning-deployment" title="Hadoop 集群容量规划、部署与基准测试实战"><div class="content"><span class="title" href="/posts/hadoop-cluster-planning-deployment" title="Hadoop 集群容量规划、部署与基准测试实战">Hadoop 集群容量规划、部署与基准测试实战</span><span class="categories" href="/posts/hadoop-cluster-planning-deployment">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop3-new-features" title="Hadoop 3.x 核心新特性深度解读"><div class="content"><span class="title" href="/posts/hadoop3-new-features" title="Hadoop 3.x 核心新特性深度解读">Hadoop 3.x 核心新特性深度解读</span><span class="categories" href="/posts/hadoop3-new-features">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-performance-tuning" title="Hadoop 性能调优全攻略：从 JVM、IO 到参数"><div class="content"><span class="title" href="/posts/hadoop-performance-tuning" title="Hadoop 性能调优全攻略：从 JVM、IO 到参数">Hadoop 性能调优全攻略：从 JVM、IO 到参数</span><span class="categories" href="/posts/hadoop-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-security-kerberos-ranger" title="Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战"><div class="content"><span class="title" href="/posts/hadoop-security-kerberos-ranger" title="Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战">Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战</span><span class="categories" href="/posts/hadoop-security-kerberos-ranger">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

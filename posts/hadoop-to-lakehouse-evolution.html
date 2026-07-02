@@ -1,0 +1,401 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>从 Hadoop 到湖仓一体：数据平台的十年演进 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/hadoop-to-lakehouse-evolution"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="Hadoop 没有死，只是被解构——看数据平台的存算分离与湖仓演进"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文以第一人称复盘数据平台十年演进：从 Hadoop 的存算耦合，到对象存储、表格式、计算引擎的解耦三件套，再到湖仓一体与 AI 数据底座。文章梳理了 HDFS 的现代角色、一条可落地的分层迁移路径，以及工程上的踩坑经验，主张按负载选架构而非追新。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>10</sup></a><a href="/tags/HDFS/">HDFS<sup>2</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>1</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>1</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">10</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">11</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">11</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">21</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>10</sup></a><a href="/tags/HDFS/">HDFS<sup>2</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>1</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>1</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">从 Hadoop 到湖仓一体：数据平台的十年演进</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop</span></a><a class="post-meta__tags" href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>湖仓一体</span></a><a class="post-meta__tags" href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>架构演进</span></a></div></div></div></div><h1 class="post-title">从 Hadoop 到湖仓一体：数据平台的十年演进</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h1 id="从-Hadoop-到湖仓一体：数据平台的十年演进"><a href="#从-Hadoop-到湖仓一体：数据平台的十年演进" class="headerlink" title="从 Hadoop 到湖仓一体：数据平台的十年演进"></a>从 Hadoop 到湖仓一体：数据平台的十年演进</h1><p>每隔两三年，技术圈就会喊一次”Hadoop 已死”。第一次听到这话时我还是个虔诚的 Hadoop 信徒，会在 NameNode 面板前盯 Hortonworks 那一栏绿点；最近一次听到，是某个云厂商的销售在白板上把 HDFS 划掉，换成”对象存储 + Iceberg”。十多年过去了，Hadoop 真的死了吗？</p>
+<p>我的答案是：<strong>死的从来不是 Hadoop，而是”把 Hadoop 当成一个不可分割的整体”这种思维方式。</strong> 它被解构了。HDFS 的存储能力演化为对象存储，Hive 的元数据治理演化为表格式，MapReduce&#x2F;Tez 的计算模型演化为 Spark&#x2F;Flink&#x2F;Trino，YARN 的资源管理被 Kubernetes 和云原生调度接管。每一个组件都还在，只是各自独立演化、自由组合。</p>
+<p>这是 Hadoop 系列的收尾篇。前面几篇我讲的是 Hadoop 内部怎么做、怎么调、怎么扛住生产流量；这一篇我想跳出来，站在数据平台演进的宏观视角，复盘这套体系如何从”一个大盒子”被拆解为”一栈可组合的湖仓”。如果你是大数据&#x2F;AI 从业者，我希望这篇文章能帮你看清选型背后的脉络；如果你是招聘方，它至少能说明我对这件事的判断不只是会用几个组件。</p>
+<h2 id="一、Hadoop-时代的价值与局限"><a href="#一、Hadoop-时代的价值与局限" class="headerlink" title="一、Hadoop 时代的价值与局限"></a>一、Hadoop 时代的价值与局限</h2><p>先把功劳说清楚。在 Hadoop 出现之前，处理 TB&#x2F;PB 级数据只有两条路：昂贵的商用 MPP（Teradata、Greenplum），或者自己写 MPI。Hadoop 用”廉价存储 + 分布式计算”把大数据的门槛打到了地面，让任何一家公司都能买几台普通服务器搭起集群。这是革命性的。</p>
+<p>它的核心架构可以用下面这张图概括：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">+---------------------------------------------------+</span><br><span class="line">|                   客户端 / 上层应用                 |</span><br><span class="line">+---------------------------------------------------+</span><br><span class="line">|   Hive SQL   |   MapReduce/Tez   |   Spark/...    |</span><br><span class="line">+---------------------------------------------------+</span><br><span class="line">|                      YARN                         |  &lt;-- 资源调度</span><br><span class="line">+---------------------------------------------------+</span><br><span class="line">|                      HDFS                         |  &lt;-- 统一存储</span><br><span class="line">+---------------------------------------------------+</span><br><span class="line">|              DataNode（本地磁盘 + 计算）            |  &lt;-- 存算耦合</span><br><span class="line">+---------------------------------------------------+</span><br></pre></td></tr></table></figure>
+
+<p>这套架构有几个划时代的价值：</p>
+<ul>
+<li><strong>存算一体化</strong>：数据散落在 DataNode 的本地磁盘上，计算任务被 YARN 调度到数据所在节点，靠”数据本地性”（data locality）避免网络 IO，把延迟压到最低。</li>
+<li><strong>统一的元数据</strong>：Hive Metastore 给全公司一张表，所有引擎对着同一份数据写 SQL，结束了”一个部门一个 ETL 孤岛”。</li>
+<li><strong>生态爆炸</strong>：Spark、Flink、Presto 都长在 HDFS + YARN 之上，构成了第一代真正的”数据平台”。</li>
+</ul>
+<p>但用着用着，问题也暴露得很彻底：</p>
+<p><strong>1. 存储与计算耦合，扩容时一起烧钱。</strong> HDFS 的 DataNode 既存数据又跑计算。数据量在涨，但 CPU 不一定同比例涨——你只是想多放点冷数据，却被迫采购一整套带 CPU、内存、网卡的服务器。反过来，你想扛一波临时的大查询峰值，也没法只扩计算，因为扩进来的节点上没数据。</p>
+<p><strong>2. 运维负担极重。</strong> NameNode 是单点（虽然有 HA），元数据全在内存里，集群到一定规模（我经历过的上限大概在 6~7 亿文件级别 <!-- 校准：请按真实经历核实/替换 -->）就开始吃力：RPC 风暴、GC 停顿、滚动升级要逐台 DataNode 操作。更别提三副本带来的存储成本放大。</p>
+<p><strong>3. 小文件与元数据瓶颈。</strong> Hive 默认按分区、按任务产出大量小文件，NameNode 内存吃紧，MapReduce 启动开销陡增。治小文件这件事，几乎是每个 Hadoop 团队的必修课。</p>
+<p><strong>4. 批处理延迟高。</strong> MapReduce 模型天生为批而设计，端到端小时级延迟很正常。后续虽然有 Spark 把它压到分钟级，但仍然不是真正的流式。</p>
+<p><strong>5. 多引擎适配成本。</strong> Spark、Flink、Presto 虽然共享 HDFS，但每个引擎有自己的优化器、自己的元数据方言、自己的分区策略。数据团队很大一部分精力，花在”让这份数据被不同引擎都能正确读”上。</p>
+<p>这些问题不是 Hadoop 设计得不好，而是它的核心假设——“集群就是一台大计算机，存算绑定在一起最优”——在云时代失效了。云让存储和计算可以分别按量计费、弹性伸缩。Hadoop 的耦合反而成了负担。</p>
+<h2 id="二、解耦三件套：存储、表格式、计算"><a href="#二、解耦三件套：存储、表格式、计算" class="headerlink" title="二、解耦三件套：存储、表格式、计算"></a>二、解耦三件套：存储、表格式、计算</h2><p>真正发生的不是”替换 Hadoop”，而是把它拆成三层，每层独立演化、独立选型。这是过去十年数据平台最关键的架构变化。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">+--------------------------------------------------------------------+</span><br><span class="line">|          计算层：Spark (批) / Flink (流) / Trino (交互) / ...        |</span><br><span class="line">+--------------------------------------------------------------------+</span><br><span class="line">|            表格式层：Iceberg / Hudi / Delta（元数据 + ACID）         |</span><br><span class="line">+--------------------------------------------------------------------+</span><br><span class="line">|   存储层：对象存储 S3 / OSS / COS / GCS（弹性、按量、免运维）         |</span><br><span class="line">+--------------------------------------------------------------------+</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-1-存储层：从-HDFS-到对象存储"><a href="#2-1-存储层：从-HDFS-到对象存储" class="headerlink" title="2.1 存储层：从 HDFS 到对象存储"></a>2.1 存储层：从 HDFS 到对象存储</h3><p>对象存储（S3、阿里云 OSS、腾讯云 COS、Google Cloud Storage）是数据平台走向云原生的第一块基石。它和 HDFS 的根本区别在于：<strong>它把”存储服务”从”服务器”里彻底抽象出来了。</strong></p>
+<ul>
+<li><strong>按量计费、近无限容量</strong>：你不再需要预估集群规模，存多少付多少。冷数据直接下沉到低频访问层（如 S3 IA、OSS 冷归档），成本可以压到标准层的三分之一甚至更低 <!-- 校准：请按真实经历核实/替换 -->。</li>
+<li><strong>完全免运维</strong>：没有 NameNode、没有 DataNode、没有磁盘故障、没有副本手工修复。对象存储的 11 个 9 持久性由云厂商兜底。</li>
+<li><strong>天然解耦</strong>：存储和计算不再绑定在同一个物理集群，你可以挂 10 个引擎对着同一桶数据读，互不干扰。</li>
+</ul>
+<p>但天下没有免费的午餐。对象存储的代价是：</p>
+<ul>
+<li><strong>延迟更高</strong>：一次 list 操作比 HDFS 的元数据 RPC 慢一个数量级，对小文件密集的查询很不友好。</li>
+<li><strong>早期的一致性问题</strong>：经典 S3 是”读后写一致”但”列表后创建一致”有延迟，曾经需要 S3Guard 这类客户端补丁来模拟强一致。后来 S3、OSS、COS 都陆续提供了强一致性，问题才算根治，但旧的工程经验里仍要警惕。</li>
+</ul>
+<h3 id="2-2-表格式：给对象存储装上”数据库的灵魂”"><a href="#2-2-表格式：给对象存储装上”数据库的灵魂”" class="headerlink" title="2.2 表格式：给对象存储装上”数据库的灵魂”"></a>2.2 表格式：给对象存储装上”数据库的灵魂”</h3><p>对象存储本身只是”一个桶装一堆文件”。没有 ACID、没有 schema、没有分区自动演进、没有 time travel。这就意味着：两个流同时往一个表写、读的时候写到一半，或者想回滚到昨天的数据状态，全都做不到。</p>
+<p><strong>表格式（Table Format）就是来填这个坑的。</strong> 它在对象存储之上加了一层”元数据 + 协议”，把一堆松散的文件变成一张可以事务性读写的表。今天主流的三个开源方案是 Iceberg、Hudi、Delta Lake，它们都在 2017~2019 年间成熟起来，正好踩在对象存储普及的节点上。</p>
+<p>一个表格式大致负责这些事：</p>
+<ul>
+<li><strong>ACID 事务</strong>：原子提交，读写隔离，并发写入不会读到半成品。</li>
+<li><strong>Time Travel</strong>：每个快照是一个可读版本，可以查”昨天的这张表长什么样”。</li>
+<li><strong>Schema Evolution &amp; Partition Evolution</strong>：加列、改分区策略不用重写全表。</li>
+<li><strong>统计信息 &#x2F; Data Skipping</strong>：每个数据文件记录 min&#x2F;max，查询时按谓词跳过无关文件，这是性能的关键。</li>
+</ul>
+<p>三者的设计取向不同，下表是一个我实际选型时会看的对比：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Iceberg</th>
+<th>Hudi</th>
+<th>Delta Lake</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>起源</td>
+<td>Netflix，2018 捐 Apache</td>
+<td>Uber，2016 捐 Apache</td>
+<td>Databricks，2019 开源</td>
+</tr>
+<tr>
+<td>核心定位</td>
+<td>开放表格式，引擎中立</td>
+<td>流式入湖 + 增数更新</td>
+<td>与 Spark&#x2F;Photon 深度绑定</td>
+</tr>
+<tr>
+<td>写模型</td>
+<td>Copy-on-Write &#x2F; Merge-on-Read</td>
+<td>Copy-on-Write &#x2F; Merge-on-Read</td>
+<td>Copy-on-Write &#x2F; Merge-on-Read</td>
+</tr>
+<tr>
+<td>引擎生态</td>
+<td>Spark&#x2F;Flink&#x2F;Trino&#x2F;StarRocks&#x2F;… 全面</td>
+<td>Spark&#x2F;Flink&#x2F;Trino 为主</td>
+<td>Spark 生态最成熟</td>
+</tr>
+<tr>
+<td>元数据管理</td>
+<td>自管理元数据树，无外部依赖</td>
+<td>依赖 Hive Metastore 或自定义</td>
+<td>依赖 Hive Metastore（开源版）</td>
+</tr>
+<tr>
+<td>schema&#x2F;分区演进</td>
+<td>最强，分区演化是亮点</td>
+<td>较强</td>
+<td>一般</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td>多引擎、统一表格式底座</td>
+<td>高频 upsert、CDC 入湖</td>
+<td>Databricks 平台内首选</td>
+</tr>
+</tbody></table>
+<p>我在实际项目里倾向用 Iceberg 做”统一底座”，因为它引擎中立、分区演进最成熟；Hudi 在高频 CDC 入湖的场景仍然很有竞争力；Delta 的优势在 Databricks 平台内才能完全发挥，纯开源版用起来要绕一些坑 <!-- 校准：请按真实经历核实/替换 -->。</p>
+<h3 id="2-3-计算层：一个底座，多个引擎"><a href="#2-3-计算层：一个底座，多个引擎" class="headerlink" title="2.3 计算层：一个底座，多个引擎"></a>2.3 计算层：一个底座，多个引擎</h3><p>解耦带来的最大红利，是<strong>计算引擎可以按负载选型，而不再被迫”一招鲜”</strong>。</p>
+<ul>
+<li><strong>Spark</strong>：大规模批处理和 ETL 的主力，2026 年仍然是离线数仓的事实标准。</li>
+<li><strong>Flink</strong>：流式计算的王者，配合 Iceberg&#x2F;Hudi 的流式写入，实现真正的”流批一体”。</li>
+<li><strong>Trino（原 PrestoSQL）</strong>：交互式 ad-hoc 查询，秒级响应，BI 场景首选。</li>
+<li><strong>StarRocks &#x2F; Doris</strong>：MPP 架构的 OLAP 引擎，面向对延迟敏感的实时看板。</li>
+</ul>
+<p>这些引擎共享同一份对象存储 + 表格式底座，各取所长。这是我十年前在 Hadoop 上想都不敢想的事——那时候换一个引擎，等于重做一整套数据。</p>
+<h2 id="三、湖仓一体：在”湖”上加一层”仓”"><a href="#三、湖仓一体：在”湖”上加一层”仓”" class="headerlink" title="三、湖仓一体：在”湖”上加一层”仓”"></a>三、湖仓一体：在”湖”上加一层”仓”</h2><p>把上面三层拼起来，就得到了”湖仓一体”（Lakehouse）这个词。这个概念由 Databricks 在 2020 年提出，但它本质上描述的是一个早就该有的架构形态。</p>
+<p><strong>数据湖（Data Lake）</strong> 是对象存储 + 一堆文件，灵活但不可靠——schema 后置、数据质量差、被称为”数据沼泽”。<br><strong>数据仓库（Data Warehouse）</strong> 结构严谨、ACID 完备、查询快，但封闭、贵、和湖割裂。</p>
+<p><strong>湖仓一体</strong>的关键判断是：<strong>不必在”湖”和”仓”之间二选一，而是在湖之上叠加仓的能力（事务、schema、性能），让一份数据同时具备两者的特性。</strong> 表格式就是这层”叠加”。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">传统数据湖：                    传统数仓：              湖仓一体：</span><br><span class="line">+-----------------+            +-----------+         +-------------------+</span><br><span class="line">|   一堆文件       |            | 封闭引擎   |         | 计算：Spark/Flink |</span><br><span class="line">+-----------------+            +-----------+         | /Trino/StarRocks  |</span><br><span class="line">|   对象存储       |            | 封闭存储   |         +-------------------+</span><br><span class="line">+-----------------+            +-----------+         | 表格式 Iceberg/...|</span><br><span class="line">                                                    +-------------------+</span><br><span class="line">                                                    | 对象存储           |</span><br><span class="line">                                                    +-------------------+</span><br></pre></td></tr></table></figure>
+
+<p>湖仓一体真正爆发的另一个推手是<strong>批流一体</strong>。Flink 流式写入 Iceberg，把分钟级的实时数据直接落到同一张表上，离线批处理和实时分析共享一份存储。过去”Lambda 架构”里维护两套（speed layer + batch layer）、还要做数据对齐的痛苦，被彻底简化了。</p>
+<p>存算分离带来的弹性伸缩是另一个红利。查询峰值来了，临时拉起 50 个 Trino worker 跑 10 分钟，跑完释放，只付那 10 分钟的钱。这种弹性在 Hadoop 时代是不可想象的。</p>
+<h2 id="四、HDFS-的现代角色：别急着一刀切"><a href="#四、HDFS-的现代角色：别急着一刀切" class="headerlink" title="四、HDFS 的现代角色：别急着一刀切"></a>四、HDFS 的现代角色：别急着一刀切</h2><p>讲到这里，很容易得出”对象存储全面替代 HDFS”的结论。但这是过度简化。<strong>HDFS 在 2026 年仍然有它不可替代的位置，关键看负载特征。</strong></p>
+<p>HDFS 仍然占优的场景：</p>
+<ul>
+<li><strong>热数据 + 数据本地性</strong>：把计算调度到数据所在节点，避免对象存储的网络往返。对延迟敏感的随机读、对吞吐要求极高的大扫描，HDFS 仍有优势。</li>
+<li><strong>低延迟随机读</strong>：HBase、Impala 这类依赖短路径本地读的引擎，在 HDFS 上能跑出对象存储难以企及的尾部延迟。</li>
+<li><strong>已有大规模集群的存量投资</strong>：PB 级数据迁移到对象存储本身是一件成本不低、风险不小的事，没有强动机不必动。</li>
+</ul>
+<p>HDFS 不再占优的场景：</p>
+<ul>
+<li><strong>冷数据归档</strong>：用三副本存冷数据是巨大的浪费，应该下沉到对象存储，配合纠删码（erasure coding）把存储成本进一步压下来。HDFS 3.x 也原生支持了 EC，但对象存储 + EC 的组合在成本和运维上仍然更香。</li>
+<li><strong>弹性计算峰值</strong>：HDFS 集群扩容以”天&#x2F;周”为单位，对象存储 + 弹性计算以”分钟”为单位。</li>
+</ul>
+<p><strong>一个常见的现代布局是分层存储：</strong> 热数据放 HDFS（或者干脆放本地 SSD 缓存），温数据放对象存储标准层，冷数据放对象存储的低频访问层。计算引擎透明地跨层访问，由表格式屏蔽底层差异。这才是务实的姿态，而不是追新把 HDFS 一刀切掉。</p>
+<h2 id="五、一条可落地的迁移-分层路径"><a href="#五、一条可落地的迁移-分层路径" class="headerlink" title="五、一条可落地的迁移&#x2F;分层路径"></a>五、一条可落地的迁移&#x2F;分层路径</h2><p>下面是我实际操刀过的、相对稳妥的一条演进路径，不一定最优，但踩过的坑可以分享。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">阶段 1：纯 Hadoop              阶段 2：引入冷层            阶段 3：统一表格式</span><br><span class="line">+-----------------+            +-----------------+        +--------------------+</span><br><span class="line">| Hive/Spark      |            | Hive/Spark      |        | Spark/Flink/Trino  |</span><br><span class="line">+-----------------+            +-----------------+        +--------------------+</span><br><span class="line">| HDFS（全量）     |   ──&gt;      | HDFS（热）       |  ──&gt;   | Iceberg 表格式      |</span><br><span class="line">+-----------------+            | OSS（冷归档）    |        +--------------------+</span><br><span class="line">                               +-----------------+        | HDFS + 对象存储分层  |</span><br><span class="line">                                                          +--------------------+</span><br><span class="line"></span><br><span class="line">阶段 4：批流一体                阶段 5：AI 数据底座</span><br><span class="line">+-------------------------+    +-------------------------+</span><br><span class="line">| Spark / Flink / Trino   |    | + RAG / 特征工程 / 训练   |</span><br><span class="line">+-------------------------+    +-------------------------+</span><br><span class="line">| Iceberg（Flink 流式写入）|    | Iceberg（统一底座）       |</span><br><span class="line">+-------------------------+    +-------------------------+</span><br><span class="line">| 对象存储分层              |    | 对象存储分层              |</span><br><span class="line">+-------------------------+    +-------------------------+</span><br></pre></td></tr></table></figure>
+
+<p><strong>阶段 2 的关键动作：引入对象存储做冷层。</strong> 先不碰表格式，只做”冷热分离”。把超过 N 天没被访问的 HDFS 数据归档到对象存储，HDFS 上保留热数据。这步投入小、风险低，能立刻省下可观的存储成本。注意要确认引擎对 S3A&#x2F;OSS Connector 的兼容性，以及访问凭证的统一管理。</p>
+<p><strong>阶段 3 的关键动作：引入 Iceberg 统一表格式。</strong> 新建表直接用 Iceberg，存量 Hive 表按价值优先级分批迁移。<strong>最容易踩的坑是元数据迁移</strong>：Iceberg 的 catalog（Hive Catalog、REST Catalog、Glue Catalog）和 Hive Metastore 不是一回事，迁移过程中通常要双跑一段时间，让旧引擎读老表、新引擎读 Iceberg 表，再逐步切换。</p>
+<p><strong>阶段 4 的关键动作：Flink 实时入湖。</strong> 把 Kafka 上的实时数据用 Flink 流式写入 Iceberg，配合 <code>write.parallelism</code> 和 checkpoint 间隔控制小文件产出。<strong>这一步的关键坑是小文件和 compaction</strong>：流式写入天然产生大量小文件，必须配套一个 compaction 任务（Iceberg 的 <code>rewrite_data_files</code>）定期合并，否则 Trino 查询会被 list 操作拖死。我一般把 compaction 调成小时级异步任务，配合分区粒度做差异化策略。</p>
+<p><strong>阶段 5：作为 AI 数据底座。</strong> 这点单独在下一节展开。</p>
+<p>几个通用的踩坑提醒：</p>
+<ul>
+<li><strong>查询性能</strong>：从 Hive 迁到 Iceberg，简单查询未必更快（甚至更慢），Iceberg 的优势在分区裁剪和 Data Skipping，要确保统计信息被正确收集。复杂查询、大表扫描才会真正受益。</li>
+<li><strong>双写过渡期</strong>：在切换期间，同一份逻辑数据可能同时存在于 Hive 表和 Iceberg 表，要有一套机制保证读一致性，避免双写不一致导致的口径混乱。</li>
+<li><strong>小文件治理</strong>：流式入湖几乎一定会带来小文件问题，把 compaction 当成一等公民来设计，而不是事后补救。</li>
+<li><strong>成本监控</strong>：对象存储的请求次数是要收费的，Trino 一个不当的 <code>SELECT *</code> 可能让你的 S3 账单翻几倍。配合清单（Inventory）和访问日志做成本归因。</li>
+</ul>
+<h2 id="六、与-AI-的衔接：湖仓是特征与语料的统一底座"><a href="#六、与-AI-的衔接：湖仓是特征与语料的统一底座" class="headerlink" title="六、与 AI 的衔接：湖仓是特征与语料的统一底座"></a>六、与 AI 的衔接：湖仓是特征与语料的统一底座</h2><p>到 2026 年，数据平台的下一站已经不是 OLAP，而是 AI。大模型把”数据基建”这件事的重要性推到了前所未有的高度——训练需要海量语料，RAG 需要高质量的知识库，特征工程需要统一、可复用、可追溯的特征。</p>
+<p>湖仓一体天然适合扮演这个角色：</p>
+<ul>
+<li><strong>特征工程的单一来源</strong>：特征被组织成 Iceberg 表，训练任务和在线推理服务共享同一份定义，避免了”训练用一份数据、线上用另一份数据”的漂移。</li>
+<li><strong>RAG 的知识底座</strong>：文档、向量化结果、检索日志都可以是湖仓里的表，Trino 做离线分析，Flink 做实时更新，模型服务做在线检索。</li>
+<li><strong>可追溯（Time Travel）</strong>：模型出了问题，可以回溯到训练时用的那份数据快照，而不是只能猜。</li>
+<li><strong>存算分离对 GPU 友好</strong>：训练任务临时拉起一批 GPU pod，直接挂载对象存储读取湖仓数据，跑完释放，这正是云原生 AI 的标准姿势。</li>
+</ul>
+<p>换句话说，<strong>湖仓不只是数据团队的资产，它正在变成整个 AI 团队的底座。</strong> 这也是为什么我认为每一个有志于做大数据架构的人，都必须把湖仓这件事理解透彻——它已经不只是一个数据仓库的升级版，而是整个数据与智能体系的”地基”。</p>
+<h2 id="七、反思与展望：按负载选架构，而不是追新"><a href="#七、反思与展望：按负载选架构，而不是追新" class="headerlink" title="七、反思与展望：按负载选架构，而不是追新"></a>七、反思与展望：按负载选架构，而不是追新</h2><p>写到这里，我必须强调一件事：<strong>这篇不是在劝你立刻把 HDFS 拆了换成 Iceberg。</strong> 技术选型最忌讳的就是拿着锤子找钉子。</p>
+<p>我在过去几年见过太多”为了湖仓而湖仓”的翻车案例：几百 GB 的数据量，硬上对象存储 + Iceberg + Flink + Trino 全家桶，运维复杂度比原来的一个 MySQL 高出三个数量级，最后还是退回了数仓。也见过传统金融客户，监管要求强一致 + 低延迟，老老实实用 Hadoop 集群反而最稳。</p>
+<p>一个相对靠谱的判断框架：</p>
+<table>
+<thead>
+<tr>
+<th>负载特征</th>
+<th>倾向架构</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>数据量 PB 级 + 多引擎共享 + 需要弹性</td>
+<td>湖仓一体（对象存储 + Iceberg + 多引擎）</td>
+</tr>
+<tr>
+<td>实时性要求高 + 流批一体</td>
+<td>湖仓一体（Flink 流式写入 Iceberg）</td>
+</tr>
+<tr>
+<td>数据量中等 + 查询性能优先 + 模型相对固定</td>
+<td>MPP 数仓（StarRocks &#x2F; Doris &#x2F; Snowflake）</td>
+</tr>
+<tr>
+<td>已有大规模 Hadoop + 监管严格 + 本地性敏感</td>
+<td>Hadoop 分层存储，渐进引入对象存储冷层</td>
+</tr>
+<tr>
+<td>AI 训练 + 大规模语料&#x2F;特征</td>
+<td>湖仓一体作为数据底座，对象存储 + 弹性 GPU</td>
+</tr>
+</tbody></table>
+<p>未来几年我比较关注的几个方向：一是 catalog 层的标准化（REST Catalog、Unity、Polaris 这些试图把元数据治理也云原生化）；二是表格式和向量检索的融合（湖仓内直接做向量索引）；三是数据网格（Data Mesh）和组织治理如何与湖仓底座结合。这些都不是要立刻上的东西，但值得保持关注。</p>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>从 2010 年我第一次敲下 <code>hadoop fs -ls</code> 到今天，数据平台走完了从一个”大盒子”到”一栈可组合服务”的成熟之旅。Hadoop 没有死，它只是被解构了——它的存储能力演化成了对象存储，它的元数据治理演化成了表格式，它的计算模型演化成了 Spark&#x2F;Flink&#x2F;Trino，它的资源调度演化成了 Kubernetes。</p>
+<p>这不是某个技术的胜利，而是<strong>整个大数据工程从”装在一起的一体机”走向”可组合的乐高”</strong>。湖仓一体是这个成熟过程的标志，但它不会是终点——下一个十年，AI 会继续重塑这套体系，而理解”为什么会有今天的架构”的人，才能在下一个十年不迷失方向。</p>
+<p>按负载选架构，不为新而新，这是我做大数据这些年最深的一句心得。希望这篇复盘对你有用。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>湖仓一体<span class="tagsPageCount">1</span></span></a><a class="post-meta__tags" href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>架构演进<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="next-post pull-full"><a href="/posts/hadoop-cluster-planning-deployment"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">Hadoop 集群容量规划、部署与基准测试实战</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#%E4%BB%8E-Hadoop-%E5%88%B0%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93%EF%BC%9A%E6%95%B0%E6%8D%AE%E5%B9%B3%E5%8F%B0%E7%9A%84%E5%8D%81%E5%B9%B4%E6%BC%94%E8%BF%9B"><span class="toc-text">从 Hadoop 到湖仓一体：数据平台的十年演进</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81Hadoop-%E6%97%B6%E4%BB%A3%E7%9A%84%E4%BB%B7%E5%80%BC%E4%B8%8E%E5%B1%80%E9%99%90"><span class="toc-text">一、Hadoop 时代的价值与局限</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E8%A7%A3%E8%80%A6%E4%B8%89%E4%BB%B6%E5%A5%97%EF%BC%9A%E5%AD%98%E5%82%A8%E3%80%81%E8%A1%A8%E6%A0%BC%E5%BC%8F%E3%80%81%E8%AE%A1%E7%AE%97"><span class="toc-text">二、解耦三件套：存储、表格式、计算</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-%E5%AD%98%E5%82%A8%E5%B1%82%EF%BC%9A%E4%BB%8E-HDFS-%E5%88%B0%E5%AF%B9%E8%B1%A1%E5%AD%98%E5%82%A8"><span class="toc-text">2.1 存储层：从 HDFS 到对象存储</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-%E8%A1%A8%E6%A0%BC%E5%BC%8F%EF%BC%9A%E7%BB%99%E5%AF%B9%E8%B1%A1%E5%AD%98%E5%82%A8%E8%A3%85%E4%B8%8A%E2%80%9D%E6%95%B0%E6%8D%AE%E5%BA%93%E7%9A%84%E7%81%B5%E9%AD%82%E2%80%9D"><span class="toc-text">2.2 表格式：给对象存储装上”数据库的灵魂”</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-%E8%AE%A1%E7%AE%97%E5%B1%82%EF%BC%9A%E4%B8%80%E4%B8%AA%E5%BA%95%E5%BA%A7%EF%BC%8C%E5%A4%9A%E4%B8%AA%E5%BC%95%E6%93%8E"><span class="toc-text">2.3 计算层：一个底座，多个引擎</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93%EF%BC%9A%E5%9C%A8%E2%80%9D%E6%B9%96%E2%80%9D%E4%B8%8A%E5%8A%A0%E4%B8%80%E5%B1%82%E2%80%9D%E4%BB%93%E2%80%9D"><span class="toc-text">三、湖仓一体：在”湖”上加一层”仓”</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81HDFS-%E7%9A%84%E7%8E%B0%E4%BB%A3%E8%A7%92%E8%89%B2%EF%BC%9A%E5%88%AB%E6%80%A5%E7%9D%80%E4%B8%80%E5%88%80%E5%88%87"><span class="toc-text">四、HDFS 的现代角色：别急着一刀切</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E4%B8%80%E6%9D%A1%E5%8F%AF%E8%90%BD%E5%9C%B0%E7%9A%84%E8%BF%81%E7%A7%BB-%E5%88%86%E5%B1%82%E8%B7%AF%E5%BE%84"><span class="toc-text">五、一条可落地的迁移&#x2F;分层路径</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E4%B8%8E-AI-%E7%9A%84%E8%A1%94%E6%8E%A5%EF%BC%9A%E6%B9%96%E4%BB%93%E6%98%AF%E7%89%B9%E5%BE%81%E4%B8%8E%E8%AF%AD%E6%96%99%E7%9A%84%E7%BB%9F%E4%B8%80%E5%BA%95%E5%BA%A7"><span class="toc-text">六、与 AI 的衔接：湖仓是特征与语料的统一底座</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E5%8F%8D%E6%80%9D%E4%B8%8E%E5%B1%95%E6%9C%9B%EF%BC%9A%E6%8C%89%E8%B4%9F%E8%BD%BD%E9%80%89%E6%9E%B6%E6%9E%84%EF%BC%8C%E8%80%8C%E4%B8%8D%E6%98%AF%E8%BF%BD%E6%96%B0"><span class="toc-text">七、反思与展望：按负载选架构，而不是追新</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B0%8F%E7%BB%93"><span class="toc-text">小结</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/hadoop-to-lakehouse-evolution" title="从 Hadoop 到湖仓一体：数据平台的十年演进"><div class="content"><span class="title" href="/posts/hadoop-to-lakehouse-evolution" title="从 Hadoop 到湖仓一体：数据平台的十年演进">从 Hadoop 到湖仓一体：数据平台的十年演进</span><span class="categories" href="/posts/hadoop-to-lakehouse-evolution">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-cluster-planning-deployment" title="Hadoop 集群容量规划、部署与基准测试实战"><div class="content"><span class="title" href="/posts/hadoop-cluster-planning-deployment" title="Hadoop 集群容量规划、部署与基准测试实战">Hadoop 集群容量规划、部署与基准测试实战</span><span class="categories" href="/posts/hadoop-cluster-planning-deployment">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop3-new-features" title="Hadoop 3.x 核心新特性深度解读"><div class="content"><span class="title" href="/posts/hadoop3-new-features" title="Hadoop 3.x 核心新特性深度解读">Hadoop 3.x 核心新特性深度解读</span><span class="categories" href="/posts/hadoop3-new-features">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-performance-tuning" title="Hadoop 性能调优全攻略：从 JVM、IO 到参数"><div class="content"><span class="title" href="/posts/hadoop-performance-tuning" title="Hadoop 性能调优全攻略：从 JVM、IO 到参数">Hadoop 性能调优全攻略：从 JVM、IO 到参数</span><span class="categories" href="/posts/hadoop-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-security-kerberos-ranger" title="Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战"><div class="content"><span class="title" href="/posts/hadoop-security-kerberos-ranger" title="Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战">Hadoop 安全体系：Kerberos 认证与 Ranger 鉴权实战</span><span class="categories" href="/posts/hadoop-security-kerberos-ranger">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>
