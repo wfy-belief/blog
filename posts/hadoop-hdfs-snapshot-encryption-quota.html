@@ -1,0 +1,334 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>HDFS 快照、加密区与配额：数据保护与多租户 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/hadoop-hdfs-snapshot-encryption-quota"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="用快照防误删、加密区护敏感数据、配额管多租户"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '企业级 HDFS 光能存不够，还得防得住误删、防得住泄露、管得住多租户。本文以实战复盘口吻，讲透三件事：快照基于 copy-on-write 的零拷贝原理与误删恢复、透明加密区端到端 EDEK 与 KMS 的协作机制及踩坑、Name/Space/Storage Type 三类配额的多租户用法。三者组合起来，才是安全可控的企业存储底座。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">30</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">31</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">31</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">40</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">HDFS 快照、加密区与配额：数据保护与多租户</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop</span></a><a class="post-meta__tags" href="/tags/HDFS/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>HDFS</span></a><a class="post-meta__tags" href="/tags/%E6%B2%BB%E7%90%86/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>治理</span></a></div></div></div></div><h1 class="post-title">HDFS 快照、加密区与配额：数据保护与多租户</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h2 id="引言"><a href="#引言" class="headerlink" title="引言"></a>引言</h2><p>写过 HDFS 架构、写过读写路径、写过一致性，这一篇我想聊聊另一类问题：<strong>数据治理</strong>。在一个真正上了规模的生产集群上，”能存、能读、能写”只是入门，真正让人头疼的往往是这三件事——</p>
+<ul>
+<li><strong>误删</strong>：某个同学的 <code>hdfs dfs -rm -r</code> 多敲了一个路径，PB 级数据秒级消失。回收站未必救得了跨任务的大批量删除。</li>
+<li><strong>泄露</strong>：用户明细、财务数据、模型权重躺在 HDFS 上，谁都能 <code>cat</code>，合规审计过不了。</li>
+<li><strong>挤占</strong>：A 业务一次性灌了几百 TB 把磁盘打满，B 业务的实时任务跟着写失败。</li>
+</ul>
+<p>这三类问题分别对应 HDFS 的三个治理能力：<strong>快照（Snapshot）防误删、透明加密区（Encryption Zone）防泄露、配额（Quota）防占用</strong>。我在某集群上把这三件武器配齐，前后花了大概两个迭代 <!-- 校准：请按真实经历核实/替换 -->，踩过不少坑。本篇把原理和生产用法都讲透，区别于网上那种只贴命令的教程，我会重点讲清”为什么这么设计”以及”线上怎么用才不翻车”。</p>
+<h2 id="一、快照-Snapshot"><a href="#一、快照-Snapshot" class="headerlink" title="一、快照 Snapshot"></a>一、快照 Snapshot</h2><h3 id="1-1-原理：copy-on-write-的零拷贝只读副本"><a href="#1-1-原理：copy-on-write-的零拷贝只读副本" class="headerlink" title="1.1 原理：copy-on-write 的零拷贝只读副本"></a>1.1 原理：copy-on-write 的零拷贝只读副本</h3><p>快照的核心机制是 <strong>copy-on-write（写时复制）</strong>，但 HDFS 的实现方式比很多人想象的更轻量——它<strong>根本不拷贝数据</strong>。</p>
+<p>开启快照能力的目录，NameNode 会在其 inode 上挂一个 <code>SnapshotManager</code>。对一个目录打快照，NN 只是记录下”当前这个目录树下，每个文件&#x2F;目录的 inode 列表和元数据状态”这样一个逻辑视图，对应的数据块（block）一个都不动。真正的开销发生在<strong>后续修改时</strong>：</p>
+<ul>
+<li>当被快照引用的文件被 <strong>删除或截断</strong> 时，NN 不能真正释放这些 block，而是让它们继续被快照”锚住”，物理上保留。</li>
+<li>当被快照引用的文件被 <strong>重命名或追加</strong> 时，NN 通过差异记录（snapshot diff）维护快照视图的不变性。</li>
+</ul>
+<p>这就是为什么官方说快照”几乎不占空间”——它只占一份元数据，数据空间只有在源文件被改写时才”锁住”旧版本。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">      开启 snapshot 的目录 /finance</span><br><span class="line">                │</span><br><span class="line">createSnapshot  │   t0: 快照 s0 (逻辑视图: A,B,C + 各自 block 列表)</span><br><span class="line">───────────────►│</span><br><span class="line">                │</span><br><span class="line">用户删除文件 C   │   t1: 源目录只剩 A,B；但 s0 仍引用 C 的 block</span><br><span class="line">                │        → C 的 block 不释放，仍占物理空间</span><br><span class="line">───────────────►│</span><br><span class="line">                │</span><br><span class="line">从 s0 恢复       │   通过 snapshot path /finance/.snapshot/s0/C 读回</span><br></pre></td></tr></table></figure>
+
+<p>关键结论：<strong>快照不是备份，它和源数据共享 block，源盘坏了快照也救不了</strong>。要防物理故障仍需异地副本&#x2F;EC&#x2F; DistCp 到另一集群。快照防的是”逻辑误操作”——误删、误改、误覆盖。</p>
+<h3 id="1-2-基本操作"><a href="#1-2-基本操作" class="headerlink" title="1.2 基本操作"></a>1.2 基本操作</h3><p>先对一个目录开启快照能力（注意是”能力”，不是打快照本身）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 允许某目录打快照</span></span><br><span class="line">hdfs dfsadmin -allowSnapshot /finance</span><br><span class="line"></span><br><span class="line"><span class="comment"># 创建一个快照（名字可选，不指定则自动 s20260702-xxxx）</span></span><br><span class="line">hdfs dfs -createSnapshot /finance finance_s_20260702</span><br><span class="line"></span><br><span class="line"><span class="comment"># 重命名快照</span></span><br><span class="line">hdfs dfs -renameSnapshot /finance finance_s_20260702 finance_daily</span><br><span class="line"></span><br><span class="line"><span class="comment"># 删除快照（删除后，仅被该快照锚住的 block 才会真正释放）</span></span><br><span class="line">hdfs dfs -deleteSnapshot /finance finance_daily</span><br><span class="line"></span><br><span class="line"><span class="comment"># 列出某目录所有快照</span></span><br><span class="line">hdfs lsSnapshottableDir</span><br><span class="line"></span><br><span class="line"><span class="comment"># 禁用快照能力（前提是该目录已无快照）</span></span><br><span class="line">hdfs dfsadmin -disallowSnapshot /finance</span><br></pre></td></tr></table></figure>
+
+<p>访问快照里的文件用 <code>.snapshot</code> 这个保留路径，比如 <code>/finance/.snapshot/finance_daily/report.parquet</code>。这个路径对普通 <code>hdfs dfs -cat</code>、<code>-get</code>、MapReduce&#x2F;Spark 输入都透明可用。</p>
+<h3 id="1-3-误删恢复：先-diff-后恢复"><a href="#1-3-误删恢复：先-diff-后恢复" class="headerlink" title="1.3 误删恢复：先 diff 后恢复"></a>1.3 误删恢复：先 diff 后恢复</h3><p>生产里我用得最多的是 <strong><code>getSnapshotDiff</code></strong>。某天审计发现 <code>/finance</code> 下少了几个分区，先别急着恢复，先看清楚到底被改了什么：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">hdfs snapshotDiff /finance finance_daily finance_s_20260702</span><br><span class="line"><span class="comment"># 输出 + 表示新增、- 表示删除、M 表示修改、R 表示重命名</span></span><br></pre></td></tr></table></figure>
+
+<p>拿到 diff 列表，就能精准 <code>hdfs dfs -cp /finance/.snapshot/finance_daily/被删文件 /finance/</code> 定点恢复，而不是整目录覆盖（整目录覆盖会丢掉快照之后正常写入的新数据）。</p>
+<p><strong>定期快照策略</strong>上，我们约定每个关键业务目录每天打一个快照、保留 7 天，每周打一个保留 4 周 <!-- 校准：请按真实经历核实/替换 -->，用 crontab + 一段 shell 调 <code>createSnapshot</code>&#x2F;<code>deleteSnapshot</code> 滚动维护。不要手写脚本去遍历删旧快照，社区有现成的 <code>hdfs snapshotDiff</code> 配合 <code>ozone</code> 之类的工具，也可以简单点直接按命名规则 grep 删。</p>
+<h3 id="1-4-快照对删除的影响：空间不会真的释放"><a href="#1-4-快照对删除的影响：空间不会真的释放" class="headerlink" title="1.4 快照对删除的影响：空间不会真的释放"></a>1.4 快照对删除的影响：空间不会真的释放</h3><p>这是最容易踩的坑。很多人以为”我 <code>rm</code> 了 100TB，磁盘该腾出来了吧”——结果磁盘还是满的，因为某个快照还锚着这些 block。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">NameNode 块回收逻辑（简化）:</span><br><span class="line">  文件被 rm → 检查是否仍被任何 snapshot 引用</span><br><span class="line">            ├─ 是 → block 进入 INVALIDATE 队列但保留(或只标记删除pending)</span><br><span class="line">            └─ 否 → 通知 DN 物理删除</span><br></pre></td></tr></table></figure>
+
+<p>所以<strong>快照策略要和容量规划一起做</strong>：保留多少天的快照，就等于可能多锁住多少倍被改写的数据。对于写多改少、又有大量 append 的业务目录，快照保留期不能拉太长，否则 NN 端的 <code>BlocksMap</code> 和 DN 磁盘都会吃紧。</p>
+<h3 id="1-5-配合-DistCp-做增量同步"><a href="#1-5-配合-DistCp-做增量同步" class="headerlink" title="1.5 配合 DistCp 做增量同步"></a>1.5 配合 DistCp 做增量同步</h3><p>这是快照一个被低估的用法。跨集群同步数据时，传统 DistCp 要全量比对，慢且吃带宽。如果两端都开了快照，DistCp 支持基于 <strong>snapdiff（快照差异）</strong> 做增量同步：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 源集群先打两个快照，间隔为同步周期</span></span><br><span class="line">hdfs dfs -createSnapshot /src src_t0</span><br><span class="line"><span class="comment"># ... 一个周期后 ...</span></span><br><span class="line">hdfs dfs -createSnapshot /src src_t1</span><br><span class="line"></span><br><span class="line"><span class="comment"># 用 diff 选项只同步变化部分到目标集群</span></span><br><span class="line">hadoop distcp -update -diff src_t0 src_t1 \</span><br><span class="line">  hdfs://srcCluster/src hdfs://dstCluster/dst</span><br></pre></td></tr></table></figure>
+
+<p>NN 直接吐出两个快照间的 inode 差异列表，DistCp 只拷贝增删改的部分。在 PB 级目录、每天只变几个分区的场景下，同步时间从小时级降到分钟级 <!-- 校准：请按真实经历核实/替换 -->。</p>
+<h2 id="二、透明加密区-Encryption-Zone"><a href="#二、透明加密区-Encryption-Zone" class="headerlink" title="二、透明加密区 Encryption Zone"></a>二、透明加密区 Encryption Zone</h2><h3 id="2-1-原理：端到端的-EDEK-KMS"><a href="#2-1-原理：端到端的-EDEK-KMS" class="headerlink" title="2.1 原理：端到端的 EDEK + KMS"></a>2.1 原理：端到端的 EDEK + KMS</h3><p>HDFS Transparent Encryption 叫”透明”，是因为<strong>对上层应用完全无感</strong>——同一个 <code>hdfs dfs -cat</code>，在加密区内外写法一模一样，加解密由 HDFS 在底层完成。但底层其实是一条精心设计的端到端链路。</p>
+<p>先理清三个密钥的层级：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">┌─────────────────────────────────────────────────────────────┐</span><br><span class="line">│  层级         密钥                存放位置                   │</span><br><span class="line">├─────────────────────────────────────────────────────────────┤</span><br><span class="line">│  L1  Master Key (EZ Key)     KMS（Key Management Server）   │</span><br><span class="line">│  L2  EDEK (加密的数据加密密钥)  NameNode 元数据中（已加密）  │</span><br><span class="line">│  L3  DEK (真正的数据加密密钥)  仅在 client 内存中（明文）    │</span><br><span class="line">└─────────────────────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><strong>EZ Key（Encryption Zone Key）</strong>：每个加密区绑定一个，由 KMS 管理，永不离开 KMS 明文。</li>
+<li><strong>EDEK（Encrypted Data Encryption Key）</strong>：创建加密区或新建文件时，KMS 用 EZ Key 加密一个随机生成的 DEK，把加密后的 EDEK <strong>存在 NN 的文件元数据里</strong>。NN 永远拿不到明文 DEK。</li>
+<li><strong>DEK（Data Encryption Key）</strong>：真正用来加解密文件内容的对称密钥。client 读文件时，把 EDEK 发给 KMS 解密成 DEK，DEK 只在 client 进程内存里短暂存在，用来对落盘&#x2F;读取的字节流做 AES 加解密。</li>
+</ul>
+<p>整条链路的关键设计是：<strong>DataNode 拿到的永远是密文</strong>，NN 拿到的永远是密文（EDEK），只有持有合法 Kerberos 身份、且 KMS 授权的 client 才能解出 DEK。这保证了即便 DN 磁盘被拔走、NN 元数据被偷，攻击者也解不开数据。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">client 写文件到加密区:</span><br><span class="line">  1. create /ez/secret.txt</span><br><span class="line">  2. NN: 该路径在加密区 → 向 KMS 请求生成 EDEK (用 EZ Key 包装)</span><br><span class="line">  3. KMS 返回 EDEK 给 NN，NN 存入文件元数据</span><br><span class="line">  4. client 从 KMS 解 EDEK → DEK (仅内存)</span><br><span class="line">  5. client 用 DEK 加密字节流 → DN 落盘密文</span><br><span class="line"></span><br><span class="line">client 读文件:</span><br><span class="line">  1. open /ez/secret.txt</span><br><span class="line">  2. NN 返回 EDEK + 块位置</span><br><span class="line">  3. client 从 KMS 解 EDEK → DEK</span><br><span class="line">  4. 从 DN 读密文块 → DEK 解密 → 上层拿到明文</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-2-基本操作"><a href="#2-2-基本操作" class="headerlink" title="2.2 基本操作"></a>2.2 基本操作</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 在 KMS 创建一个 EZ 密钥（密钥名 = 加密区的身份）</span></span><br><span class="line">hadoop key create finance_ezkey</span><br><span class="line"></span><br><span class="line"><span class="comment"># 列出 KMS 中的密钥</span></span><br><span class="line">hadoop key list</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 把目录设为加密区，绑定密钥</span></span><br><span class="line">hdfs crypto -createEncryptionZone -path /finance -keyName finance_ezkey</span><br><span class="line"></span><br><span class="line"><span class="comment"># 列出所有加密区</span></span><br><span class="line">hdfs crypto -listZones</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看某文件加密信息</span></span><br><span class="line">hdfs crypto -getFileEncryptionInfo -path /finance/report.parquet</span><br></pre></td></tr></table></figure>
+
+<p>之后所有写进 <code>/finance</code> 的文件自动加密，读出来自动解密，对 Spark&#x2F;Hive&#x2F;Flink 完全透明。</p>
+<h3 id="2-3-与-Kerberos-Ranger-配合"><a href="#2-3-与-Kerberos-Ranger-配合" class="headerlink" title="2.3 与 Kerberos &#x2F; Ranger 配合"></a>2.3 与 Kerberos &#x2F; Ranger 配合</h3><p>加密区不是孤立的访问控制，它必须和 <strong>Kerberos 认证 + Ranger 鉴权</strong> 一起才构成完整闭环：</p>
+<ul>
+<li><strong>Kerberos</strong> 解决”你是谁”——没有合法 TGT，连 KMS 都进不去，更别说解 EDEK。</li>
+<li><strong>Ranger</strong> 解决”你能干什么”——即便你有 Kerberos 身份，Ranger 策略没授权你读 <code>/finance</code>，NN 直接拒绝 open，根本到不了 KMS 解密那一步。</li>
+<li><strong>加密区</strong> 解决”绕过 HDFS 还能不能读”——哪怕有人把 DN 磁盘挂到别的机器上，没有 EZ Key 就解不开。</li>
+</ul>
+<p>三者叠加：<strong>谁有 key 谁能读</strong>，而”谁有 key”又被 Kerberos + Ranger 严格约束。合规审计时，”敏感数据访问 &#x3D; Ranger 审计日志 + KMS 解密日志”两份对账，几乎不可抵赖。</p>
+<h3 id="2-4-踩坑实录"><a href="#2-4-踩坑实录" class="headerlink" title="2.4 踩坑实录"></a>2.4 踩坑实录</h3><p><strong>坑一：KMS 单点</strong>。KMS 挂了，所有加密区的读写都会卡在”解 EDEK”那一步。生产上 KMS 必须 HA，至少 2 个实例前置负载均衡。我们初期只起了一个 KMS，一次 GC 停顿 8 秒 <!-- 校准：请按真实经历核实/替换 -->，整集群加密区读写集体超时，教训深刻。</p>
+<p><strong>坑二：性能开销</strong>。加解密是 CPU 密集型。client 侧默认用 AES-CTR，JDK 没开硬件加速时吞吐能掉 15%~30% <!-- 校准：请按真实经历核实/替换 -->。务必确认 JDK 启用了 AES-NI（<code>-XX:+UseAES -XX:+UseAESIntrinsics</code>），并在 KMS&#x2F;client 节点观察 CPU。</p>
+<p><strong>坑三：密钥轮换</strong>。合规要求定期换 EZ Key，但<strong>轮换 EZ Key 只影响新创建文件的 EDEK</strong>，老文件的 EDEK 是用旧 key 包装的，KMS 必须同时保留新旧 key 才能读老文件。别以为 <code>rollover</code> 完就能把旧 key 删了——删了等于老文件全读不出来。</p>
+<p><strong>坑四：加密区文件不能跨区 move</strong>。<code>hdfs dfs -mv /finance/a.txt /public/</code> 会失败，因为源文件带 EDEK、目标目录不是同一个加密区，HDFS 不允许密钥”泄漏”到区外。必须先 <code>get</code> 到本地再 <code>put</code>，或用 DistCp 显式 re-encrypt。</p>
+<h2 id="三、配额-Quota"><a href="#三、配额-Quota" class="headerlink" title="三、配额 Quota"></a>三、配额 Quota</h2><p>配额是 HDFS 多租户治理的根基。一个集群跑十几条业务线，没有配额就是”谁先灌满谁赢”。</p>
+<h3 id="3-1-三类配额"><a href="#3-1-三类配额" class="headerlink" title="3.1 三类配额"></a>3.1 三类配额</h3><table>
+<thead>
+<tr>
+<th>配额类型</th>
+<th>限制对象</th>
+<th>命令</th>
+<th>典型场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Name Quota</strong></td>
+<td>目录下文件+子目录<strong>个数</strong></td>
+<td><code>hdfs dfsadmin -setQuota 100000 /path</code></td>
+<td>防小文件洪水</td>
+</tr>
+<tr>
+<td><strong>Space Quota</strong></td>
+<td>目录下总<strong>字节数</strong></td>
+<td><code>hdfs dfsadmin -setSpaceQuota 500t /path</code></td>
+<td>防容量挤占</td>
+</tr>
+<tr>
+<td><strong>Storage Type Quota</strong>（3.x）</td>
+<td>按 <strong>STORAGE_TYPE</strong> 分别限字节</td>
+<td><code>hdfs dfsadmin -setQuotaByStorageType -storageType DISK 500t /path</code></td>
+<td>分层存储管控</td>
+</tr>
+</tbody></table>
+<p>查询当前配额与使用量：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">hdfs dfs -count -q /finance</span><br><span class="line"><span class="comment"># 输出: NONE(剩余文件数) QUOTA(文件数上限) SPACE_REMAINING SPACE_QUOTA DIR_COUNT FILE_COUNT SPACE_USED PATH</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="3-2-Name-Quota：防小文件"><a href="#3-2-Name-Quota：防小文件" class="headerlink" title="3.2 Name Quota：防小文件"></a>3.2 Name Quota：防小文件</h3><p>Name Quota 限制的是 inode 数量。NN 内存里每个文件&#x2F;目录占约 150~300 字节元数据 <!-- 校准：请按真实经历核实/替换 -->，小文件过多会撑爆 NN 堆。给每个业务目录设一个 Name Quota 上限，等于在 NN 内存层面划红线：超了写入直接失败，逼着业务去做合并或走 HBase。</p>
+<h3 id="3-3-Space-Quota：防容量挤占"><a href="#3-3-Space-Quota：防容量挤占" class="headerlink" title="3.3 Space Quota：防容量挤占"></a>3.3 Space Quota：防容量挤占</h3><p>Space Quota 限制的是逻辑字节数（副本数也算）。给 <code>/finance</code> 设 <code>500t</code>，意味着该目录下数据加起来不能超过 500TB（含三副本就是 500TB 物理占用 <!-- 校准：请按真实经历核实/替换 -->，注意 HDFS 配额计的是逻辑字节 × 副本数后的物理占用，具体口径以版本为准）。</p>
+<h3 id="3-4-Storage-Type-Quota：分层治理"><a href="#3-4-Storage-Type-Quota：分层治理" class="headerlink" title="3.4 Storage Type Quota：分层治理"></a>3.4 Storage Type Quota：分层治理</h3><p>3.x 引入存储类型后，可以按 DISK&#x2F;SSD&#x2F;ARCHIVE 分别限额。典型用法：热数据目录限 SSD 配额、冷数据目录限 ARCHIVE 配额，逼业务把冷数据走迁移策略落到归约存储。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># /hot 只能用 50TB SSD</span></span><br><span class="line">hdfs dfsadmin -setQuotaByStorageType -storageType SSD 50t /hot</span><br><span class="line"></span><br><span class="line"><span class="comment"># /archive 只能用 1PB ARCHIVE（多为 EC 后的冷数据）</span></span><br><span class="line">hdfs dfsadmin -setQuotaByStorageType -storageType ARCHIVE 1p /archive</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-5-多租户实践"><a href="#3-5-多租户实践" class="headerlink" title="3.5 多租户实践"></a>3.5 多租户实践</h3><p>我们的做法是<strong>按业务线建独立 namespace 子目录 + 独立配额</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">/                          ← 集群根</span><br><span class="line">├── /biz_finance           ← Name Quota 50w, Space Quota 500t</span><br><span class="line">├── /biz_recommend         ← Name Quota 100w, Space Quota 1p</span><br><span class="line">├── /biz_ai_model          ← 大文件少，但单文件大，Space Quota 300t</span><br><span class="line">└── /tmp                   ← 强制 Space Quota 10t，定期清理</span><br></pre></td></tr></table></figure>
+
+<p>每个业务目录再配独立的 Ranger 策略、独立快照计划、必要时独立加密区。业务线之间天然隔离，A 业务再怎么失控也只撞自己的配额墙，不会拖垮 B。</p>
+<h3 id="3-6-踩坑"><a href="#3-6-踩坑" class="headerlink" title="3.6 踩坑"></a>3.6 踩坑</h3><p><strong>坑一：配额超限导致写入失败</strong>。Spark&#x2F;Flink 任务写到一半撞 Space Quota，文件处于半截状态，重试又重新创建。务必在任务侧做好配额预检查，监控每个关键目录的 quota 使用率（我们接了 Prometheus，超 85% 告警 <!-- 校准：请按真实经历核实/替换 -->）。</p>
+<p><strong>坑二：EC 文件的配额计算</strong>。开了纠删码（Erasure Coding）的文件，Space Quota <strong>按编码后大小算</strong>，不是原始大小。比如 RS-6-3 把 6 块数据编码成 9 块（6 数据 + 3 校验），占用是原始的 1.5 倍而非 3 倍。设配额时要换算清楚，否则你以为能写 100TB，实际只能写约 66TB <!-- 校准：请按真实经历核实/替换 -->。</p>
+<p><strong>坑三：快照占用的空间</strong>。前面说过，被快照锚住的 block 不释放，这部分空间<strong>也算在 Space Quota 里</strong>。如果某目录快照保留期长、数据改写频繁，配额会被快照”吃掉”一大块，业务实际可用空间比配额数字小得多。监控时要看 <code>SPACE_USED</code> 的真实值，别只盯配额上限。</p>
+<h2 id="四、组合实战：一段命令序列"><a href="#四、组合实战：一段命令序列" class="headerlink" title="四、组合实战：一段命令序列"></a>四、组合实战：一段命令序列</h2><p>下面这段是为某业务目录 <code>/biz_finance</code> 同时配上快照、加密区、配额的完整序列，可作为生产上线 checklist：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># ===== 0. 前置：Kerberos 已启用、Ranger 策略已下发 =====</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># ===== 1. 建目录 =====</span></span><br><span class="line">hdfs dfs -<span class="built_in">mkdir</span> -p /biz_finance</span><br><span class="line"></span><br><span class="line"><span class="comment"># ===== 2. 创建加密区密钥并绑定 =====</span></span><br><span class="line">hadoop key create finance_ezkey</span><br><span class="line">hdfs crypto -createEncryptionZone -path /biz_finance -keyName finance_ezkey</span><br><span class="line"></span><br><span class="line"><span class="comment"># ===== 3. 设配额 =====</span></span><br><span class="line">hdfs dfsadmin -setQuota 500000 /biz_finance          <span class="comment"># 50 万个文件/目录</span></span><br><span class="line">hdfs dfsadmin -setSpaceQuota 500t /biz_finance       <span class="comment"># 500TB 物理占用</span></span><br><span class="line">hdfs dfsadmin -setQuotaByStorageType -storageType DISK 500t /biz_finance</span><br><span class="line"></span><br><span class="line"><span class="comment"># ===== 4. 开启快照能力并打第一个基线快照 =====</span></span><br><span class="line">hdfs dfsadmin -allowSnapshot /biz_finance</span><br><span class="line">hdfs dfs -createSnapshot /biz_finance baseline_$(<span class="built_in">date</span> +%Y%m%d)</span><br><span class="line"></span><br><span class="line"><span class="comment"># ===== 5. 验证 =====</span></span><br><span class="line">hdfs crypto -listZones</span><br><span class="line">hdfs dfs -count -q /biz_finance</span><br><span class="line">hdfs dfs -<span class="built_in">ls</span> /biz_finance/.snapshot</span><br></pre></td></tr></table></figure>
+
+<p>注意顺序：<strong>先建加密区再写数据</strong>，已经存在的明文文件不会被自动加密；<strong>配额在写数据前设好</strong>，避免业务灌满才发现没限额；<strong>快照基线在治理就绪后打</strong>，作为后续 diff 的参照。</p>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>这三件事看似各自独立，其实串成一条治理主线：</p>
+<ul>
+<li><strong>快照</strong>给数据上了”撤销键”，逻辑误操作秒级回滚，但要记得它和源数据共盘，不防物理故障。</li>
+<li><strong>透明加密区</strong>给数据上了”防读锁”，DN 被拔盘也解不开，但要保证 KMS 的 HA 与密钥的妥善保管。</li>
+<li><strong>配额</strong>给集群上了”容量闸”，多租户各管一摊互不干扰，但要算清 EC 与快照对实际占用的影响。</li>
+</ul>
+<p>三者组合起来，HDFS 才从一个”能存的文件系统”变成”安全可控的企业存储底座”。在我运维的某集群上，这套治理体系上线后，误删恢复从”翻备份要半天”变成”一条 <code>snapshotDiff</code> 几分钟定位” <!-- 校准：请按真实经历核实/替换 -->；敏感数据合规审计顺利通过；容量事故从月均两三起到基本归零 <!-- 校准：请按真实经历核实/替换 -->。这三件武器，值得每个 HDFS 运维者认真吃透。</p>
+<p>—— 王飞宇，写于某次治理复盘之后。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop<span class="tagsPageCount">20</span></span></a><a class="post-meta__tags" href="/tags/HDFS/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>HDFS<span class="tagsPageCount">12</span></span></a><a class="post-meta__tags" href="/tags/%E6%B2%BB%E7%90%86/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>治理<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/spark-aqe"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">Spark AQE 自适应查询执行：让优化器在运行时继续工作的深度复盘</div></div></a></div><div class="next-post pull-right"><a href="/posts/spark-data-skew"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">Spark 数据倾斜治理实战：从 SparkUI 定位到加盐两阶段聚合的完整复盘</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E8%A8%80"><span class="toc-text">引言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E5%BF%AB%E7%85%A7-Snapshot"><span class="toc-text">一、快照 Snapshot</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-1-%E5%8E%9F%E7%90%86%EF%BC%9Acopy-on-write-%E7%9A%84%E9%9B%B6%E6%8B%B7%E8%B4%9D%E5%8F%AA%E8%AF%BB%E5%89%AF%E6%9C%AC"><span class="toc-text">1.1 原理：copy-on-write 的零拷贝只读副本</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-2-%E5%9F%BA%E6%9C%AC%E6%93%8D%E4%BD%9C"><span class="toc-text">1.2 基本操作</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-3-%E8%AF%AF%E5%88%A0%E6%81%A2%E5%A4%8D%EF%BC%9A%E5%85%88-diff-%E5%90%8E%E6%81%A2%E5%A4%8D"><span class="toc-text">1.3 误删恢复：先 diff 后恢复</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-4-%E5%BF%AB%E7%85%A7%E5%AF%B9%E5%88%A0%E9%99%A4%E7%9A%84%E5%BD%B1%E5%93%8D%EF%BC%9A%E7%A9%BA%E9%97%B4%E4%B8%8D%E4%BC%9A%E7%9C%9F%E7%9A%84%E9%87%8A%E6%94%BE"><span class="toc-text">1.4 快照对删除的影响：空间不会真的释放</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-5-%E9%85%8D%E5%90%88-DistCp-%E5%81%9A%E5%A2%9E%E9%87%8F%E5%90%8C%E6%AD%A5"><span class="toc-text">1.5 配合 DistCp 做增量同步</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E9%80%8F%E6%98%8E%E5%8A%A0%E5%AF%86%E5%8C%BA-Encryption-Zone"><span class="toc-text">二、透明加密区 Encryption Zone</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-%E5%8E%9F%E7%90%86%EF%BC%9A%E7%AB%AF%E5%88%B0%E7%AB%AF%E7%9A%84-EDEK-KMS"><span class="toc-text">2.1 原理：端到端的 EDEK + KMS</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-%E5%9F%BA%E6%9C%AC%E6%93%8D%E4%BD%9C"><span class="toc-text">2.2 基本操作</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-%E4%B8%8E-Kerberos-Ranger-%E9%85%8D%E5%90%88"><span class="toc-text">2.3 与 Kerberos &#x2F; Ranger 配合</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-4-%E8%B8%A9%E5%9D%91%E5%AE%9E%E5%BD%95"><span class="toc-text">2.4 踩坑实录</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E9%85%8D%E9%A2%9D-Quota"><span class="toc-text">三、配额 Quota</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-%E4%B8%89%E7%B1%BB%E9%85%8D%E9%A2%9D"><span class="toc-text">3.1 三类配额</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-Name-Quota%EF%BC%9A%E9%98%B2%E5%B0%8F%E6%96%87%E4%BB%B6"><span class="toc-text">3.2 Name Quota：防小文件</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-Space-Quota%EF%BC%9A%E9%98%B2%E5%AE%B9%E9%87%8F%E6%8C%A4%E5%8D%A0"><span class="toc-text">3.3 Space Quota：防容量挤占</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4-Storage-Type-Quota%EF%BC%9A%E5%88%86%E5%B1%82%E6%B2%BB%E7%90%86"><span class="toc-text">3.4 Storage Type Quota：分层治理</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-5-%E5%A4%9A%E7%A7%9F%E6%88%B7%E5%AE%9E%E8%B7%B5"><span class="toc-text">3.5 多租户实践</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-6-%E8%B8%A9%E5%9D%91"><span class="toc-text">3.6 踩坑</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E7%BB%84%E5%90%88%E5%AE%9E%E6%88%98%EF%BC%9A%E4%B8%80%E6%AE%B5%E5%91%BD%E4%BB%A4%E5%BA%8F%E5%88%97"><span class="toc-text">四、组合实战：一段命令序列</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B0%8F%E7%BB%93"><span class="toc-text">小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

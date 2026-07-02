@@ -1,0 +1,547 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>HDFS 运维与故障排查 SOP | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/hadoop-hdfs-ops-troubleshooting"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="一套可落地的 HDFS 观测指标与故障排查标准操作流程"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文是 HDFS 系列的运维收尾篇，把分散在各篇的运维点汇总成一套可落地的观测体系与故障排查 SOP。从 NameNode/DataNode JMX 关键指标、Prometheus 告警阈值，到日常巡检清单，再到 NN Full GC、大量 under-replicated blocks、DN 死亡坏盘、Safemode 不退、慢节点、误删恢复、NN 启动慢七类高频故障的现象-定位-处理流程，最后给出容量扩缩容、安全运维、应急工具箱与一份值班 checklist，是值班同学的一页纸手册。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">30</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">31</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">31</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">40</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">HDFS 运维与故障排查 SOP</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop</span></a><a class="post-meta__tags" href="/tags/%E8%BF%90%E7%BB%B4/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>运维</span></a><a class="post-meta__tags" href="/tags/HDFS/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>HDFS</span></a></div></div></div></div><h1 class="post-title">HDFS 运维与故障排查 SOP</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h1 id="HDFS-运维与故障排查-SOP"><a href="#HDFS-运维与故障排查-SOP" class="headerlink" title="HDFS 运维与故障排查 SOP"></a>HDFS 运维与故障排查 SOP</h1><h2 id="引言"><a href="#引言" class="headerlink" title="引言"></a>引言</h2><p>写到这里，HDFS 系列已经走过了架构、读写路径、元数据、副本管理、一致性租约、小文件治理等篇。每一篇里我都会零散地提到一些”运维要点”，但一直没把它们攒成一套体系。这一篇就是来收尾的——<strong>把分散在各篇的运维点，汇总成一套可落地的观测体系 + 故障排查 SOP</strong>。</p>
+<p>为什么 HDFS 的运维值得单独成篇？因为 HDFS 出问题，几乎从来不是”某个文件读不到”这么局部的事。它是元数据中枢，NameNode 一抖，全集群的所有作业一起抖；它是存储底座，DataNode 一批下线，所有上层引擎一起报错。换句话说，<strong>HDFS 的故障天然是全集群级的</strong>，这种级别的故障，靠临场翻日志、靠肌肉记忆去定位，是会出大事的。我在某集群（约 200 节点、3 PB 出头）<!-- 校准：请按真实经历核实/替换 -->值班的这几年，吃过的最大教训就是：<strong>没有 SOP 的运维，就是把集群稳定性押在值班同学当天的状态上</strong>。</p>
+<p>这篇文章的目标，是给同样在维护 HDFS 的同学一份能直接抄走的”观测 + 排查”框架。前半部分讲怎么”看见”——观测体系与日常巡检；后半部分讲怎么”处置”——七类高频故障的 SOP，每个都给出现象、定位步骤、处理命令。最后附一份值班 checklist。</p>
+<h2 id="一、观测体系：HDFS-运维的眼睛"><a href="#一、观测体系：HDFS-运维的眼睛" class="headerlink" title="一、观测体系：HDFS 运维的眼睛"></a>一、观测体系：HDFS 运维的眼睛</h2><p>运维的第一性原则是：<strong>在你被电话叫醒之前，监控要先告诉你哪里坏了</strong>。HDFS 的观测，核心是两套 JMX：NameNode JMX 和 DataNode JMX。下面这张表是我值班时每天会扫一眼、出事时会逐项核对的 NameNode 关键指标。</p>
+<h3 id="1-1-NameNode-JMX-关键指标"><a href="#1-1-NameNode-JMX-关键指标" class="headerlink" title="1.1 NameNode JMX 关键指标"></a>1.1 NameNode JMX 关键指标</h3><table>
+<thead>
+<tr>
+<th>指标（JMX）</th>
+<th>含义</th>
+<th>关注点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>FilesTotal</code> &#x2F; <code>BlocksTotal</code></td>
+<td>文件总数 &#x2F; 块总数</td>
+<td>增长趋势异常 &#x3D; 小文件爆炸或业务异常</td>
+</tr>
+<tr>
+<td><code>UnderReplicatedBlocks</code></td>
+<td>副本数不足的块</td>
+<td>持续 &gt; 0 且上升 &#x3D; DN 下线&#x2F;坏盘</td>
+</tr>
+<tr>
+<td><code>PendingReplicationBlocks</code></td>
+<td>等待副本复制的块</td>
+<td>持续不消化 &#x3D; 限速过严或 DN 跟不上</td>
+</tr>
+<tr>
+<td><code>ScheduledReplicationBlocks</code></td>
+<td>已调度但未完成</td>
+<td>配合 Pending 看 re-replication 速率</td>
+</tr>
+<tr>
+<td><code>StaleDataNodes</code></td>
+<td>心跳过期的 DN</td>
+<td>&gt; 0 立即告警，可能即将进入 dead</td>
+</tr>
+<tr>
+<td><code>DeadNodes</code></td>
+<td>已判定死亡 DN</td>
+<td>任何非预期增长都是 P1</td>
+</tr>
+<tr>
+<td><code>CapacityUsed</code> &#x2F; <code>CapacityTotal</code></td>
+<td>已用 &#x2F; 总容量</td>
+<td>用率 &gt; 85% 必须扩容</td>
+</tr>
+<tr>
+<td><code>VolumeFailuresTotal</code></td>
+<td>全集群失败卷数</td>
+<td>反映坏盘情况</td>
+</tr>
+<tr>
+<td><code>TransactionsSinceLastCheckpoint</code></td>
+<td>距上次 Checkpoint 的事务数</td>
+<td>持续上涨 &#x3D; SNN&#x2F;Standby 没在干活</td>
+</tr>
+<tr>
+<td><code>LastWrittenTransactionId</code></td>
+<td>最新写事务 ID</td>
+<td>Standby 跟不上时差距拉大</td>
+</tr>
+<tr>
+<td><code>MillisSinceLastLoadedEdits</code></td>
+<td>距上次加载 edits 间隔</td>
+<td>HA 切换后关注</td>
+</tr>
+<tr>
+<td><code>FSNamesystemState</code> &#x2F; <code>Safemode</code></td>
+<td>是否安全模式</td>
+<td>非预期进入 &#x3D; P0</td>
+</tr>
+<tr>
+<td><code>RpcQueueTimeNumOps</code> &#x2F; <code>RpcQueueTimeAvgTime</code></td>
+<td>RPC 队列长度与平均延迟</td>
+<td>延迟 &gt; 50ms<!-- 校准：请按真实经历核实/替换 --> 需关注</td>
+</tr>
+<tr>
+<td><code>GCCount</code> &#x2F; <code>GCTimeMillis</code></td>
+<td>GC 次数与耗时</td>
+<td>Full GC 是 NN 头号杀手</td>
+</tr>
+<tr>
+<td><code>HeapMemoryUsage</code></td>
+<td>堆内存使用</td>
+<td>used&#x2F;committed &gt; 80% 准备调优</td>
+</tr>
+</tbody></table>
+<p>这张表不是摆设。我给每一个指标都配了对应的 Prometheus 告警规则，下面会给出阈值。需要强调的是，<strong>单点指标不可怕，趋势才可怕</strong>——<code>UnderReplicatedBlocks</code> 在一次重启后短暂跳到几万很正常（块报告还没全上报），但如果它<strong>单调递增且一小时不回落</strong>，那就是真的有节点在掉。</p>
+<h3 id="1-2-DataNode-JMX-关键指标"><a href="#1-2-DataNode-JMX-关键指标" class="headerlink" title="1.2 DataNode JMX 关键指标"></a>1.2 DataNode JMX 关键指标</h3><p>DataNode 的 JMX 相对简单，但有几个不能漏：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+<th>关注点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>VolumeFailures</code></td>
+<td>本节点失败卷数</td>
+<td>&gt; 0 触发换盘流程</td>
+</tr>
+<tr>
+<td><code>FsyncNanosAvgTime</code></td>
+<td>fsync 平均耗时</td>
+<td>持续高 &#x3D; 磁盘 IO 瓶颈</td>
+</tr>
+<tr>
+<td><code>DatanodeNetworkErrors</code></td>
+<td>网络错误计数</td>
+<td>反映网卡&#x2F;交换机问题</td>
+</tr>
+<tr>
+<td><code>XceiverCount</code></td>
+<td>并发数据连接数</td>
+<td>异常高 &#x3D; 大量并发写或 Hedged Read</td>
+</tr>
+<tr>
+<td><code>CacheUsed</code> &#x2F; <code>CacheCapacity</code></td>
+<td>集中式缓存</td>
+<td>启用了 <code>hadoop.cache.data</code> 时关注</td>
+</tr>
+<tr>
+<td><code>HeartbeatsAvgTime</code></td>
+<td>心跳 RPC 平均耗时</td>
+<td>高 &#x3D; NN 侧 RPC 拥堵</td>
+</tr>
+<tr>
+<td><code>BlocksCached</code> &#x2F; <code>BlocksRead</code></td>
+<td>缓存命中情况</td>
+<td>评估缓存策略效果</td>
+</tr>
+</tbody></table>
+<p><code>XceiverCount</code> 这个指标容易被忽略，但它其实很关键。它本质上是这个 DN 上正在处理的 IO 工作线程数。<strong>当某个 DN 的 XceiverCount 持续显著高于其他节点</strong>，往往意味着这是个热点（数据倾斜或 balancer 在猛打它），也可能是 Hedged Read 失控。我在小文件篇、读路径篇都提到过它的副作用。</p>
+<h3 id="1-3-采集方案：JMX-Exporter-Prometheus-Grafana"><a href="#1-3-采集方案：JMX-Exporter-Prometheus-Grafana" class="headerlink" title="1.3 采集方案：JMX Exporter + Prometheus + Grafana"></a>1.3 采集方案：JMX Exporter + Prometheus + Grafana</h3><p>生产上我用的方案是 <code>jmx_exporter</code>（Java Agent 方式）+ Prometheus + Grafana，这是社区最主流的组合。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># NN 启动时挂上 jmx_exporter agent</span></span><br><span class="line">HDFS_NAMENODE_OPTS=<span class="string">&quot;<span class="variable">$HDFS_NAMENODE_OPTS</span> \</span></span><br><span class="line"><span class="string">  -javaagent:/opt/prometheus/jmx_exporter.jar=30001:/opt/prometheus/nn.yml&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><code>nn.yml</code> 里要做白名单过滤，否则 JMX 几千个指标会把 Prometheus 打爆。关键告警规则（PromQL）参考：</p>
+<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. Under-replicated blocks 持续上升</span></span><br><span class="line"><span class="attr">alert</span>: <span class="string">HdfsUnderReplicatedBlocksSurge</span></span><br><span class="line"><span class="attr">expr</span>: <span class="string">increase(hadoop_namenode_under_replicated_blocks[10m]) &gt; 10000</span></span><br><span class="line"><span class="attr">for</span>: <span class="string">15m</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># 2. Stale DN 出现</span></span><br><span class="line"><span class="attr">alert</span>: <span class="string">HdfsStaleDataNodes</span></span><br><span class="line"><span class="attr">expr</span>: <span class="string">hadoop_namenode_stale_data_nodes &gt; 0</span></span><br><span class="line"><span class="attr">for</span>: <span class="string">5m</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># 3. NN Full GC</span></span><br><span class="line"><span class="attr">alert</span>: <span class="string">HdfsNameNodeFullGC</span></span><br><span class="line"><span class="attr">expr</span>: <span class="string">increase(jvm_gc_collection_seconds_count&#123;gc=&quot;ConcurrentMarkSweep&quot;&#125;[5m]) &gt; 3</span></span><br><span class="line"><span class="comment"># &lt;!-- 校准：请按真实经历核实/替换，G1/ZGC 名不同 --&gt;</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># 4. NN 堆使用率</span></span><br><span class="line"><span class="attr">alert</span>: <span class="string">HdfsNameNodeHeapHigh</span></span><br><span class="line"><span class="attr">expr</span>: <span class="string">jvm_memory_bytes_used&#123;area=&quot;heap&quot;&#125; / jvm_memory_bytes_max&#123;area=&quot;heap&quot;&#125; &gt; 0.85</span></span><br><span class="line"><span class="attr">for</span>: <span class="string">10m</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># 5. NN RPC 延迟</span></span><br><span class="line"><span class="attr">alert</span>: <span class="string">HdfsNameNodeRpcSlow</span></span><br><span class="line"><span class="attr">expr</span>: <span class="string">rate(hadoop_namenode_rpc_queue_time_avg_time[5m]) &gt; 50</span></span><br><span class="line"><span class="attr">for</span>: <span class="string">5m</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># 6. 容量水位</span></span><br><span class="line"><span class="attr">alert</span>: <span class="string">HdfsCapacityHigh</span></span><br><span class="line"><span class="attr">expr</span>: <span class="string">hadoop_namenode_capacity_used / hadoop_namenode_capacity_total &gt; 0.85</span></span><br><span class="line"><span class="attr">for</span>: <span class="string">30m</span></span><br></pre></td></tr></table></figure>
+
+<p>这套阈值不是抄来的，是我在某集群调出来的。<strong>阈值调优的核心原则是：先调到不漏 P1，再压噪声</strong>。一开始宁可多报，慢慢根据误报收。</p>
+<h2 id="二、日常巡检清单"><a href="#二、日常巡检清单" class="headerlink" title="二、日常巡检清单"></a>二、日常巡检清单</h2><p>监控是被动等你，巡检是主动去找。我习惯每天早上开工前花十分钟做一遍这套巡检。</p>
+<ul>
+<li><input disabled="" type="checkbox"> <strong>NN UI 概览</strong>：<code>http://nn:9870/dfshealth.html</code>，扫一眼集群状态、Live&#x2F;Dead DN 数、Safemode 是否亮、容量条。</li>
+<li><input disabled="" type="checkbox"> <strong><code>hdfs fsck / -files -blocks | tail</code></strong>：看 missing&#x2F;corrupt 块数，正常应该是 0。任何 <code>CORRUPT</code> &#x2F; <code>MISSING</code> 都是 P1。</li>
+<li><input disabled="" type="checkbox"> <strong>Under-replicated 趋势</strong>：Grafana 上看 <code>UnderReplicatedBlocks</code> 过去 24h，正常应该是一条贴近 0 的平线。</li>
+<li><input disabled="" type="checkbox"> <strong>Stale &#x2F; Dead DN</strong>：NN UI 上 Live Nodes 列表里 <code>Last Contact</code> 异常的、Stale 标记的，记下来跟进。</li>
+<li><input disabled="" type="checkbox"> <strong>NN GC 日志</strong>：<code>grep &quot;Full GC&quot; /var/log/hadoop/hdfs/*-namenode-*.log</code>，看最近 24h 是否有 Full GC。</li>
+<li><input disabled="" type="checkbox"> <strong>Checkpoint 状态</strong>：NN UI 看 <code>Transactions Since Last Checkpoint</code>，正常应该被 Standby 周期性消化掉，不应该无限上涨。</li>
+<li><input disabled="" type="checkbox"> <strong>Standby NN 同步</strong>：<code>Last Written Transaction Id</code> Active 和 Standby 的差距，差距大说明同步跟不上。</li>
+<li><input disabled="" type="checkbox"> <strong>磁盘水位</strong>：DN 上 <code>df -h</code> 看 HDFS 卷，单卷满了会触发 volume failure。</li>
+<li><input disabled="" type="checkbox"> <strong>关键目录 quota</strong>：业务方常年的坑就是往一个目录死命写，定期核 <code>hadoop fs -count -q</code>。</li>
+</ul>
+<p>这十条每天过一遍，绝大多数问题能在用户报障之前发现。<strong>运维的体面，来自你比用户先知道</strong>。</p>
+<h2 id="三、高频故障-SOP"><a href="#三、高频故障-SOP" class="headerlink" title="三、高频故障 SOP"></a>三、高频故障 SOP</h2><p>下面是这篇文章的核心。每个故障按”现象 → 定位 → 处理”三段写，都是我在生产环境真打过的仗。</p>
+<h3 id="3-1-NameNode-Full-GC-卡顿"><a href="#3-1-NameNode-Full-GC-卡顿" class="headerlink" title="3.1 NameNode Full GC &#x2F; 卡顿"></a>3.1 NameNode Full GC &#x2F; 卡顿</h3><p>这是 HDFS 最经典、也是杀伤力最大的故障。NN 一卡，整个集群所有 RPC 都排队，作业大面积超时。</p>
+<p><strong>现象</strong>：NN UI 打不开或极慢；客户端报 <code>Failed to connect to NN</code> &#x2F; <code>Retrying connect to NN</code>；上层 Spark&#x2F;Flink 作业大批量失败；<code>jstat -gcutil &lt;pid&gt;</code> 看到 Old 区接近满，Full GC 频繁。</p>
+<p><strong>定位</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 确认 Full GC</span></span><br><span class="line">grep <span class="string">&quot;Full GC&quot;</span> /var/log/hadoop/hdfs/*-namenode-*.<span class="built_in">log</span> | <span class="built_in">tail</span> -50</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 看堆使用与 GC 类型</span></span><br><span class="line">jstat -gcutil &lt;nn_pid&gt; 1000 10</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 抓 jstack，看 NN 卡在哪</span></span><br><span class="line">jstack &lt;nn_pid&gt; &gt; /tmp/nn_jstack_$(<span class="built_in">date</span> +%s).txt</span><br><span class="line"><span class="comment"># 重点关注 RPC server 线程、BlockManager 线程是否被某操作阻塞</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. dump 堆看对象分布（谨慎，会 STW）</span></span><br><span class="line">jmap -histo:live &lt;nn_pid&gt; | <span class="built_in">head</span> -30</span><br><span class="line"><span class="comment"># 如果 INode/byte[] 占大头，几乎可以确定是小文件或大目录问题</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>根因判断</strong>：Full GC 的根因 90% 是<strong>堆内对象过多</strong>。在 NN 这儿，”对象”主要就是 INode（文件&#x2F;目录元数据）。常见三种：</p>
+<ol>
+<li><strong>小文件爆炸</strong>：业务往集群灌了大量小文件，INode 数突破亿级。详见我那篇小文件治理。</li>
+<li><strong>超大目录</strong>：单目录下百万级子项，NN 在 list&#x2F;操作时一次构造大量对象。</li>
+<li><strong>RPC 堆积</strong>：长 RPC 把线程占住，新请求堆积，对象不释放。</li>
+</ol>
+<p><strong>处理</strong>：</p>
+<ul>
+<li><strong>短期止血</strong>：重启 NN（HA 切换）。注意先 <code>hdfs haadmin -failover</code> 再处理原 Active。</li>
+<li><strong>中期减对象</strong>：<ul>
+<li>找出小文件大户：<code>hdfs fsck / -files -blocks -locations | awk &#39;{print $3}&#39; | sort -n | tail</code>，或用 <code>hadoop oiv</code> 解析 FsImage 统计（小文件篇有完整脚本）。</li>
+<li>推业务方合并、Har 归档、或迁 OSS&#x2F;S3。</li>
+</ul>
+</li>
+<li><strong>长期扩容堆</strong>：调大 <code>HADOOP_HEAPSIZE</code> &#x2F; <code>-Xmx</code>，但注意 <strong>NN 堆不建议超过 64GB</strong>（指针压缩、GC 停顿），超了就该考虑 Federation 了（见我那篇 HA&#x2F;Federation）。</li>
+<li><strong>调 GC</strong>：从 CMS &#x2F; ParallelGC 切 G1GC，停顿更可控。<code>-XX:+UseG1GC -XX:MaxGCPauseMillis=200</code><!-- 校准：请按真实经历核实/替换 -->。</li>
+</ul>
+<h3 id="3-2-大量-under-replicated-blocks"><a href="#3-2-大量-under-replicated-blocks" class="headerlink" title="3.2 大量 under-replicated blocks"></a>3.2 大量 under-replicated blocks</h3><p>这是故障率仅次于 Full GC 的问题，本质是”副本跟不上”。</p>
+<p><strong>现象</strong>：NN UI 上 <code>Under Replicated Blocks</code> 持续为正且上升；Grafana 告警 <code>HdfsUnderReplicatedBlocksSurge</code>；严重时 <code>PendingReplicationBlocks</code> 也堆积；某些文件读出来报 <code>BlockMissingException</code>。</p>
+<p><strong>定位</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 看 under-replicated 块的来源</span></span><br><span class="line">hdfs fsck / -files -blocks -locations | grep -A1 <span class="string">&quot;Under replicated&quot;</span> | <span class="built_in">head</span> -50</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 看 DN 状态：是不是有一批 DN 死了/在 decommission</span></span><br><span class="line">hdfs dfsadmin -report | grep -E <span class="string">&quot;Live|Dead|Decommissioning&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 看 Stale DN</span></span><br><span class="line">curl -s http://nn:9870/jmx?qry=Hadoop:service=NameNode,name=NameNodeInfo \</span><br><span class="line">  | jq <span class="string">&#x27;.beans[0].StaleDataNodes&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 坏盘？</span></span><br><span class="line">curl -s http://nn:9870/jmx?qry=Hadoop:service=NameNode,name=NameNodeInfo \</span><br><span class="line">  | jq <span class="string">&#x27;.beans[0].VolumeFailuresTotal&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>根因</strong>：通常是 DataNode 侧出了问题。一批 DN 同时下线（机架断电、交换机故障）、一批磁盘同时坏（同批次磁盘到寿命）、或 decommission 流程在跑但速度跟不上业务写入速度。</p>
+<p><strong>处理</strong>：</p>
+<ul>
+<li><strong>先恢复 DN</strong>：如果是节点宕了，优先把 DN 拉起来；下线的 DN 恢复后块会自动补全。</li>
+<li><strong>放开 re-replication 限速</strong>：默认参数比较保守，集群大时补不动。<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># hdfs-site.xml，调大 re-replication 速度</span></span><br><span class="line"><span class="attr">dfs.namenode.replication.work.multiplier.per.iteration</span>=<span class="string">8</span></span><br><span class="line"><span class="attr">dfs.namenode.replication.max-streams</span>=<span class="string">16</span></span><br><span class="line"><span class="attr">dfs.namenode.replication.max-streams-hard-limit</span>=<span class="string">32</span></span><br><span class="line"><span class="comment"># &lt;!-- 校准：请按真实经历核实/替换，过大可能压垮 DN 网络 --&gt;</span></span><br></pre></td></tr></table></figure></li>
+<li><strong>批量触发</strong>：必要时用 <code>hdfs dfsadmin -setSpaceQuota</code> 调整触发条件，或重启 NN 让它重新扫描（重启有风险，权衡用）。</li>
+<li><strong>监控消化速率</strong>：盯 <code>ScheduledReplicationBlocks</code> 是否在下降，下降说明在补，只是慢；不下降说明限速卡死，继续放大参数。</li>
+</ul>
+<h3 id="3-3-DataNode-死亡-坏盘"><a href="#3-3-DataNode-死亡-坏盘" class="headerlink" title="3.3 DataNode 死亡 &#x2F; 坏盘"></a>3.3 DataNode 死亡 &#x2F; 坏盘</h3><p>DN 故障分两类：节点级死亡（心跳没了）和磁盘级失败（volume 挂了但 DN 还在）。</p>
+<p><strong>现象（节点死亡）</strong>：NN UI 上该 DN 进入 Dead 列表；该节点上所有块进入 under-replicated；作业读这些块报错。</p>
+<p><strong>定位（节点死亡）</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 进程在不在</span></span><br><span class="line">ssh &lt;dn_host&gt; <span class="string">&quot;jps | grep DataNode&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 看日志</span></span><br><span class="line">ssh &lt;dn_host&gt; <span class="string">&quot;tail -200 /var/log/hadoop/hdfs/*-datanode-*.log&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 心跳网络通不通</span></span><br><span class="line">ssh &lt;dn_host&gt; <span class="string">&quot;ping -c 3 &lt;nn_host&gt;&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>处理（节点死亡）</strong>：根据日志根因处理。OOM 调 DN 堆；磁盘满清日志；网络修好后重启 DN。<strong>关键：恢复后 DN 上来的块报告会很猛，注意观察 NN RPC</strong>。</p>
+<p><strong>现象（坏盘）</strong>：DN 还在 Live，但 <code>VolumeFailures</code> 上升；该 DN 上部分块变 under-replicated。</p>
+<p><strong>定位（坏盘）</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 在 DN 上看哪些 volume failed</span></span><br><span class="line">ssh &lt;dn_host&gt; <span class="string">&quot;cat /var/log/hadoop/hdfs/*-datanode-*.log | grep -i &#x27;failed volume&#x27;&quot;</span></span><br><span class="line"><span class="comment"># 或</span></span><br><span class="line">ssh &lt;dn_host&gt; <span class="string">&quot;ls -l /var/log/hadoop/hdfs/ | grep volumeFailure&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 看磁盘健康</span></span><br><span class="line">ssh &lt;dn_host&gt; <span class="string">&quot;df -h &amp;&amp; dmesg | grep -i &#x27;I/O error&#x27; | tail&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>处理（换盘流程）</strong>：</p>
+<ol>
+<li>确认坏盘：<code>smartctl -a /dev/sdX</code> 看硬件错误。</li>
+<li>物理换盘（运维同事）。</li>
+<li>重建文件系统：<code>mkfs.xfs /dev/sdX1; mount /dev/sdX1 /data/dn/3</code>。</li>
+<li><strong>目录归属要正确</strong>：DN 会扫描所有 <code>dfs.datanode.data.dir</code> 配置的目录。</li>
+<li>重启 DN：<code>hdfs --daemon stop datanode; hdfs --daemon start datanode</code>。</li>
+<li>观察该 volume 上的块逐渐补全。</li>
+</ol>
+<p>关于 <code>dfs.datanode.failed.volumes.tolerated</code>：默认是 0，即任何一块盘坏了 DN 直接退出。<strong>生产上我建议设成 1</strong>（12 盘节点），允许坏一块盘继续服役，避免一块盘带走整个节点。具体详见副本管理篇。</p>
+<h3 id="3-4-Safemode-不退出"><a href="#3-4-Safemode-不退出" class="headerlink" title="3.4 Safemode 不退出"></a>3.4 Safemode 不退出</h3><p><strong>现象</strong>：NN 启动后或运行中卡在 Safemode；客户端报 <code>Name node in safe mode</code>，写操作全失败；NN UI 上 <code>Safemode</code> 为 ON。</p>
+<p><strong>定位</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. Safemode 原因</span></span><br><span class="line">hdfs dfsadmin -safemode get</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 看阈值达成情况</span></span><br><span class="line">hdfs dfsadmin -metaSave /tmp/hdfs-meta.txt</span><br><span class="line"><span class="built_in">cat</span> /tmp/hdfs-meta.txt | <span class="built_in">head</span> -50</span><br><span class="line"><span class="comment"># 关注 BlocksTotal / BlocksValid / 达到的比例</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. NN 启动日志</span></span><br><span class="line">grep -i <span class="string">&quot;safe&quot;</span> /var/log/hadoop/hdfs/*-namenode-*.<span class="built_in">log</span> | <span class="built_in">tail</span> -30</span><br></pre></td></tr></table></figure>
+
+<p><strong>根因</strong>：Safemode 的退出条件是 <code>已上报块的节点比例 &gt;= dfs.safemode.threshold.pct</code>（默认 0.999f）<!-- 校准：请按真实经历核实/替换 -->。不退出的常见原因：有 DN 还没起来（块没全上报）、块报告太慢、或真的丢了块（低于阈值）。</p>
+<p><strong>处理</strong>：</p>
+<ul>
+<li><strong>等</strong>：如果只是 DN 还在陆续起来，等就行。NN UI 看 <code>datanode heartbeat</code> 数量在涨就是正常的。</li>
+<li><strong>查丢失块</strong>：<code>hdfs fsck / -files -blocks | grep -c &quot;MISSING&quot;</code>，如果有大量 missing，说明真丢数据了，先修这个。</li>
+<li><strong>手动退出（高风险）</strong>：<code>hdfs dfsadmin -safemode leave</code>。<strong>这是核武器，慎用</strong>。手动退出意味着你接受”可能丢块”的现状，后续读这些块会失败。除非你已确认块都在、只是上报慢，否则别用。</li>
+<li><strong>调阈值</strong>：<code>dfs.safemode.threshold.pct</code> 调低，但这是治标，根因还是块上报慢。</li>
+</ul>
+<h3 id="3-5-慢节点拖垮作业"><a href="#3-5-慢节点拖垮作业" class="headerlink" title="3.5 慢节点拖垮作业"></a>3.5 慢节点拖垮作业</h3><p>这是最隐蔽的一类故障，业务方特别容易投诉但 HDFS 侧很难抓。</p>
+<p><strong>现象</strong>：业务反馈”作业偶尔卡很久”；NN&#x2F;DN 监控都正常；某些 task 的 locality 报告里某个 DN 反复出现高延迟。</p>
+<p><strong>定位</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 找慢节点——看 DN 的 RPC / IO 延迟</span></span><br><span class="line"><span class="comment"># Grafana 上按 datanode 维度看 Read/Write Op 平均耗时，离群点就是慢节点</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 在 DN 上看磁盘队列</span></span><br><span class="line">ssh &lt;dn_host&gt; <span class="string">&quot;iostat -x 2 5&quot;</span></span><br><span class="line"><span class="comment"># 关注 %util、await，单盘 await &gt; 50ms&lt;!-- 校准：请按真实经历核实/替换 --&gt; 就有问题</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 看是不是慢盘但还没 failed</span></span><br><span class="line">ssh &lt;dn_host&gt; <span class="string">&quot;smartctl -H /dev/sdX&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 看 DataBlockScanner 日志，是否有块被反复校验失败</span></span><br><span class="line">ssh &lt;dn_host&gt; <span class="string">&quot;grep -i &#x27;verify&#x27; /var/log/hadoop/hdfs/*-datanode-*.log | tail&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>处理</strong>：</p>
+<ul>
+<li><strong>Hedged Read</strong>：客户端配置 <code>dfs.client.hedged.read.threshold.millis=50</code><!-- 校准：请按真实经历核实/替换 -->，读慢了自动发副本读，规避慢节点。注意这个参数的副作用我在读路径篇讲过，会放大 DN 压力。</li>
+<li><strong>隔离慢节点</strong>：把它加入 <code>dfs.hosts.exclude</code> 做 decommission，或临时下线修盘。</li>
+<li><strong>换盘</strong>：确认是单盘老化就换。</li>
+<li><strong>网络排查</strong>：有时不是磁盘是网卡，<code>ethtool -S &lt;nic&gt; | grep -i error</code> 看错包计数。</li>
+</ul>
+<h3 id="3-6-误删恢复"><a href="#3-6-误删恢复" class="headerlink" title="3.6 误删恢复"></a>3.6 误删恢复</h3><p>这条是给业务方救命的，运维同学务必熟记。</p>
+<p><strong>现象</strong>：业务方误删了重要目录，焦急求助。</p>
+<p><strong>定位与处理</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 第一直觉：查回收站</span></span><br><span class="line">hdfs dfs -<span class="built_in">ls</span> /user/&lt;username&gt;/.Trash/Current/</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 找到删除的目录</span></span><br><span class="line">hdfs dfs -<span class="built_in">ls</span> -R /user/&lt;username&gt;/.Trash/Current/ | grep &lt;<span class="built_in">dirname</span>&gt;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 恢复</span></span><br><span class="line">hdfs dfs -<span class="built_in">mv</span> /user/&lt;username&gt;/.Trash/Current/&lt;deleted_path&gt; /original/path</span><br></pre></td></tr></table></figure>
+
+<p><strong>回收站机制</strong>：HDFS 回收站默认 <code>fs.trash.interval=0</code>（关闭）<!-- 校准：请按真实经历核实/替换 -->，生产<strong>必须开</strong>，建议设成 1440（分钟，即 24h）或更长。回收站里的文件到点会被 <code>expunge</code> 清掉。</p>
+<p><strong>如果回收站已清空</strong>：靠 <strong>Snapshot</strong>。前提是你提前给关键目录开了快照：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 开启快照（事前）</span></span><br><span class="line">hdfs dfsadmin -allowSnapshot /critical_dir</span><br><span class="line"></span><br><span class="line"><span class="comment"># 创建快照</span></span><br><span class="line">hdfs dfs -createSnapshot /critical_dir snap_20260702</span><br><span class="line"></span><br><span class="line"><span class="comment"># 删除后从快照恢复</span></span><br><span class="line">hdfs dfs -<span class="built_in">cp</span> /critical_dir/.snapshot/snap_20260702/&lt;file&gt; /original/path</span><br></pre></td></tr></table></figure>
+
+<p><strong>关键教训</strong>：回收站和快照都是<strong>事前</strong>手段，事后补不了。运维要做的，是在业务方出事之前就把这两个开关打开。</p>
+<h3 id="3-7-NN-启动慢"><a href="#3-7-NN-启动慢" class="headerlink" title="3.7 NN 启动慢"></a>3.7 NN 启动慢</h3><p>NN 重启慢本身不一定是故障，但<strong>HA 切换时慢一秒都致命</strong>，所以要把它纳入观测。</p>
+<p><strong>现象</strong>：NN 重启后进入 Safemode 很久才退出；FsImage 加载耗时长；块报告风暴。</p>
+<p><strong>定位</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 看 NN 启动各阶段耗时</span></span><br><span class="line">grep -E <span class="string">&quot;FSImage|LoadFsImage|SafeMode&quot;</span> /var/log/hadoop/hdfs/*-namenode-*.<span class="built_in">log</span> | <span class="built_in">tail</span> -50</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. FsImage 多大</span></span><br><span class="line"><span class="built_in">ls</span> -lh /data/nn/current/fsimage_*</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 块报告风暴</span></span><br><span class="line">grep <span class="string">&quot;BLOCK\* registerDatanode&quot;</span> /var/log/hadoop/hdfs/*-namenode-*.<span class="built_in">log</span> | <span class="built_in">wc</span> -l</span><br></pre></td></tr></table></figure>
+
+<p><strong>根因与处理</strong>：</p>
+<ul>
+<li><strong>FsImage 太大</strong>：本质还是元数据多（小文件&#x2F;大目录）。治理小文件是长期方案；短期可调大 <code>dfs.namenode.max.objects</code>（默认 0 不限制）<!-- 校准：请按真实经历核实/替换 -->，但要明白这会放大堆压力。</li>
+<li><strong>块报告风暴</strong>：NN 一起来，所有 DN 同时上报全量块报告，RPC 被打爆。Hadoop 3.x 有块报告分批（<code>dfs.namenode.blockreport.full.report.length</code>），可以调；也可以<strong>滚动重启 DN</strong>，错开上报时间。</li>
+<li><strong>CheckPoint 没跟上</strong>：NN 启动要回放 edits，edits 太长启动就慢。确保 Standby 在周期性合并，或手动 <code>hdfs dfsadmin -saveNamespace</code>（会触发 Safemode，慎选窗口期）。</li>
+</ul>
+<h2 id="四、容量与扩缩容"><a href="#四、容量与扩缩容" class="headerlink" title="四、容量与扩缩容"></a>四、容量与扩缩容</h2><p>容量管理是 HDFS 运维的常规动作，但容易踩坑。</p>
+<h3 id="4-1-扩容上线流程"><a href="#4-1-扩容上线流程" class="headerlink" title="4.1 扩容上线流程"></a>4.1 扩容上线流程</h3><p>新节点上线 SOP：</p>
+<ol>
+<li>机器到位，装好 OS、Java、Hadoop 二进制，配置同步。</li>
+<li>配 <code>dfs.datanode.data.dir</code>、<code>dfs.namenode.name.dir</code> 等参数，与现网一致。</li>
+<li>把新节点加入 <code>dfs.hosts</code>（白名单）。</li>
+<li>启动 DN：<code>hdfs --daemon start datanode</code>。</li>
+<li><strong>验证</strong>：NN UI 看到新 DN 进入 Live；<code>hdfs dfsadmin -report</code> 看到容量增加。</li>
+<li><strong>关键</strong>：跑 balancer，让新节点真正承担数据。否则业务写入还是往老节点堆。详见副本管理篇。</li>
+</ol>
+<h3 id="4-2-Decommission-下线流程"><a href="#4-2-Decommission-下线流程" class="headerlink" title="4.2 Decommission 下线流程"></a>4.2 Decommission 下线流程</h3><p>下线节点 SOP（比上线更危险，因为要在保证副本数的前提下搬走数据）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 加入 exclude 文件</span></span><br><span class="line"><span class="built_in">echo</span> <span class="string">&quot;&lt;dn_host&gt;&quot;</span> &gt;&gt; /etc/hadoop/dfs.hosts.exclude</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 刷新 NN</span></span><br><span class="line">hdfs dfsadmin -refreshNodes</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 观察</span></span><br><span class="line">hdfs dfsadmin -report | grep -A5 <span class="string">&quot;Decommissioning&quot;</span></span><br><span class="line"><span class="comment"># 等 Decommission Status 变成 &quot;Decommissioned&quot; 才能下电</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 完成后从白名单和 exclude 都移除，再 refresh</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>坑点</strong>：</p>
+<ul>
+<li>Decommission 是有副本数保证的搬运，速度受 <code>dfs.datanode.balance.bandwidthPerSec</code> 限制，慢。</li>
+<li>EC（纠删码）文件的 decommission 逻辑和 3 副本不同，可能卡住。见副本管理篇。</li>
+<li><strong>绝对不能直接 kill DN 进程了事</strong>，那会导致大量 under-replicated blocks，等于制造故障。</li>
+</ul>
+<h3 id="4-3-Balancer-跟进"><a href="#4-3-Balancer-跟进" class="headerlink" title="4.3 Balancer 跟进"></a>4.3 Balancer 跟进</h3><p>扩缩容后必跑 balancer。详见副本管理篇，这里只提醒一句：<strong>balancer 的带宽不要调太大</strong>，默认 1MB&#x2F;s 太保守，但调到 100MB&#x2F;s 以上会冲击业务 IO。我一般调到 50MB&#x2F;s<!-- 校准：请按真实经历核实/替换 -->。</p>
+<h2 id="五、安全运维"><a href="#五、安全运维" class="headerlink" title="五、安全运维"></a>五、安全运维</h2><p>启用了 Kerberos 的集群，会多出一类”安全类故障”。</p>
+<h3 id="5-1-Kerberos-ticket-续约失效"><a href="#5-1-Kerberos-ticket-续约失效" class="headerlink" title="5.1 Kerberos ticket 续约失效"></a>5.1 Kerberos ticket 续约失效</h3><p><strong>现象</strong>：长跑作业（如 Spark&#x2F;Flink 跑几小时）突然报认证失败 <code>GSSException: No credentials provided</code>；客户端报 ticket expired。</p>
+<p><strong>根因</strong>：Hadoop 的机制是 login 时拿一个 TGT，然后靠 <code>krb5.conf</code> 的 <code>renew_lifetime</code> 自动续约。续约失效常见原因：</p>
+<ul>
+<li>KDC 的 <code>max_renewable_life</code> 设得不够长。</li>
+<li>ticket 续约到了最大生命周期（默认 7 天）<!-- 校准：请按真实经历核实/替换 --> 还没跑完。</li>
+<li>keytab 过期或 principal 被禁。</li>
+</ul>
+<p><strong>处理</strong>：</p>
+<ul>
+<li>长跑作业用 keytab + <code>UserGroupInformation.loginUserFromKeytabAndReturnUGI</code>，定期 re-login。</li>
+<li>检查 <code>krb5.conf</code> 的 <code>renew_lifetime</code> 与 KDC 的 <code>maxrenewlife</code>。</li>
+<li>DN&#x2F;NN 服务侧用 keytab + 自动续约，配 <code>hadoop.kerberos.keytab.login</code> 相关参数。</li>
+</ul>
+<h3 id="5-2-Delegation-Token-过期"><a href="#5-2-Delegation-Token-过期" class="headerlink" title="5.2 Delegation Token 过期"></a>5.2 Delegation Token 过期</h3><p><strong>现象</strong>：MapReduce&#x2F;Spark 长任务报 <code>org.apache.hadoop.security.token.SecretManager$InvalidToken: token expired</code>。</p>
+<p><strong>根因</strong>：HDFS Delegation Token 默认有效期 24h（<code>dfs.namenode.delegation.token.max-lifetime</code>）<!-- 校准：请按真实经历核实/替换 -->，长任务跑超了。</p>
+<p><strong>处理</strong>：作业配置里启用 token 续约（YARN 的 RM 有 TokenRenewer）；或调大 max-lifetime；或长跑流式作业改用 keytab 直接认证，不依赖 token。</p>
+<h3 id="5-3-ACL-变更审计"><a href="#5-3-ACL-变更审计" class="headerlink" title="5.3 ACL 变更审计"></a>5.3 ACL 变更审计</h3><p><strong>现象</strong>：误把权限给了不该给的人，或权限被改导致业务报 <code>AccessControlException</code>。</p>
+<p><strong>处理</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 看权限</span></span><br><span class="line">hdfs dfs -getfacl /sensitive/dir</span><br><span class="line"></span><br><span class="line"><span class="comment"># 设置 ACL</span></span><br><span class="line">hdfs dfs -setfacl -m user:alice:rwx /sensitive/dir</span><br><span class="line"></span><br><span class="line"><span class="comment"># 审计：开 audit log</span></span><br><span class="line"><span class="comment"># hdfs-site.xml: dfs.namenode.audit.log.enabled=true</span></span><br><span class="line">grep <span class="string">&quot;allowed=true\|allowed=false&quot;</span> /var/log/hadoop/hdfs/*-namenode-audit.log | grep <span class="string">&quot;/sensitive/dir&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>生产建议</strong>：audit log 一定要开，配合 Ranger 做细粒度权限，关键目录变更留痕。详见我那篇 Kerberos &amp; Ranger。</p>
+<h2 id="六、应急工具箱"><a href="#六、应急工具箱" class="headerlink" title="六、应急工具箱"></a>六、应急工具箱</h2><p>把常用命令攒成一个 cheat sheet，值班时直接翻。</p>
+<h3 id="6-1-hdfs-fsck-——-定位-missing-corrupt"><a href="#6-1-hdfs-fsck-——-定位-missing-corrupt" class="headerlink" title="6.1 hdfs fsck —— 定位 missing&#x2F;corrupt"></a>6.1 hdfs fsck —— 定位 missing&#x2F;corrupt</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 全集群健康检查</span></span><br><span class="line">hdfs fsck /</span><br><span class="line"></span><br><span class="line"><span class="comment"># 列出 corrupt/missing 块</span></span><br><span class="line">hdfs fsck / -list-corruptfileblocks</span><br><span class="line"></span><br><span class="line"><span class="comment"># 删掉 corrupt 块（最后手段）</span></span><br><span class="line">hdfs fsck / -delete</span><br></pre></td></tr></table></figure>
+
+<h3 id="6-2-hdfs-oiv-oev-——-离线分析镜像"><a href="#6-2-hdfs-oiv-oev-——-离线分析镜像" class="headerlink" title="6.2 hdfs oiv &#x2F; oev —— 离线分析镜像"></a>6.2 hdfs oiv &#x2F; oev —— 离线分析镜像</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 把 FsImage 转成可读</span></span><br><span class="line">hdfs oiv -i /data/nn/current/fsimage_0000000000001234567 \</span><br><span class="line">         -o /tmp/fsimage.txt -p Delimited</span><br><span class="line"></span><br><span class="line"><span class="comment"># 把 edits 转成可读</span></span><br><span class="line">hdfs oev -i /data/nn/current/edits_0000... -o /tmp/edits.xml</span><br></pre></td></tr></table></figure>
+
+<p>这俩在小文件治理（统计 FsImage 找小文件大户）和元数据排障时是核武器。</p>
+<h3 id="6-3-jstack-jmap-——-JVM-现场诊断"><a href="#6-3-jstack-jmap-——-JVM-现场诊断" class="headerlink" title="6.3 jstack &#x2F; jmap —— JVM 现场诊断"></a>6.3 jstack &#x2F; jmap —— JVM 现场诊断</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 线程栈</span></span><br><span class="line">jstack &lt;pid&gt; &gt; /tmp/nn.stack</span><br><span class="line"></span><br><span class="line"><span class="comment"># 对象直方图（轻量）</span></span><br><span class="line">jmap -histo:live &lt;pid&gt; | <span class="built_in">head</span> -30</span><br><span class="line"></span><br><span class="line"><span class="comment"># 完整 dump（重量级，会 STW）</span></span><br><span class="line">jmap -dump:format=b,file=/tmp/nn.hprof &lt;pid&gt;</span><br></pre></td></tr></table></figure>
+
+<h3 id="6-4-hdfs-debug-——-块级调试"><a href="#6-4-hdfs-debug-——-块级调试" class="headerlink" title="6.4 hdfs debug —— 块级调试"></a>6.4 hdfs debug —— 块级调试</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 看某个块落在哪些 DN 上</span></span><br><span class="line">hdfs debug recoverLease -path &lt;file&gt;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 打印块位置</span></span><br><span class="line">hdfs fsck &lt;file&gt; -files -blocks -locations</span><br></pre></td></tr></table></figure>
+
+<h2 id="七、值班-Checklist"><a href="#七、值班-Checklist" class="headerlink" title="七、值班 Checklist"></a>七、值班 Checklist</h2><p>最后附一份我自己值班用的 checklist，出事时照着这个走，能保证不漏关键步骤。</p>
+<ul>
+<li><input disabled="" type="checkbox"> <strong>第一反应：确认是否真的 P0</strong>。看 NN UI 能否打开、Safemode 是否亮、Dead DN 是否激增。</li>
+<li><input disabled="" type="checkbox"> <strong>通报</strong>：P0 故障第一时间在工作群通报”已介入，预计 X 分钟同步进展”，避免业务方反复电话。</li>
+<li><input disabled="" type="checkbox"> <strong>抓现场</strong>：jstack、jmap、NN&#x2F;DN 日志、fsck 输出，<strong>第一时间抓</strong>，错过就没了。</li>
+<li><input disabled="" type="checkbox"> <strong>止血优先</strong>：能切换 HA 就切换，能重启就重启，先恢复服务再追根因。</li>
+<li><input disabled="" type="checkbox"> <strong>定位根因</strong>：对照上面七类 SOP 逐项排查。</li>
+<li><input disabled="" type="checkbox"> <strong>处理</strong>：按 SOP 执行，每一步都留命令记录。</li>
+<li><input disabled="" type="checkbox"> <strong>验证恢复</strong>：fsck 干净、under-replicated 归零、业务方确认正常。</li>
+<li><input disabled="" type="checkbox"> <strong>复盘</strong>：48h 内出复盘文档，根因 &#x2F; 时间线 &#x2F; 改进项，改进项落到 SOP 和监控。</li>
+</ul>
+<hr>
+<h2 id="附：NN-Full-GC-应急排查命令序列"><a href="#附：NN-Full-GC-应急排查命令序列" class="headerlink" title="附：NN Full GC 应急排查命令序列"></a>附：NN Full GC 应急排查命令序列</h2><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># === 步骤1：确认 Full GC 与影响 ===</span></span><br><span class="line">grep <span class="string">&quot;Full GC&quot;</span> /var/log/hadoop/hdfs/*-namenode-*.<span class="built_in">log</span> | <span class="built_in">tail</span> -50</span><br><span class="line">jstat -gcutil &lt;nn_pid&gt; 1000 10</span><br><span class="line"></span><br><span class="line"><span class="comment"># === 步骤2：抓现场（关键，重启前必抓）===</span></span><br><span class="line">jstack &lt;nn_pid&gt; &gt; /tmp/nn_jstack_$(<span class="built_in">date</span> +%s).txt</span><br><span class="line">jmap -histo:live &lt;nn_pid&gt; | <span class="built_in">head</span> -50 &gt; /tmp/nn_histo_$(<span class="built_in">date</span> +%s).txt</span><br><span class="line"></span><br><span class="line"><span class="comment"># === 步骤3：止血——HA failover ===</span></span><br><span class="line">hdfs haadmin -getServiceState nn1   <span class="comment"># 确认当前 Active</span></span><br><span class="line">hdfs haadmin -failover nn1 nn2      <span class="comment"># 切到 Standby</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># === 步骤4：在原 Active 上分析根因 ===</span></span><br><span class="line">jmap -histo:live &lt;nn_pid&gt; | <span class="built_in">head</span> -30</span><br><span class="line"><span class="comment"># 看对象分布，INode/byte[] 占大头 = 小文件/大目录问题</span></span><br><span class="line">grep -c <span class="string">&quot;Full GC&quot;</span> /var/log/hadoop/hdfs/*-namenode-*.<span class="built_in">log</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># === 步骤5：抓 FsImage 离线分析小文件大户 ===</span></span><br><span class="line"><span class="built_in">ls</span> -lh /data/nn/current/fsimage_*</span><br><span class="line">hdfs oiv -i &lt;最新fsimage&gt; -o /tmp/fsimage.txt -p Delimited</span><br><span class="line">awk -F<span class="string">&#x27;,&#x27;</span> <span class="string">&#x27;&#123;print $7,$8&#125;&#x27;</span> /tmp/fsimage.txt | awk <span class="string">&#x27;$1&lt;1048576 &#123;print $2&#125;&#x27;</span> \</span><br><span class="line">  | sed <span class="string">&#x27;s|/[^/]*$||&#x27;</span> | <span class="built_in">sort</span> | <span class="built_in">uniq</span> -c | <span class="built_in">sort</span> -rn | <span class="built_in">head</span> -20</span><br></pre></td></tr></table></figure>
+
+<h2 id="附：大量-under-replicated-blocks-处理命令序列"><a href="#附：大量-under-replicated-blocks-处理命令序列" class="headerlink" title="附：大量 under-replicated blocks 处理命令序列"></a>附：大量 under-replicated blocks 处理命令序列</h2><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># === 步骤1：确认 under-replicated 规模与来源 ===</span></span><br><span class="line">hdfs fsck / -files -blocks -locations | grep -c <span class="string">&quot;Under replicated&quot;</span></span><br><span class="line">hdfs dfsadmin -report | grep -E <span class="string">&quot;Live|Dead|Decommissioning&quot;</span></span><br><span class="line">curl -s http://nn:9870/jmx?qry=Hadoop:service=NameNode,name=NameNodeInfo \</span><br><span class="line">  | jq <span class="string">&#x27;.beans[0] | &#123;StaleDataNodes, VolumeFailuresTotal, UnderReplicatedBlocks&#125;&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># === 步骤2：定位是 DN 下线还是坏盘 ===</span></span><br><span class="line">hdfs dfsadmin -report | grep <span class="string">&quot;Dead datanodes&quot;</span></span><br><span class="line"><span class="comment"># 在 Dead DN 上排查：</span></span><br><span class="line">ssh &lt;dead_dn&gt; <span class="string">&quot;tail -100 /var/log/hadoop/hdfs/*-datanode-*.log&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># === 步骤3：恢复 DN（优先）或确认 decommission 状态 ===</span></span><br><span class="line">hdfs dfsadmin -refreshNodes</span><br><span class="line">hdfs dfsadmin -report | grep -A3 <span class="string">&quot;Decommissioning&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># === 步骤4：放开 re-replication 限速（必要时滚动改 hdfs-site.xml）===</span></span><br><span class="line"><span class="comment"># dfs.namenode.replication.max-streams=16</span></span><br><span class="line"><span class="comment"># dfs.namenode.replication.work.multiplier.per.iteration=8</span></span><br><span class="line">hdfs dfsadmin -reloadSharedAdapters  <span class="comment"># 或重启 NN（HA 滚动）</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># === 步骤5：监控消化进度 ===</span></span><br><span class="line">watch -n 30 <span class="string">&#x27;curl -s http://nn:9870/jmx?qry=Hadoop:service=NameNode,name=NameNodeInfo \</span></span><br><span class="line"><span class="string">  | jq &quot;.beans[0] | &#123;UnderReplicatedBlocks, PendingReplicationBlocks, ScheduledReplicationBlocks&#125;&quot;&#x27;</span></span><br><span class="line"><span class="comment"># ScheduledReplicationBlocks 单调下降 = 在补，只是慢；不动 = 限速还卡着</span></span><br></pre></td></tr></table></figure>
+
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>HDFS 的运维，本质是两件事：<strong>让你先看见，让你能处置</strong>。</p>
+<p>观测体系是眼睛。NameNode &#x2F; DataNode 的 JMX 指标，配上 Prometheus + Grafana 和一套调过的告警阈值，能把绝大多数故障掐灭在用户感知之前。日常巡检是肌肉记忆，十分钟换一份从容。</p>
+<p>故障 SOP 是肌肉。NN Full GC、under-replicated blocks、DN 死亡坏盘、Safemode 卡死、慢节点、误删、启动慢——这七类几乎覆盖了 HDFS 生产故障的全部高频场景。每一类都按”现象 → 定位 → 处理”走一遍，配合文末的两段命令序列和应急工具箱，值班时就不慌。</p>
+<p>最后想说一句，运维的尽头是工程化。<strong>真正成熟的运维，不是个人英雄主义地救火，而是把每一次故障都沉淀成 SOP、监控、checklist，让下一个值班同学不用重新踩一遍坑</strong>。希望这一篇能成为你值班屏幕角落里那页常驻的参考。</p>
+<p>HDFS 系列到这里就告一段落了。从架构、读写、元数据、副本、一致性、小文件到这篇运维收尾，一套比较完整的 HDFS 知识体系算是搭起来了。后续如果有机会，会再写写 HDFS 跨集群迁移、EC 落地这些进阶话题。我们下个系列见。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop<span class="tagsPageCount">20</span></span></a><a class="post-meta__tags" href="/tags/%E8%BF%90%E7%BB%B4/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>运维<span class="tagsPageCount">2</span></span></a><a class="post-meta__tags" href="/tags/HDFS/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>HDFS<span class="tagsPageCount">12</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/spark-performance-tuning"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</div></div></a></div><div class="next-post pull-right"><a href="/posts/spark-structured-streaming"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#HDFS-%E8%BF%90%E7%BB%B4%E4%B8%8E%E6%95%85%E9%9A%9C%E6%8E%92%E6%9F%A5-SOP"><span class="toc-text">HDFS 运维与故障排查 SOP</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E8%A8%80"><span class="toc-text">引言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E8%A7%82%E6%B5%8B%E4%BD%93%E7%B3%BB%EF%BC%9AHDFS-%E8%BF%90%E7%BB%B4%E7%9A%84%E7%9C%BC%E7%9D%9B"><span class="toc-text">一、观测体系：HDFS 运维的眼睛</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-1-NameNode-JMX-%E5%85%B3%E9%94%AE%E6%8C%87%E6%A0%87"><span class="toc-text">1.1 NameNode JMX 关键指标</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-2-DataNode-JMX-%E5%85%B3%E9%94%AE%E6%8C%87%E6%A0%87"><span class="toc-text">1.2 DataNode JMX 关键指标</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-3-%E9%87%87%E9%9B%86%E6%96%B9%E6%A1%88%EF%BC%9AJMX-Exporter-Prometheus-Grafana"><span class="toc-text">1.3 采集方案：JMX Exporter + Prometheus + Grafana</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E6%97%A5%E5%B8%B8%E5%B7%A1%E6%A3%80%E6%B8%85%E5%8D%95"><span class="toc-text">二、日常巡检清单</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E9%AB%98%E9%A2%91%E6%95%85%E9%9A%9C-SOP"><span class="toc-text">三、高频故障 SOP</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-NameNode-Full-GC-%E5%8D%A1%E9%A1%BF"><span class="toc-text">3.1 NameNode Full GC &#x2F; 卡顿</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-%E5%A4%A7%E9%87%8F-under-replicated-blocks"><span class="toc-text">3.2 大量 under-replicated blocks</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-DataNode-%E6%AD%BB%E4%BA%A1-%E5%9D%8F%E7%9B%98"><span class="toc-text">3.3 DataNode 死亡 &#x2F; 坏盘</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4-Safemode-%E4%B8%8D%E9%80%80%E5%87%BA"><span class="toc-text">3.4 Safemode 不退出</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-5-%E6%85%A2%E8%8A%82%E7%82%B9%E6%8B%96%E5%9E%AE%E4%BD%9C%E4%B8%9A"><span class="toc-text">3.5 慢节点拖垮作业</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-6-%E8%AF%AF%E5%88%A0%E6%81%A2%E5%A4%8D"><span class="toc-text">3.6 误删恢复</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-7-NN-%E5%90%AF%E5%8A%A8%E6%85%A2"><span class="toc-text">3.7 NN 启动慢</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E5%AE%B9%E9%87%8F%E4%B8%8E%E6%89%A9%E7%BC%A9%E5%AE%B9"><span class="toc-text">四、容量与扩缩容</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-%E6%89%A9%E5%AE%B9%E4%B8%8A%E7%BA%BF%E6%B5%81%E7%A8%8B"><span class="toc-text">4.1 扩容上线流程</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-Decommission-%E4%B8%8B%E7%BA%BF%E6%B5%81%E7%A8%8B"><span class="toc-text">4.2 Decommission 下线流程</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-Balancer-%E8%B7%9F%E8%BF%9B"><span class="toc-text">4.3 Balancer 跟进</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E5%AE%89%E5%85%A8%E8%BF%90%E7%BB%B4"><span class="toc-text">五、安全运维</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-Kerberos-ticket-%E7%BB%AD%E7%BA%A6%E5%A4%B1%E6%95%88"><span class="toc-text">5.1 Kerberos ticket 续约失效</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-Delegation-Token-%E8%BF%87%E6%9C%9F"><span class="toc-text">5.2 Delegation Token 过期</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-3-ACL-%E5%8F%98%E6%9B%B4%E5%AE%A1%E8%AE%A1"><span class="toc-text">5.3 ACL 变更审计</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E5%BA%94%E6%80%A5%E5%B7%A5%E5%85%B7%E7%AE%B1"><span class="toc-text">六、应急工具箱</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-hdfs-fsck-%E2%80%94%E2%80%94-%E5%AE%9A%E4%BD%8D-missing-corrupt"><span class="toc-text">6.1 hdfs fsck —— 定位 missing&#x2F;corrupt</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-hdfs-oiv-oev-%E2%80%94%E2%80%94-%E7%A6%BB%E7%BA%BF%E5%88%86%E6%9E%90%E9%95%9C%E5%83%8F"><span class="toc-text">6.2 hdfs oiv &#x2F; oev —— 离线分析镜像</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-3-jstack-jmap-%E2%80%94%E2%80%94-JVM-%E7%8E%B0%E5%9C%BA%E8%AF%8A%E6%96%AD"><span class="toc-text">6.3 jstack &#x2F; jmap —— JVM 现场诊断</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-4-hdfs-debug-%E2%80%94%E2%80%94-%E5%9D%97%E7%BA%A7%E8%B0%83%E8%AF%95"><span class="toc-text">6.4 hdfs debug —— 块级调试</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E5%80%BC%E7%8F%AD-Checklist"><span class="toc-text">七、值班 Checklist</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E9%99%84%EF%BC%9ANN-Full-GC-%E5%BA%94%E6%80%A5%E6%8E%92%E6%9F%A5%E5%91%BD%E4%BB%A4%E5%BA%8F%E5%88%97"><span class="toc-text">附：NN Full GC 应急排查命令序列</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E9%99%84%EF%BC%9A%E5%A4%A7%E9%87%8F-under-replicated-blocks-%E5%A4%84%E7%90%86%E5%91%BD%E4%BB%A4%E5%BA%8F%E5%88%97"><span class="toc-text">附：大量 under-replicated blocks 处理命令序列</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B0%8F%E7%BB%93"><span class="toc-text">小结</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

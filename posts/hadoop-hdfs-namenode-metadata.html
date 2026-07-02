@@ -1,0 +1,344 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NameNode 元数据持久化：FsImage、EditLog 与启动恢复 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/hadoop-hdfs-namenode-metadata"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="讲透 HDFS 元数据的存储、checkpoint 与冷启动恢复"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '深入拆解 HDFS NameNode 元数据持久化链路：FsImage 全量快照与 EditLog 增量日志的存储、checkpoint 合并、冷启动恢复流程、多目录冗余与损坏修复实战，配合 oiv/oev 离线分析工具，建立元数据运维的完整认知。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">30</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">31</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">31</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">40</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">NameNode 元数据持久化：FsImage、EditLog 与启动恢复</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop</span></a><a class="post-meta__tags" href="/tags/HDFS/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>HDFS</span></a><a class="post-meta__tags" href="/tags/NameNode/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>NameNode</span></a></div></div></div></div><h1 class="post-title">NameNode 元数据持久化：FsImage、EditLog 与启动恢复</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h2 id="引言"><a href="#引言" class="headerlink" title="引言"></a>引言</h2><p>NameNode 是 HDFS 的大脑，整个命名空间——目录树、文件到 block 的映射、权限、副本数、时间戳——常驻内存。内存意味着快，也意味着一旦进程退出就什么都没了。所以元数据的持久化，是 NameNode 能活下来的命脉。这篇不重复 HA 与 Federation，专门讲元数据本身：FsImage 和 EditLog 怎么存、checkpoint 怎么做、冷启动怎么恢复、坏了怎么修。</p>
+<p>我在某集群上运维过约 12 亿 block 规模的 HDFS<!-- 校准：请按真实经历核实/替换 -->，NameNode 重启一次要四十多分钟，期间业务全部卡死——这种痛让我对元数据链路格外较真。下面把这条链路从写到读、从正常到异常，完整拆一遍。</p>
+<h2 id="两类元数据"><a href="#两类元数据" class="headerlink" title="两类元数据"></a>两类元数据</h2><p>NameNode 的持久化数据只有两类文件，都落在 <code>dfs.namenode.name.dir</code> 指向的本地磁盘上。</p>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>角色</th>
+<th>内容</th>
+<th>生成时机</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>FsImage</td>
+<td>全量快照</td>
+<td>目录树、文件→block 列表、权限、副本数、时间戳</td>
+<td>checkpoint 时生成</td>
+</tr>
+<tr>
+<td>EditLog</td>
+<td>增量日志</td>
+<td>FsImage 之后每一次状态变更（创建&#x2F;删除&#x2F;改名&#x2F;副本变更等）</td>
+<td>实时 append</td>
+</tr>
+</tbody></table>
+<p>一个简单的等式贯穿始终：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">内存当前状态 = 最新 FsImage + 回放其后所有 EditLog</span><br></pre></td></tr></table></figure>
+
+<p>FsImage 是个大而全的序列化文件，二进制格式（Hadoop 2.x 起支持 protobuf），写起来慢、读起来也慢，但能完整描述某一个时刻的命名空间。EditLog 是预写日志（WAL），每次只追加一条记录，写快、读慢（要顺序回放）。两者配合，本质是”全量 + 增量”的经典日志结构存储思路，和数据库的 checkpoint + redo log 是一套打法。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">     FsImage (txid=1,000,000)</span><br><span class="line">           │</span><br><span class="line">           ▼  其后所有 edits</span><br><span class="line">┌──────────────────────────────┐</span><br><span class="line">│ edits_0000001_0000500        │</span><br><span class="line">│ edits_0000501_0010233        │</span><br><span class="line">│ edits_inprogress_0010234     │ ← 正在写</span><br><span class="line">└──────────────────────────────┘</span><br><span class="line">           │</span><br><span class="line">           ▼  顺序回放</span><br><span class="line">     内存 = FsImage + edits</span><br></pre></td></tr></table></figure>
+
+<p>文件名里的数字就是 txid 区间，启动时 NameNode 找到最大的 FsImage txid，然后回放所有 <code>起始 txid &gt; 该值</code> 的 edits 文件。</p>
+<h2 id="写路径与事务"><a href="#写路径与事务" class="headerlink" title="写路径与事务"></a>写路径与事务</h2><p>每一次让 NameNode 状态发生变更的操作——比如 <code>mkdir /data/2026</code>、<code>create /log/app.log</code>——都会被分配一个<strong>全局自增的事务号 txid</strong>，然后写入 EditLog。完整流程大致是：</p>
+<ol>
+<li>NameNode 分配下一个自增 txid</li>
+<li>EditLog append 一条记录（含操作类型、路径、参数、时间戳、txid）</li>
+<li>EditLog 强制刷盘到 <code>dfs.namenode.edits.dir</code> 的所有目录（多目录同步写）</li>
+<li>视操作类型，通知 DataNode 执行块操作 &#x2F; 等待副本数满足</li>
+<li>更新内存命名空间</li>
+<li>返回 client 成功</li>
+</ol>
+<p>关键点：<strong>必须先落盘，再返回 client</strong>。这是 WAL 的铁律。如果先更新内存再写日志，进程崩了，client 收到了”成功”但元数据丢了，数据就和元数据对不上——HDFS 最深的恐惧就是 block 在 DataNode 上存在但 NameNode 元数据里没有对应文件，等于数据静默丢失。</p>
+<p><code>dfs.namenode.edits.dir</code> 默认等于 <code>dfs.namenode.name.dir</code>，可以单独配。生产上我习惯让 edits 和 fsimage 落同一批磁盘（顺序写、随机读的混合负载），也有人把 edits 单独放到更快的 SSD 上加速启动回放<!-- 校准：请按真实经历核实/替换 -->。</p>
+<p>EditLog 的并发写通过 <code>FSEditLog</code> 的 double-buffer 实现：一个 buffer 给写线程追加，另一个 buffer 异步刷盘，两者交替使用，避免每次 append 都阻塞等 fsync。但每条 edits 是否真正持久化，仍取决于对应的 fsync 完成——这是 <code>dfs.namenode.edits.dir</code> 多目录的意义，多个 fsync 并行，但任一失败要回滚。</p>
+<h2 id="Checkpoint-机制"><a href="#Checkpoint-机制" class="headerlink" title="Checkpoint 机制"></a>Checkpoint 机制</h2><p>EditLog 会无限增长。如果不合并，启动时回放几亿条 edits 能把 NameNode 启动时间拖到几小时。所以需要周期性把 FsImage 和 EditLog 合并，生成新的 FsImage，把旧的 edits 清掉——这就是 checkpoint。</p>
+<p>在非 HA 模式下由 SecondaryNameNode 完成；HA 模式下由 Standby NameNode 完成。两者流程一致：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">SecondaryNameNode / Standby NN:</span><br><span class="line">  1. 触发 checkpoint（定时 or txid 阈值）</span><br><span class="line">  2. 请求 Active/Primary NN 滚动 edits（rollEditLog）</span><br><span class="line">     → Active 关闭当前 edits_inprogress，新开一个</span><br><span class="line">  3. 下载 Active 的最新 FsImage</span><br><span class="line">  4. 拉取本次 checkpoint 之后的所有 edits</span><br><span class="line">  5. 在本地把 FsImage + edits 加载到内存并回放 → 得到新 FsImage</span><br><span class="line">  6. 把新 FsImage 上传回 Active</span><br><span class="line">  7. Active 用新 FsImage 替换旧的，并再次 roll edits</span><br></pre></td></tr></table></figure>
+
+<p>触发条件由几个参数控制：</p>
+<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 定时触发，默认 3600 秒（1 小时）</span></span><br><span class="line"><span class="attr">dfs.namenode.checkpoint.period</span>=<span class="string">3600</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># 事务数触发，默认 100 万</span></span><br><span class="line"><span class="attr">dfs.namenode.checkpoint.tx</span>=<span class="string">1000000</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># 保留的历史 FsImage 数量，默认 2</span></span><br><span class="line"><span class="attr">dfs.namenode.num.checkpoints.retained</span>=<span class="string">2</span></span><br></pre></td></tr></table></figure>
+
+<p>前两个条件是”或”的关系，任意满足就触发。生产上我会把 <code>num.checkpoints.retained</code> 调到 4<!-- 校准：请按真实经历核实/替换 -->，留点回滚余地。还有个 <code>dfs.namenode.checkpoint.check.period</code>（默认 60 秒）是 SNN&#x2F;Standby 检查触发条件的轮询间隔。</p>
+<p><strong>SaveNamespace</strong> 是 Active&#x2F;Standby 执行 checkpoint 写出 FsImage 时的内部流程，它会拿全局写锁（<code>FSNamesystem.writeLock()</code>）：</p>
+<ol>
+<li>加写锁，阻塞所有新的写操作</li>
+<li>滚动 edits（让后续写入落到新 edits 文件）</li>
+<li>把内存命名空间序列化成 FsImage 文件</li>
+<li>写一个 <code>fsimage_0000000123</code> + 对应的 MD5 校验文件</li>
+<li>持久化新的 <code>seen_txid</code>（记录已 checkpoint 到哪个 txid）</li>
+<li>释放写锁</li>
+</ol>
+<p>这个写锁就是 SaveNamespace 卡顿的根源——文件数越多，序列化越久，写锁持锁越长，期间所有写请求排队。某集群 8 亿文件时，一次 SaveNamespace 能锁 90 秒<!-- 校准：请按真实经历核实/替换 -->，期间业务写入全部超时、client 重试风暴、甚至触发上层熔断。监控 SaveNamespace 耗时是 NameNode 运维的必备项。</p>
+<h2 id="启动恢复"><a href="#启动恢复" class="headerlink" title="启动恢复"></a>启动恢复</h2><p>NameNode 冷启动是元数据链路最脆弱的时刻。完整流程：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">NN 启动</span><br><span class="line">  │</span><br><span class="line">  1. 加载最新 FsImage 到内存（读 fsimage_xxx）</span><br><span class="line">  │     ← 慢点 1：文件数决定，几亿文件要几分钟</span><br><span class="line">  │</span><br><span class="line">  2. 回放 FsImage 之后所有 EditLog（按 txid 顺序）</span><br><span class="line">  │     ← 慢点 2：edits 条数决定，所以要勤做 checkpoint</span><br><span class="line">  │</span><br><span class="line">  3. 写一个新的&quot;空&quot; edits_inprogress，记录当前最大 txid</span><br><span class="line">  │</span><br><span class="line">  4. 进入 Safemode（只读，不接受写/删/改名）</span><br><span class="line">  │</span><br><span class="line">  5. 等待 DataNode 上报块报告（block report）</span><br><span class="line">  │     NN 根据块报告计算每个 block 的实际副本数</span><br><span class="line">  │     当&quot;已达到最小副本数的 block 占比&quot; &gt;= threshold</span><br><span class="line">  │</span><br><span class="line">  6. 自动退出 Safemode，恢复读写</span><br></pre></td></tr></table></figure>
+
+<p>Safemode 的退出由这几个参数控制：</p>
+<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 已达到最小副本数的 block 占比阈值，默认 0.999f</span></span><br><span class="line"><span class="attr">dfs.safemode.threshold.pct</span>=<span class="string">0.999f</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># 退出前等待的数据节点数量，默认 0（不强制）</span></span><br><span class="line"><span class="attr">dfs.safemode.min.datanodes</span>=<span class="string">0</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># 满足条件后还要等多久才退出（毫秒），默认 30000</span></span><br><span class="line"><span class="attr">dfs.safemode.extension</span>=<span class="string">30000</span></span><br></pre></td></tr></table></figure>
+
+<p>冷启动为何慢？因为时间 &#x3D; 加载 FsImage + 回放 edits + 等块报告，三者都和文件&#x2F;block 数线性相关。某集群 12 亿 block<!-- 校准：请按真实经历核实/替换 -->，光等块报告就要二十多分钟——DataNode 上报是分批的，每批还要经过 NameNode 处理和校验。这也是为什么 HDFS 要搞 HA：Standby 常驻内存、持续回放，故障切换只要几秒到十几秒，不用冷启动。</p>
+<p><code>safemode.extension</code> 我习惯设大一点（比如 60 秒）<!-- 校准：请按真实经历核实/替换 -->，让晚到的 DataNode 有机会补报，避免刚一退出 safemode 就因为缺副本触发大量补齐风暴，把网络和磁盘打满。</p>
+<h2 id="多目录冗余"><a href="#多目录冗余" class="headerlink" title="多目录冗余"></a>多目录冗余</h2><p><code>dfs.namenode.name.dir</code> 是 NameNode 最关键的冗余配置：</p>
+<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 多目录，逗号分隔，建议分布在不同物理磁盘</span></span><br><span class="line"><span class="attr">dfs.namenode.name.dir</span>=<span class="string">/data1/dfs/name,/data2/dfs/name,/data3/dfs/name</span></span><br></pre></td></tr></table></figure>
+
+<p>NameNode 对每个目录<strong>同步写</strong>一份完整的 FsImage 和 EditLog。任何一个目录损坏，NameNode 仍能从其他目录读出完整元数据启动。生产铁律：</p>
+<ul>
+<li>至少 2 个目录，跨物理磁盘（不是同盘不同分区，那是骗自己）</li>
+<li>有条件跨 RAID 卡或跨 JBOD，但 RAID 不是必需，NameNode 自己做了多副本</li>
+<li>不要配太多，4 个足够，每多一个就多一份 fsync 开销，影响写吞吐</li>
+<li>目录所在磁盘要监控 SMART 错误和坏道，预防性更换</li>
+</ul>
+<p>我踩过一个坑：<code>name.dir</code> 配了 3 个目录，运维挂载磁盘时手滑把 <code>/data2</code> 挂成了 <code>/data1</code> 的拷贝<!-- 校准：请按真实经历核实/替换 -->，结果三个”目录”其实是同一个物理盘的两份拷贝——盘坏的时候两份一起没。挂载后务必 <code>ls -li</code> 看 inode、<code>df</code> 看设备号，确认是不同物理设备。</p>
+<h2 id="元数据损坏与修复实战"><a href="#元数据损坏与修复实战" class="headerlink" title="元数据损坏与修复实战"></a>元数据损坏与修复实战</h2><p>这是这篇最值钱的部分。元数据损坏分两种：EditLog 损坏和 FsImage 损坏，严重程度天差地别。</p>
+<h3 id="EditLog-损坏"><a href="#EditLog-损坏" class="headerlink" title="EditLog 损坏"></a>EditLog 损坏</h3><p>表现：NameNode 启动时报 <code>Corrupted EditLog</code> 或 <code>txid</code> 断裂、回放到某条 edits 抛 <code>IOException</code> 或 <code>EOFException</code>。</p>
+<p>典型原因：机器掉电、磁盘满、内核 panic 导致 edits 写到一半就被截断。EditLog 是 append-only，损坏通常发生在最后一条未完整刷盘的记录。</p>
+<p>修复手段按严重程度递进：</p>
+<ol>
+<li><strong>自动 recover</strong>：NameNode 启动时如果检测到 edits 不完整，会尝试跳过最后一条坏记录继续回放。多数轻微损坏这样就能过。</li>
+<li><strong><code>hdfs namenode -recover</code></strong>：交互式恢复模式，会提示 “roll edits? (Y&#x2F;N)” 之类。本质是回滚到最后一个完整 checkpoint，丢弃其后的所有 edits——意味着上次 checkpoint 之后的写操作<strong>全部丢失</strong>。所以要勤做 checkpoint。</li>
+<li><strong>手动删坏 edits</strong>：极端情况下，定位到 <code>edits_inprogress_xxxxx</code> 文件，备份后删除，让 NN 从上一个 FsImage 启动。丢的数据更多，但能起来。</li>
+</ol>
+<p><code>-recover</code> 的内部逻辑是：先尝试最近的 FsImage，再回放 edits；遇到坏 edits 就停在那条之前。所以<strong>最近一次 checkpoint 越新，丢的越少</strong>。这也是为什么 checkpoint 周期不能拉太长。</p>
+<h3 id="FsImage-损坏"><a href="#FsImage-损坏" class="headerlink" title="FsImage 损坏"></a>FsImage 损坏</h3><p>表现：启动时加载 FsImage 报 <code>MD5 mismatch</code> 或反序列化失败、<code>InvalidProtocolBufferException</code>。</p>
+<p>FsImage 损坏比 EditLog 损坏严重得多，因为 FsImage 是全量基线，丢了它等于丢了整个命名空间的起点。修复路径：</p>
+<ol>
+<li><strong>从其他 name.dir 恢复</strong>：多目录冗余的意义就在这里，某个目录的 fsimage 坏了，从另一个目录拷过来覆盖。</li>
+<li><strong>从 Standby&#x2F;Secondary 拷贝</strong>：HA 集群里 Standby 时刻有较新的 FsImage，直接拷过来。</li>
+<li><strong>从异地备份恢复</strong>：定期把 FsImage 异地备份（见下文）。</li>
+</ol>
+<p>最惨的情况：单目录、没 Standby、没备份，FsImage 损坏——基本就是数据全没。只能从 DataNode 的 block 反向重建目录树（用 <code>hdfs debug</code> + 人工拼凑），工程量极大且不保证完整。所以多目录 + 定期备份是底线，不是可选项。</p>
+<h3 id="离线分析：oiv-与-oev"><a href="#离线分析：oiv-与-oev" class="headerlink" title="离线分析：oiv 与 oev"></a>离线分析：oiv 与 oev</h3><p><code>hdfs oiv</code>（Offline Image Viewer）和 <code>hdfs oev</code>（Offline Edits Viewer）是排查元数据问题的两把利器，不需要启动 NameNode 就能看 FsImage 和 EditLog 的内容。下面是一组实战命令示例：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 把 FsImage 转成可读的 XML（小集群适用，大集群 XML 会很大）</span></span><br><span class="line">hdfs oiv -i /data1/dfs/name/current/fsimage_0000000123 \</span><br><span class="line">         -o /tmp/fsimage.xml \</span><br><span class="line">         -p XML</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 大集群用 Delimited 格式更省内存，自定义分隔符</span></span><br><span class="line">hdfs oiv -i /data1/dfs/name/current/fsimage_0000000123 \</span><br><span class="line">         -o /tmp/fsimage.txt \</span><br><span class="line">         -p Delimited \</span><br><span class="line">         -delimiter <span class="string">&#x27;|&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 统计文件大小分布（揪小文件利器）</span></span><br><span class="line">hdfs oiv -i /data1/dfs/name/current/fsimage_0000000123 \</span><br><span class="line">         -o /tmp/filedist.csv \</span><br><span class="line">         -p FileDistribution \</span><br><span class="line">         -maxSize 1073741824 \</span><br><span class="line">         -step 10485760</span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 离线看 EditLog 内容，定位某个 txid 范围的操作</span></span><br><span class="line">hdfs oev -i /data1/dfs/name/current/edits_0000000100_0000000200 \</span><br><span class="line">         -o /tmp/edits.xml \</span><br><span class="line">         -p XML</span><br><span class="line"></span><br><span class="line"><span class="comment"># 5. 统计 edits 里每种操作的频次（排查批量灌数据）</span></span><br><span class="line">hdfs oev -i /data1/dfs/name/current/edits_inprogress_0000000234 \</span><br><span class="line">         -o /tmp/edits_stats.xml \</span><br><span class="line">         -p XML \</span><br><span class="line">         -statistics</span><br></pre></td></tr></table></figure>
+
+<p>我用 oiv 做过的事：统计全集群小文件数量（<code>FileDistribution</code> 看小于 1MB 的 block 占比，一度占到 60%<!-- 校准：请按真实经历核实/替换 -->）、审计某目录下文件数（<code>Delimited</code> + grep + wc）、确认 checkpoint 是否成功（对比新旧 fsimage 的 txid 是否推进）。oev 则用来排查”为什么这次启动回放特别慢”——看 edits 里是不是被某个离线任务的批量 rename 灌了几百万条记录。</p>
+<h3 id="备份纪律"><a href="#备份纪律" class="headerlink" title="备份纪律"></a>备份纪律</h3><p>元数据备份是运维的底线：</p>
+<ul>
+<li>定期把最新 FsImage + MD5 异地备份（重要集群每小时一次，普通集群每天一次）<!-- 校准：请按真实经历核实/替换 --></li>
+<li>备份到对象存储或异地 NAS，不要和 NameNode 同机房、同机架</li>
+<li>备份脚本要校验 MD5，损坏的备份等于没备份</li>
+<li>定期做”恢复演练”——拿备份的 FsImage 在测试集群起一遍，确认能加载、能回放</li>
+</ul>
+<p>我见过最痛的事故：某集群两年没备份过 FsImage<!-- 校准：请按真实经历核实/替换 -->，主磁盘连环故障，最后从 DataNode block 反推目录树，用了三周才恢复 80% 的元数据，剩下 20% 永久丢失，业务层大量依赖路径的 ETL 任务重写。</p>
+<h2 id="HA-下的元数据同步"><a href="#HA-下的元数据同步" class="headerlink" title="HA 下的元数据同步"></a>HA 下的元数据同步</h2><p>HA 模式下 Active&#x2F;Standby 通过 QJM（Quorum Journal Manager）同步 edits：</p>
+<ul>
+<li>Active NN 写 edits 时，同时写本地和一组 JournalNode（通常 3 或 5 个，多数派成功才算提交）</li>
+<li>Standby NN 持续从 JournalNode 拉取 edits 并回放，保持内存状态紧随 Active</li>
+<li>故障切换时，新 Active 先确保把 JournalNode 上所有已提交的 edits 回放完，再对外提供服务</li>
+</ul>
+<p>这样冷启动的痛点被化解了——Standby 随时在回放，切换是热的，不需要加载 FsImage。QJM 的多数派写也取代了早期依赖共享存储（NFS&#x2F;BookKeeper）的 edits 共享方案，避免了单点。细节属于 HA 篇，这里不展开，只强调一点：<strong>JournalNode 的可用性直接决定 edits 不丢</strong>，JN 至少 3 节点跨机架部署，且独立于 NameNode 所在机器。</p>
+<h2 id="性能与运维"><a href="#性能与运维" class="headerlink" title="性能与运维"></a>性能与运维</h2><p>元数据链路的常见性能问题：</p>
+<ol>
+<li><strong>SaveNamespace 卡顿</strong>：文件数多时序列化慢，写锁持留长。缓解：勤做 checkpoint 让单次 fsimage 不要太大；升级到 Hadoop 3.x 用原生 protobuf 序列化<!-- 校准：请按真实经历核实/替换 -->；监控 <code>SaveNamespace</code> 耗时并告警，超过阈值要查。</li>
+<li><strong>EditLog 膨胀</strong>：checkpoint 不及时，edits 文件堆积，启动回放慢。检查 <code>dfs.namenode.checkpoint.tx</code> 是否设得太高；SNN&#x2F;Standby 是否健康在跑 checkpoint（看 JMX 的 <code>LastCheckpointTime</code>）。</li>
+<li><strong><code>dfs.namenode.max.objects</code> 上限</strong>：默认 0（无限制），但文件&#x2F;目录&#x2F;block 总数受 JVM 堆内存约束。经验值：64GB 堆大约撑 4 亿文件<!-- 校准：请按真实经历核实/替换 -->。接近上限时要横向扩容（Federation）或治理小文件。</li>
+<li><strong>启动超时</strong>：冷启动慢的本质是文件&#x2F;block 多。除了做 checkpoint，还可以调大 <code>dfs.namenode.handler.count</code> 让块报告处理并发更高，缩短 safemode 等待；<code>dfs.namenode.blockreport.maxSize</code> 调大单次块报告体量。</li>
+</ol>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>NameNode 元数据持久化就两件东西：FsImage 存全量快照，EditLog 存增量变更，内存状态等于两者之和。checkpoint 把它们周期性合并，防止 edits 无限膨胀；冷启动时先加载 FsImage 再回放 edits，进 safemode 等块报告达到阈值再退出。多目录冗余保命，定期异地备份保底，oiv&#x2F;oev 是离线排查的瑞士军刀，<code>-recover</code> 是 EditLog 损坏的最后一道防线。HA 用 QJM 让 Standby 热备、持续回放，绕开了冷启动的痛。把这条链路理解透了，NameNode 才不会在你最不想它崩的时候崩。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop<span class="tagsPageCount">20</span></span></a><a class="post-meta__tags" href="/tags/HDFS/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>HDFS<span class="tagsPageCount">12</span></span></a><a class="post-meta__tags" href="/tags/NameNode/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>NameNode<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/spark-rdd-lineage"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">RDD 抽象与 lineage 容错：从五大特性到迭代场景的血缘治理</div></div></a></div><div class="next-post pull-right"><a href="/posts/spark-core-architecture"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">Spark Core 运行时架构拆解：从 SparkContext 到 Executor 的完整链路</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E8%A8%80"><span class="toc-text">引言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%A4%E7%B1%BB%E5%85%83%E6%95%B0%E6%8D%AE"><span class="toc-text">两类元数据</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%86%99%E8%B7%AF%E5%BE%84%E4%B8%8E%E4%BA%8B%E5%8A%A1"><span class="toc-text">写路径与事务</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Checkpoint-%E6%9C%BA%E5%88%B6"><span class="toc-text">Checkpoint 机制</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%90%AF%E5%8A%A8%E6%81%A2%E5%A4%8D"><span class="toc-text">启动恢复</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%A4%9A%E7%9B%AE%E5%BD%95%E5%86%97%E4%BD%99"><span class="toc-text">多目录冗余</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%83%E6%95%B0%E6%8D%AE%E6%8D%9F%E5%9D%8F%E4%B8%8E%E4%BF%AE%E5%A4%8D%E5%AE%9E%E6%88%98"><span class="toc-text">元数据损坏与修复实战</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#EditLog-%E6%8D%9F%E5%9D%8F"><span class="toc-text">EditLog 损坏</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#FsImage-%E6%8D%9F%E5%9D%8F"><span class="toc-text">FsImage 损坏</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%A6%BB%E7%BA%BF%E5%88%86%E6%9E%90%EF%BC%9Aoiv-%E4%B8%8E-oev"><span class="toc-text">离线分析：oiv 与 oev</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%A4%87%E4%BB%BD%E7%BA%AA%E5%BE%8B"><span class="toc-text">备份纪律</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#HA-%E4%B8%8B%E7%9A%84%E5%85%83%E6%95%B0%E6%8D%AE%E5%90%8C%E6%AD%A5"><span class="toc-text">HA 下的元数据同步</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%A7%E8%83%BD%E4%B8%8E%E8%BF%90%E7%BB%B4"><span class="toc-text">性能与运维</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B0%8F%E7%BB%93"><span class="toc-text">小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

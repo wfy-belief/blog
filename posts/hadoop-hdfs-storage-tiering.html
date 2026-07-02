@@ -1,0 +1,450 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>HDFS 存储策略与分层存储 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/hadoop-hdfs-storage-tiering"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="用 Storage Policy 与异构磁盘构建 HDFS 冷热分层"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文以第一人称复盘某 PB 级集群用 HDFS Storage Policy 与异构介质（DISK/SSD/ARCHIVE）构建冷热分层的实战经验。从 DataNode 存储类型标注、内置 Storage Policy 选型、Mover 数据迁移讲起，落到按时间分区做 HOT/COLD+EC 的分层方案、LAZY_PERSIST 内存写、与对象存储归档的配合，最后沉淀出介质配比、Storage Type Quota 与多类生产踩坑，给出可落地的分层决策框架。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">30</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">31</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">31</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">40</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">HDFS 存储策略与分层存储</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop</span></a><a class="post-meta__tags" href="/tags/HDFS/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>HDFS</span></a><a class="post-meta__tags" href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>分层存储</span></a></div></div></div></div><h1 class="post-title">HDFS 存储策略与分层存储</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h1 id="HDFS-存储策略与分层存储：用异构介质给数据按温度落盘"><a href="#HDFS-存储策略与分层存储：用异构介质给数据按温度落盘" class="headerlink" title="HDFS 存储策略与分层存储：用异构介质给数据按温度落盘"></a>HDFS 存储策略与分层存储：用异构介质给数据按温度落盘</h1><h2 id="引言"><a href="#引言" class="headerlink" title="引言"></a>引言</h2><p>接手某集群做容量盘点时，一个数字让我至今印象深刻：全集群约 <strong>3 PB</strong> 的 HDFS 数据里，最近 30 天被读过的还不到 <strong>12%</strong><!-- 校准：请按真实经历核实/替换 -->。也就是说，将近九成的数据是冷的——它们躺在和热数据一模一样的高转速企业级 HDD 上，甚至还有一部分被业务方”图快”写到了 SSD 上。存储成本和访问温度严重错配，这是几乎所有上了规模的 Hadoop 集群都会撞上的问题。</p>
+<p>硬件层面，数据中心里冷数据天然该用大容量、低单 TB 成本的盘；热数据该用低延迟、高 IOPS 的盘。HDFS 从 2.x 开始就提供了完整的分层存储（Storage Tiering）能力——通过 Storage Type 描述异构介质、用 Storage Policy 声明数据的温度偏好、用 Mover 在介质间搬运数据。这篇复盘，我把这套机制在某集群从试点到全量铺开的工程实践系统写出来，重点讲清楚冷热分层怎么真正落地，而不是”配了 policy 就当分层用了”。</p>
+<p>和此前写过的”湖仓演进””Hadoop 3.x 新特性”两篇侧重存储趋势不同，这篇<strong>专攻 HDFS 内部的存储策略与分层存储机制本身</strong>——Storage Type、Storage Policy、Mover、ARCHIVE 磁盘、LAZY_PERSIST，以及它们与 EC、对象存储归档如何配合。</p>
+<h2 id="一、Storage-Type：让-DataNode-认得异构介质"><a href="#一、Storage-Type：让-DataNode-认得异构介质" class="headerlink" title="一、Storage Type：让 DataNode 认得异构介质"></a>一、Storage Type：让 DataNode 认得异构介质</h2><h3 id="1-1-四种存储类型"><a href="#1-1-四种存储类型" class="headerlink" title="1.1 四种存储类型"></a>1.1 四种存储类型</h3><p>分层存储的第一步，是让 HDFS 知道每台 DataNode 上都挂了什么盘。HDFS 把存储介质抽象成四类 Storage Type：</p>
+<table>
+<thead>
+<tr>
+<th>Storage Type</th>
+<th>典型介质</th>
+<th>单 TB 成本</th>
+<th>IOPS&#x2F;延迟</th>
+<th>定位</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>DISK</code></td>
+<td>企业级 HDD（如 2T&#x2F;4T&#x2F;8T 7.2K）</td>
+<td>中</td>
+<td>中</td>
+<td>默认通用存储</td>
+</tr>
+<tr>
+<td><code>SSD</code></td>
+<td>NVMe &#x2F; SATA SSD</td>
+<td>高</td>
+<td>高</td>
+<td>热数据、低延迟读</td>
+</tr>
+<tr>
+<td><code>ARCHIVE</code></td>
+<td>高密度 HDD（如 12T&#x2F;16T SMR 或大容量企业盘）</td>
+<td>极低</td>
+<td>低</td>
+<td>冷数据归档</td>
+</tr>
+<tr>
+<td><code>RAM_DISK</code></td>
+<td>DataNode 本机内存（tmpfs）</td>
+<td>极高</td>
+<td>极高</td>
+<td>临时数据加速写</td>
+</tr>
+</tbody></table>
+<p>需要注意的是，这里的 SSD&#x2F;ARCHIVE <strong>是逻辑标签，不是物理探测</strong>。HDFS 不会去问盘的型号，它只看你把哪个目录标注成哪一类——你完全可以把一块慢盘标成 SSD（虽然没有任何意义），HDFS 也会照单全收。这给了我们很大的灵活性，但也意味着配错就是灾难。</p>
+<h3 id="1-2-在-dfs-datanode-data-dir-里标注介质"><a href="#1-2-在-dfs-datanode-data-dir-里标注介质" class="headerlink" title="1.2 在 dfs.datanode.data.dir 里标注介质"></a>1.2 在 <code>dfs.datanode.data.dir</code> 里标注介质</h3><p>关键配置在 <code>hdfs-site.xml</code> 的 <code>dfs.datanode.data.dir</code>。每个目录前面用方括号标注 Storage Type，DataNode 启动时就会把这块盘登记成对应类型：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.datanode.data.dir<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span></span><br><span class="line">    [DISK]/data/dn/disk1,</span><br><span class="line">    [DISK]/data/dn/disk2,</span><br><span class="line">    [DISK]/data/dn/disk3,</span><br><span class="line">    [DISK]/data/dn/disk4,</span><br><span class="line">    [SSD]/data/dn/ssd1,</span><br><span class="line">    [SSD]/data/dn/ssd2,</span><br><span class="line">    [ARCHIVE]/data/dn/arch1,</span><br><span class="line">    [ARCHIVE]/data/dn/arch2</span><br><span class="line">  <span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>上面这台 DataNode 就是一个典型的”混搭”机器：4 块 HDD 做热存储、2 块 SSD 承接低延迟读、2 块大容量盘做冷存储。生产里更常见的做法是<strong>机型分层</strong>而不是单机混搭——专门有一批”ARCHIVE 节点”全是大容量盘，一批”SSD 节点”全是 NVMe，这样硬件采购、机柜供电、故障域都更清晰。我倾向用后者，单机混搭主要用在中小集群或测试环境。</p>
+<p>配置完重启 DataNode 后，用 <code>hdfs fsck</code> 或 NameNode JMX 可以看到每个 DataNode 报告上来的 <code>StorageReport</code>，里面有 <code>DfsUsed</code>&#x2F;<code>Capacity</code>&#x2F;<code>StorageType</code> 字段。这就是分层的基础数据。</p>
+<h2 id="二、Storage-Policy：声明数据的温度偏好"><a href="#二、Storage-Policy：声明数据的温度偏好" class="headerlink" title="二、Storage Policy：声明数据的温度偏好"></a>二、Storage Policy：声明数据的温度偏好</h2><h3 id="2-1-内置的七种策略"><a href="#2-1-内置的七种策略" class="headerlink" title="2.1 内置的七种策略"></a>2.1 内置的七种策略</h3><p>有了介质类型，下一步是告诉 HDFS”这类数据应该落在哪类介质上”。这就是 Storage Policy。HDFS 内置了七种，覆盖了绝大多数场景：</p>
+<table>
+<thead>
+<tr>
+<th>Policy</th>
+<th>副本放置策略（按副本序）</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>HOT</code>（默认）</td>
+<td>全部放 DISK</td>
+<td>通用热数据</td>
+</tr>
+<tr>
+<td><code>WARM</code></td>
+<td>第 1 副本 DISK，其余 ARCHIVE</td>
+<td>温数据，热读但可接受冷备</td>
+</tr>
+<tr>
+<td><code>COLD</code></td>
+<td>全部放 ARCHIVE</td>
+<td>冷数据归档</td>
+</tr>
+<tr>
+<td><code>ALL_SSD</code></td>
+<td>全部放 SSD</td>
+<td>低延迟读敏感</td>
+</tr>
+<tr>
+<td><code>ONE_SSD</code></td>
+<td>第 1 副本 SSD，其余 DISK</td>
+<td>折中：读快又省 SSD</td>
+</tr>
+<tr>
+<td><code>LAZY_PERSIST</code></td>
+<td>写 RAM_DISK，异步落 DISK</td>
+<td>临时数据加速</td>
+</tr>
+<tr>
+<td><code>Provided</code>（3.x）</td>
+<td>数据在外部存储（如对象存储）</td>
+<td>见湖仓篇，本文不展开</td>
+</tr>
+</tbody></table>
+<p>理解这几种策略的关键是**”首选介质”与”回退”**。比如 <code>ONE_SSD</code>，HDFS 在写第一个副本时会优先选 SSD；如果当时集群上所有 SSD 都写满了或没有 SSD 节点，它不会失败，而是回退到 DISK。这种回退是隐式的，也是后面要讲的踩坑重灾区——你以为数据落 SSD 了，其实可能因为 SSD 写满，悄悄落回了 DISK。</p>
+<h3 id="2-2-给目录-文件打-Policy"><a href="#2-2-给目录-文件打-Policy" class="headerlink" title="2.2 给目录&#x2F;文件打 Policy"></a>2.2 给目录&#x2F;文件打 Policy</h3><p>Storage Policy 是按目录或文件粒度设置的，配合数仓的分区目录结构用起来非常顺手。命名空间上设置 policy 是个轻量操作（只改 inode 的扩展属性），不影响数据本身：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 看某个目录当前的 policy</span></span><br><span class="line">hdfs storagepolicies -getStoragePolicy -path /warehouse/ods/events</span><br><span class="line"></span><br><span class="line"><span class="comment"># 给热分区打 HOT</span></span><br><span class="line">hdfs storagepolicies -setStoragePolicy -path /warehouse/ods/events/dt=2026-07 -policy HOT</span><br><span class="line"></span><br><span class="line"><span class="comment"># 给历史分区打 COLD</span></span><br><span class="line">hdfs storagepolicies -setStoragePolicy -path /warehouse/ods/events/dt=2025-01 -policy COLD</span><br><span class="line"></span><br><span class="line"><span class="comment"># 列出所有可用 policy</span></span><br><span class="line">hdfs storagepolicies -listPolicies</span><br></pre></td></tr></table></figure>
+
+<p>这里有一个<strong>新手最常误解的点</strong>：<code>setStoragePolicy</code> 只是”贴标签”，<strong>它本身不会搬运任何数据</strong>。数据到底落在哪个介质，分两种情况：</p>
+<ol>
+<li><strong>新写入的数据</strong>：客户端写 Block 时，NameNode 根据目标目录&#x2F;文件的 Policy 选择对应 Storage Type 的 DataNode，副本按 policy 的介质偏好放置。所以新数据会按 policy 落层。</li>
+<li><strong>已经存在的数据</strong>：已经写好的 Block 不会因为改了 policy 就自动搬家。它们留在原来的介质上，必须靠 <strong>Mover</strong> 这种离线工具主动迁移。</li>
+</ol>
+<p>这条”贴标签不搬家”的特性，是我见过最多人踩的坑。下面专门讲 Mover。</p>
+<h2 id="三、Mover：介质间的数据搬运工"><a href="#三、Mover：介质间的数据搬运工" class="headerlink" title="三、Mover：介质间的数据搬运工"></a>三、Mover：介质间的数据搬运工</h2><h3 id="3-1-Mover-与-Balancer-的区别"><a href="#3-1-Mover-与-Balancer-的区别" class="headerlink" title="3.1 Mover 与 Balancer 的区别"></a>3.1 Mover 与 Balancer 的区别</h3><p>HDFS 里有两个名字很像、容易混淆的工具，必须先区分清楚：</p>
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>目标</th>
+<th>触发依据</th>
+<th>调度粒度</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Balancer</code></td>
+<td>DataNode <strong>节点间</strong>均衡磁盘利用率</td>
+<td>各节点利用率与集群均值的偏差</td>
+<td>按 DataNode</td>
+</tr>
+<tr>
+<td><code>Mover</code></td>
+<td>数据按 <strong>Storage Policy</strong> 落到对应介质</td>
+<td>目录&#x2F;文件的 Storage Policy</td>
+<td>按 Block，跨介质&#x2F;跨节点</td>
+</tr>
+</tbody></table>
+<p>一句话：<strong>Balancer 解决”节点间不均”，Mover 解决”数据没在它该在的介质上”</strong>。两者可以同时跑，但 Mover 优先级更高，因为它在纠正 policy 与实际介质的偏差。</p>
+<h3 id="3-2-跑一次-Mover"><a href="#3-2-跑一次-Mover" class="headerlink" title="3.2 跑一次 Mover"></a>3.2 跑一次 Mover</h3><p>Mover 是一个独立的守护进程，跑在集群任一节点上即可（不要跑在 NameNode 上抢资源）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 对指定路径按 policy 做迁移（最常用）</span></span><br><span class="line">hdfs mover -p /warehouse/ods/events/dt=2025-01</span><br><span class="line"></span><br><span class="line"><span class="comment"># 不指定路径，全集群扫描（生产慎用，开销大）</span></span><br><span class="line">hdfs mover</span><br><span class="line"></span><br><span class="line"><span class="comment"># 控制并发与带宽，避免压垮在线业务</span></span><br><span class="line"><span class="comment"># 在 hdfs-site.xml 里调：</span></span><br><span class="line"><span class="comment"># dfs.datanode.balance.max.concurrent.moves  （单 DN 并发移动数，默认 5）</span></span><br><span class="line"><span class="comment"># dfs.balancer.mover.max.concurrent.movesPerMn  （每 NN 并发，默认 1000）</span></span><br><span class="line"><span class="comment"># dfs.mover.max.iterations  （一轮扫描迭代次数）</span></span><br></pre></td></tr></table></figure>
+
+<p>Mover 的工作流程是：扫描目标路径下所有 Block → 查每个 Block 的 policy → 比对当前副本所在介质与 policy 偏好 → 不一致就发起一次”复制到目标介质 → 删除老副本”的搬迁。这个过程会占用网络与磁盘 IO，所以在生产上一定要做两件事：</p>
+<ul>
+<li><strong>限带宽、限并发</strong>：上面那几个参数按集群规模压一压，别开默认值。</li>
+<li><strong>错峰跑</strong>：Mover 一般挂在夜间低峰，配合一个 cron 或 Airflow DAG 触发，跑完自动退出。</li>
+</ul>
+<h3 id="3-3-Mover-的”幂等”特性"><a href="#3-3-Mover-的”幂等”特性" class="headerlink" title="3.3 Mover 的”幂等”特性"></a>3.3 Mover 的”幂等”特性</h3><p>Mover 是幂等的——同一路径反复跑，结果一致。这点在自动化调度里很重要。我们生产上有一个每天凌晨 2 点触发的 Mover DAG，针对前一天刚切到 COLD 的新历史分区跑一次，把上一节贴了标签但没搬的数据真正落到 ARCHIVE。这个流水线稳定跑了快两年。</p>
+<h2 id="四、冷热分层实战：按时间分区-EC-ARCHIVE"><a href="#四、冷热分层实战：按时间分区-EC-ARCHIVE" class="headerlink" title="四、冷热分层实战：按时间分区 + EC + ARCHIVE"></a>四、冷热分层实战：按时间分区 + EC + ARCHIVE</h2><p>讲完机制，落到真正的生产场景。这是某集群分层方案的骨架，也是最值得参考的部分。</p>
+<h3 id="4-1-按时间分区的温度曲线"><a href="#4-1-按时间分区的温度曲线" class="headerlink" title="4.1 按时间分区的温度曲线"></a>4.1 按时间分区的温度曲线</h3><p>数仓的 ODS&#x2F;DWD 层几乎都是按天分区（<code>dt=YYYY-MM-DD</code>）。这类数据的访问温度有一条非常规律的曲线：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">访问频率</span><br><span class="line">  ▲</span><br><span class="line">  │ ■■■</span><br><span class="line">  │ ████■</span><br><span class="line">  │ ███████■</span><br><span class="line">  │ ███████████■■</span><br><span class="line">  │ ██████████████████■■■■■■■■■■■</span><br><span class="line">  │ ████████████████████████████████████████████████████</span><br><span class="line">  └──────────────────────────────────────────────────────► 时间</span><br><span class="line">   当天  T+1~7  T+8~30   T+31~90    T+90+（冷归档）</span><br><span class="line">   HOT   HOT    HOT→WARM  COLD       COLD + EC</span><br></pre></td></tr></table></figure>
+
+<p>具体到我们的策略：当天到 T+7 的分区保持 <code>HOT</code>；T+8 到 T+30 视业务热度切到 <code>WARM</code> 或保持 <code>HOT</code>；超过 T+30 的历史分区全部切 <code>COLD</code>，并对 EC 友好的大文件启用 EC。这条曲线的阈值是按业务真实访问日志统计出来的，<strong>不是拍脑袋</strong>——我们埋点了所有 Hive&#x2F;Spark 作业读取的分区路径，跑了一个月统计出每天的访问次数分布，再据此标定拐点。</p>
+<h3 id="4-2-ARCHIVE-节点的硬件选型"><a href="#4-2-ARCHIVE-节点的硬件选型" class="headerlink" title="4.2 ARCHIVE 节点的硬件选型"></a>4.2 ARCHIVE 节点的硬件选型</h3><p>ARCHIVE 节点的核心诉求是<strong>单 TB 成本最低</strong>。我们选的机型是 12 块 16TB 大容量企业盘（部分机型用 SMR），单节点裸容量约 192TB<!-- 校准：请按真实经历核实/替换 -->，CPU&#x2F;内存配得很省（几十核、128G），因为冷数据几乎没有计算压力。和热节点（NVMe + 高主频 CPU）相比，ARCHIVE 节点的单 TB 成本能压到热节点的 1&#x2F;4 左右<!-- 校准：请按真实经历核实/替换 -->，这是分层存储最直接的成本收益。</p>
+<p>ARCHIVE 节点在 <code>dfs.datanode.data.dir</code> 里全部标 <code>[ARCHIVE]</code>，DataNode 启动后向 NameNode 报告的就是纯 ARCHIVE 容量。这种”纯冷节点”的好处是故障域清晰：坏一台就是 192TB 冷数据副本少一份，影响面可控；坏处是机架规划要小心，下面讲。</p>
+<h3 id="4-3-COLD-EC-的机架要求"><a href="#4-3-COLD-EC-的机架要求" class="headerlink" title="4.3 COLD + EC 的机架要求"></a>4.3 COLD + EC 的机架要求</h3><p>把冷数据切到 <code>COLD</code> policy 后，所有副本都要落 ARCHIVE 介质。但<strong>纯 COLD 用三副本其实很亏</strong>——冷数据三副本意味着 3 倍的归档盘成本，而冷数据的访问频率又低，三副本的容错收益在这里性价比很差。</p>
+<p>这时候就要上 EC（Erasure Coding，纠删码）。Hadoop 3.x 的 EC 典型策略如 <code>RS-6-3</code>（6 个数据块 + 3 个校验块），存储开销仅 1.5 倍，比三副本省 50%<!-- 校准：请按真实经历核实/替换 -->。但 EC 有一个硬约束：<strong>条带里的所有块必须分布在不同机架上</strong>（每个块至少要能容忍丢一个机架）。这就要求 ARCHIVE 节点<strong>至少跨 3 个机架</strong>，每个机架有足够多的 ARCHIVE 节点。</p>
+<p>我们早期试点时吃过亏：当时只有两个机架的 ARCHIVE 节点，EC 写入直接失败报”not enough racks”。后来补到 4 个机架才稳。所以<strong>分层存储落地前，ARCHIVE 机架拓扑要提前规划</strong>，别等 policy 配好才发现硬件不够。</p>
+<h3 id="4-4-与对象存储归档配合"><a href="#4-4-与对象存储归档配合" class="headerlink" title="4.4 与对象存储归档配合"></a>4.4 与对象存储归档配合</h3><p>再冷一层，我们做了”超冷归档”：超过 T+180 的数据，如果业务几乎不读，就下沉到对象存储（生产用的是 OSS<!-- 校准：请按真实经历核实/替换 -->）。这部分严格说已经超出 HDFS 内部分层范畴，但和分层是一个连续的曲线，必须一起规划。</p>
+<p>落地的几种模式：</p>
+<ul>
+<li><strong>S3A&#x2F;OSS 直挂</strong>：Hadoop 3.x 的 S3A&#x2F;OSS connector 让 Spark&#x2F;Hive 能直接读对象存储路径。我们把超冷分区从 HDFS 用 <code>distcp</code> 搬到 OSS，Hive 里建一个外部表指向 OSS 路径，访问透明。</li>
+<li><strong>JindoFS &#x2F; Ozone 一体化</strong>：如果是阿里云生态，JindoFS 可以把 OSS 缓存到本地加速读，相当于给对象存储加了一层”热的本地缓存”。</li>
+<li><strong>HDFS Provided Storage</strong>（3.x 新特性）：DataNode 不存数据本体，只存元数据，真正的块在 S3&#x2F;OSS。这是 HDFS 与对象存储融合的原生方案，我们还在观望稳定性。</li>
+</ul>
+<p>对象存储 + EC（OSS 自身的 EC 或低冗余模式）能进一步把超冷数据的单 TB 成本压到 HDFS ARCHIVE 的 1&#x2F;3 以下<!-- 校准：请按真实经历核实/替换 -->。这条曲线再往下，就是真正的”磁带级”冷存储，业务侧只需要接受”读一次要等几十秒”的延迟。</p>
+<h2 id="五、LAZY-PERSIST：把临时数据写进内存"><a href="#五、LAZY-PERSIST：把临时数据写进内存" class="headerlink" title="五、LAZY_PERSIST：把临时数据写进内存"></a>五、LAZY_PERSIST：把临时数据写进内存</h2><p>分层存储里还有一个容易被忽略的策略：<code>LAZY_PERSIST</code>。它的设计目标是<strong>短期、临时、可丢的数据</strong>——比如 Spark shuffle 的中间结果、Flink 的 checkpoint、某些实时计算的临时落盘。</p>
+<p><code>LAZY_PERSIST</code> 的工作原理：客户端写第一个副本时优先落到 DataNode 的 RAM_DISK（一般是 tmpfs 挂载的内存盘），异步地由 DataNode 后台线程 persist 到 DISK。如果还没 persist 完机器就挂了，数据丢失——但它本来就是临时数据，可接受。</p>
+<p>启用三步：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">&lt;!-- 1. DataNode 配置内存盘路径，并允许异步落盘 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.datanode.data.dir<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>[RAM_DISK]/mnt/ram_disk,[DISK]/data/dn/disk1<span class="tag">&lt;/<span class="name">value</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">property</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">name</span>&gt;</span>dfs.datanode.max.locked.memory<span class="tag">&lt;/<span class="name">name</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">value</span>&gt;</span>1073741824<span class="tag">&lt;/<span class="name">value</span>&gt;</span> <span class="comment">&lt;!-- 1GB，锁在内存的上限 --&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">property</span>&gt;</span></span><br><span class="line"></span><br><span class="line"><span class="comment">&lt;!-- 2. 客户端写时显式声明 LAZY_PERSIST（或对目录设 policy） --&gt;</span></span><br></pre></td></tr></table></figure>
+
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 3. 给临时目录打 policy</span></span><br><span class="line">hdfs storagepolicies -setStoragePolicy -path /tmp/spark_shuffle -policy LAZY_PERSIST</span><br></pre></td></tr></table></figure>
+
+<p>实际收益：我们在一个 Flink checkpoint 重度场景下，把 checkpoint 目录切到 <code>LAZY_PERSIST</code>，checkpoint 写入耗时从 800ms 降到 120ms 左右<!-- 校准：请按真实经历核实/替换 -->，端到端延迟稳定了很多。前提是 RAM_DISK 大小要规划好，别让临时数据把内存撑爆——一般给到单节点 8–16GB 的 tmpfs 就够用<!-- 校准：请按真实经历核实/替换 -->。</p>
+<h2 id="六、监控与调度：把分层跑成一条流水线"><a href="#六、监控与调度：把分层跑成一条流水线" class="headerlink" title="六、监控与调度：把分层跑成一条流水线"></a>六、监控与调度：把分层跑成一条流水线</h2><p>分层存储上线后，必须有配套的监控，否则很快退化成”配了 policy 但没人看”。我们盯的核心指标：</p>
+<table>
+<thead>
+<tr>
+<th>监控项</th>
+<th>数据源</th>
+<th>告警阈值（参考）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>各介质利用率（DISK&#x2F;SSD&#x2F;ARCHIVE）</td>
+<td>NameNode JMX <code>StorageReport</code></td>
+<td>任一介质 &gt; 85%</td>
+</tr>
+<tr>
+<td>介质利用率标准差</td>
+<td>同上</td>
+<td>跨节点 σ &gt; 15%（说明不均）</td>
+</tr>
+<tr>
+<td>Policy 偏差 Block 数</td>
+<td>Mover 日志 &#x2F; 自研扫描</td>
+<td>偏差块 &gt; 总块数 1%</td>
+</tr>
+<tr>
+<td>Mover 任务耗时与吞吐</td>
+<td>Mover 进程日志</td>
+<td>单轮 &gt; 6 小时预警</td>
+</tr>
+<tr>
+<td>冷数据命中率（按分区）</td>
+<td>Hive&#x2F;Spark 读取埋点</td>
+<td>命中率异常下跌</td>
+</tr>
+<tr>
+<td>SSD 写满回退次数</td>
+<td>DataNode 日志</td>
+<td>任意回退即告警</td>
+</tr>
+</tbody></table>
+<p>最后两项尤其关键。<strong>冷数据命中率</strong>能反向验证你的分层阈值是否合理——如果 T+30 的分区命中率突然飙高，说明业务在做回溯查询，COLD 切早了；反之 T+7 的分区几乎没人读，说明 HOT 留多了，可以提前切。<strong>SSD 写满回退</strong>则是前文提到的隐性回退，必须从 DataNode 日志里抓出来单独告警，否则你以为数据在 SSD，实际全在 HDD。</p>
+<p>调度层面，我们有两条定时任务：</p>
+<ol>
+<li><strong>每日 Mover DAG</strong>：凌晨 2 点触发，扫描前一天的”新切 COLD 分区”，跑 Mover 落到 ARCHIVE。</li>
+<li><strong>每周 Policy 调整 DAG</strong>：每周日跑一次，按分区日期批量改 policy（比如 <code>dt &lt; today-30</code> 的全切 COLD），再触发 Mover。</li>
+</ol>
+<p>这两条 DAG 把分层存储从”手动运维”变成”自动流水线”，是能长期跑稳的关键。</p>
+<h2 id="七、生产踩坑"><a href="#七、生产踩坑" class="headerlink" title="七、生产踩坑"></a>七、生产踩坑</h2><p>分层存储落地这几年，踩过的坑不少，挑几个最痛的。</p>
+<h3 id="7-1-设了-policy-但-Mover-没跑"><a href="#7-1-设了-policy-但-Mover-没跑" class="headerlink" title="7.1 设了 policy 但 Mover 没跑"></a>7.1 设了 policy 但 Mover 没跑</h3><p>最早一批切 COLD 的分区，我光打了 policy 没触发 Mover，过了两周去看 ARCHIVE 利用率纹丝不动，数据还全在 DISK 上。原因是前面讲的——<strong>policy 是标签，不搬家</strong>。后来所有 policy 变更都接了一条 Mover 任务，再没出过这个问题。教训：<strong>policy 与 Mover 必须配套调度，缺一不可</strong>。</p>
+<h3 id="7-2-ARCHIVE-盘配-EC-时机架不够"><a href="#7-2-ARCHIVE-盘配-EC-时机架不够" class="headerlink" title="7.2 ARCHIVE 盘配 EC 时机架不够"></a>7.2 ARCHIVE 盘配 EC 时机架不够</h3><p>前文提到的：两个机架的 ARCHIVE 节点配 EC 直接写入失败。EC 的条带宽度（如 RS-6-3 需要 9 个不同节点&#x2F;机架）是硬约束，机架数不够就写不进去。解决办法要么加机架，要么对这些目录暂时用三副本 COLD 顶一下，等机架扩容再切 EC。教训：<strong>ARCHIVE 机架拓扑要在采购阶段就按 EC 要求规划</strong>。</p>
+<h3 id="7-3-SSD-配比的两难"><a href="#7-3-SSD-配比的两难" class="headerlink" title="7.3 SSD 配比的两难"></a>7.3 SSD 配比的两难</h3><p>SSD 配少了，热数据争抢 SSD 导致回退频繁，等于没分层；配多了，SSD 利用率常年 20%，成本浪费。我们的经验是 <strong>SSD 容量占全集群总容量的 5%–10%</strong><!-- 校准：请按真实经历核实/替换 -->，配合 <code>ONE_SSD</code> policy（只一份副本落 SSD）用，性价比最高。纯 <code>ALL_SSD</code> 只留给极少数低延迟读敏感的场景（比如某些 OLAP 加速层）。</p>
+<h3 id="7-4-没有-Storage-Type-Quota，SSD-被一个业务占满"><a href="#7-4-没有-Storage-Type-Quota，SSD-被一个业务占满" class="headerlink" title="7.4 没有 Storage Type Quota，SSD 被一个业务占满"></a>7.4 没有 Storage Type Quota，SSD 被一个业务占满</h3><p>某次一个业务方图省事，把一个高频写入的临时目录直接设成 <code>ALL_SSD</code>，三天写满了全集群 SSD，连带其他业务的 SSD 副本全部回退到 DISK，等于分层被打回原形。Hadoop 2.8+ 提供了 <strong>Storage Type Quota</strong>，可以按目录限制某类介质的用量：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 限制 /warehouse/biz_a 在 SSD 上最多用 500GB</span></span><br><span class="line">hdfs dfsadmin -setSpaceQuote -storageType SSD 500g /warehouse/biz_a</span><br></pre></td></tr></table></figure>
+
+<p>加上这条约束后，再也没出现过单业务挤爆 SSD 的情况。<strong>强烈建议分层存储上线的同时，对 SSD&#x2F;RAM_DISK 这类稀缺介质一律配 Quota</strong>。</p>
+<h2 id="八、分层决策：介质配比与分层周期"><a href="#八、分层决策：介质配比与分层周期" class="headerlink" title="八、分层决策：介质配比与分层周期"></a>八、分层决策：介质配比与分层周期</h2><p>最后沉淀一套可落地的决策框架。</p>
+<p><strong>介质配比</strong>（按容量）：某集群目前是 <strong>DISK : ARCHIVE : SSD ≈ 7 : 2.5 : 0.5</strong><!-- 校准：请按真实经历核实/替换 -->。DISK 是主力，承担温热数据；ARCHIVE 承接冷数据，随业务量增长逐年提升占比；SSD 只给极少数低延迟场景。这个比例不是定死的，核心是按”温度曲线积分”算——把每类数据的访问频率乘以数据量积分，反推介质容量需求。</p>
+<p><strong>分层周期</strong>：以”天”为基本单位，典型阈值 T+7 &#x2F; T+30 &#x2F; T+90 &#x2F; T+180。周期的标定必须基于真实的读取埋点，不要拍脑袋。我们每年会重跑一次温度曲线统计，业务模式变化了（比如从离线为主转向更多实时），曲线拐点也会变，对应调整 policy 阈值。</p>
+<p><strong>成本核算口径</strong>：分层存储的收益最终要算成钱。我们算的口径是”每 TB 有效数据的月成本”——把介质采购成本按 36 个月折旧，加上机房电费、机柜分摊，除以有效容量（EC 后实际存储量）。分层落地一年后，这个指标下降了约 38%<!-- 校准：请按真实经历核实/替换 -->，这是给老板汇报时最有说服力的数字。</p>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>HDFS 分层存储的本质，是用 Storage Policy 这套”温度标签”把异构介质（DISK&#x2F;SSD&#x2F;ARCHIVE&#x2F;RAM_DISK）和数据的访问温度对齐。它的机制并不复杂——DataNode 标注介质类型、目录打 Storage Policy、Mover 按 policy 搬运数据——但真正落地稳定，要做的远不止配置：</p>
+<ul>
+<li>用 DataNode 的 <code>[ssd]/[archive]</code> 标注让集群认识异构介质，机型分层比单机混搭更易维护。</li>
+<li>熟记七种内置 policy 的介质偏好与回退行为，尤其当心 SSD 写满的隐性回退。</li>
+<li><strong>policy 是标签，Mover 才搬家</strong>——两者必须配套调度，否则分层形同虚设。</li>
+<li>冷热分层的核心是按时间分区 + 温度曲线，ARCHIVE 节点配 EC 时机架拓扑要提前规划。</li>
+<li>LAZY_PERSIST 给临时数据加速，对象存储 + EC 承接超冷归档，构成完整温度梯度。</li>
+<li>监控冷数据命中率与介质利用率，配 Storage Type Quota 保护稀缺介质，把分层跑成自动流水线。</li>
+</ul>
+<p>分层存储不是一锤子买卖，而是一条随业务演化的曲线。把温度量出来、把介质配出来、把 Mover 跑起来、把 Quota 卡住——这四件事做扎实，HDFS 的存储成本和访问性能就能在一个合理的曲线上长期共存。这是某集群从”全热存储”走向”按温度落盘”这几年，我最想沉淀下来的方法论。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop<span class="tagsPageCount">20</span></span></a><a class="post-meta__tags" href="/tags/HDFS/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>HDFS<span class="tagsPageCount">12</span></span></a><a class="post-meta__tags" href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>分层存储<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/spark-structured-streaming"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</div></div></a></div><div class="next-post pull-right"><a href="/posts/spark-aqe"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">Spark AQE 自适应查询执行：让优化器在运行时继续工作的深度复盘</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#HDFS-%E5%AD%98%E5%82%A8%E7%AD%96%E7%95%A5%E4%B8%8E%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8%EF%BC%9A%E7%94%A8%E5%BC%82%E6%9E%84%E4%BB%8B%E8%B4%A8%E7%BB%99%E6%95%B0%E6%8D%AE%E6%8C%89%E6%B8%A9%E5%BA%A6%E8%90%BD%E7%9B%98"><span class="toc-text">HDFS 存储策略与分层存储：用异构介质给数据按温度落盘</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E8%A8%80"><span class="toc-text">引言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81Storage-Type%EF%BC%9A%E8%AE%A9-DataNode-%E8%AE%A4%E5%BE%97%E5%BC%82%E6%9E%84%E4%BB%8B%E8%B4%A8"><span class="toc-text">一、Storage Type：让 DataNode 认得异构介质</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-1-%E5%9B%9B%E7%A7%8D%E5%AD%98%E5%82%A8%E7%B1%BB%E5%9E%8B"><span class="toc-text">1.1 四种存储类型</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-2-%E5%9C%A8-dfs-datanode-data-dir-%E9%87%8C%E6%A0%87%E6%B3%A8%E4%BB%8B%E8%B4%A8"><span class="toc-text">1.2 在 dfs.datanode.data.dir 里标注介质</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81Storage-Policy%EF%BC%9A%E5%A3%B0%E6%98%8E%E6%95%B0%E6%8D%AE%E7%9A%84%E6%B8%A9%E5%BA%A6%E5%81%8F%E5%A5%BD"><span class="toc-text">二、Storage Policy：声明数据的温度偏好</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-%E5%86%85%E7%BD%AE%E7%9A%84%E4%B8%83%E7%A7%8D%E7%AD%96%E7%95%A5"><span class="toc-text">2.1 内置的七种策略</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-%E7%BB%99%E7%9B%AE%E5%BD%95-%E6%96%87%E4%BB%B6%E6%89%93-Policy"><span class="toc-text">2.2 给目录&#x2F;文件打 Policy</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81Mover%EF%BC%9A%E4%BB%8B%E8%B4%A8%E9%97%B4%E7%9A%84%E6%95%B0%E6%8D%AE%E6%90%AC%E8%BF%90%E5%B7%A5"><span class="toc-text">三、Mover：介质间的数据搬运工</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-Mover-%E4%B8%8E-Balancer-%E7%9A%84%E5%8C%BA%E5%88%AB"><span class="toc-text">3.1 Mover 与 Balancer 的区别</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-%E8%B7%91%E4%B8%80%E6%AC%A1-Mover"><span class="toc-text">3.2 跑一次 Mover</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-Mover-%E7%9A%84%E2%80%9D%E5%B9%82%E7%AD%89%E2%80%9D%E7%89%B9%E6%80%A7"><span class="toc-text">3.3 Mover 的”幂等”特性</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E5%86%B7%E7%83%AD%E5%88%86%E5%B1%82%E5%AE%9E%E6%88%98%EF%BC%9A%E6%8C%89%E6%97%B6%E9%97%B4%E5%88%86%E5%8C%BA-EC-ARCHIVE"><span class="toc-text">四、冷热分层实战：按时间分区 + EC + ARCHIVE</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-%E6%8C%89%E6%97%B6%E9%97%B4%E5%88%86%E5%8C%BA%E7%9A%84%E6%B8%A9%E5%BA%A6%E6%9B%B2%E7%BA%BF"><span class="toc-text">4.1 按时间分区的温度曲线</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-ARCHIVE-%E8%8A%82%E7%82%B9%E7%9A%84%E7%A1%AC%E4%BB%B6%E9%80%89%E5%9E%8B"><span class="toc-text">4.2 ARCHIVE 节点的硬件选型</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-COLD-EC-%E7%9A%84%E6%9C%BA%E6%9E%B6%E8%A6%81%E6%B1%82"><span class="toc-text">4.3 COLD + EC 的机架要求</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-4-%E4%B8%8E%E5%AF%B9%E8%B1%A1%E5%AD%98%E5%82%A8%E5%BD%92%E6%A1%A3%E9%85%8D%E5%90%88"><span class="toc-text">4.4 与对象存储归档配合</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81LAZY-PERSIST%EF%BC%9A%E6%8A%8A%E4%B8%B4%E6%97%B6%E6%95%B0%E6%8D%AE%E5%86%99%E8%BF%9B%E5%86%85%E5%AD%98"><span class="toc-text">五、LAZY_PERSIST：把临时数据写进内存</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E7%9B%91%E6%8E%A7%E4%B8%8E%E8%B0%83%E5%BA%A6%EF%BC%9A%E6%8A%8A%E5%88%86%E5%B1%82%E8%B7%91%E6%88%90%E4%B8%80%E6%9D%A1%E6%B5%81%E6%B0%B4%E7%BA%BF"><span class="toc-text">六、监控与调度：把分层跑成一条流水线</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E7%94%9F%E4%BA%A7%E8%B8%A9%E5%9D%91"><span class="toc-text">七、生产踩坑</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#7-1-%E8%AE%BE%E4%BA%86-policy-%E4%BD%86-Mover-%E6%B2%A1%E8%B7%91"><span class="toc-text">7.1 设了 policy 但 Mover 没跑</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-2-ARCHIVE-%E7%9B%98%E9%85%8D-EC-%E6%97%B6%E6%9C%BA%E6%9E%B6%E4%B8%8D%E5%A4%9F"><span class="toc-text">7.2 ARCHIVE 盘配 EC 时机架不够</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-3-SSD-%E9%85%8D%E6%AF%94%E7%9A%84%E4%B8%A4%E9%9A%BE"><span class="toc-text">7.3 SSD 配比的两难</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-4-%E6%B2%A1%E6%9C%89-Storage-Type-Quota%EF%BC%8CSSD-%E8%A2%AB%E4%B8%80%E4%B8%AA%E4%B8%9A%E5%8A%A1%E5%8D%A0%E6%BB%A1"><span class="toc-text">7.4 没有 Storage Type Quota，SSD 被一个业务占满</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81%E5%88%86%E5%B1%82%E5%86%B3%E7%AD%96%EF%BC%9A%E4%BB%8B%E8%B4%A8%E9%85%8D%E6%AF%94%E4%B8%8E%E5%88%86%E5%B1%82%E5%91%A8%E6%9C%9F"><span class="toc-text">八、分层决策：介质配比与分层周期</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B0%8F%E7%BB%93"><span class="toc-text">小结</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

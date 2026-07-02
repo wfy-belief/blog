@@ -1,0 +1,432 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>HDFS 集中式缓存与读性能优化 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/hadoop-hdfs-cache-read-optimization"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="用 HDFS Centralized Cache 与读优化榨干热数据吞吐"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '操作系统 page cache 不可控、节点命中不均，是热数据读延迟抖动的根因。本篇专攻 HDFS Centralized Cache：从 NameNode 缓存指令、DataNode mlock 锁内存到 zero-copy 命中路径，再叠加短路读、对冲读、列式下推与小文件合并，给出一套可落地的读性能优化组合拳，并复盘生产踩坑与监控指标。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">30</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">31</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">31</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">40</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">HDFS 集中式缓存与读性能优化</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop</span></a><a class="post-meta__tags" href="/tags/HDFS/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>HDFS</span></a><a class="post-meta__tags" href="/tags/%E7%BC%93%E5%AD%98/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>缓存</span></a></div></div></div></div><h1 class="post-title">HDFS 集中式缓存与读性能优化</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h2 id="引言"><a href="#引言" class="headerlink" title="引言"></a>引言</h2><p>在某个承载推荐特征与模型训练样本的集群里，我接过一个”诡异”的故障：同一份 30GB 的特征字典，上午 Spark job 跑 8 分钟，下午跑 22 分钟，曲线像心电图一样跳 <!-- 校准：请按真实经历核实/替换 -->。查了一圈发现根因不在计算侧——那批 DN 上同时跑着一批_shuffle 大作业，把操作系统的 page cache 冲得一干二净，特征字典的 block 反复被挤出内存、重新从磁盘读。</p>
+<p>这就是 page cache 的痛点：它是”尽力而为”的。谁先用、谁占用多、谁就会被留下，HDFS 自己说了不算。而且 page cache 的分布天然不均——同一个 block 的三个副本，可能只有一个落在了空闲 DN 的内存里，client 偏偏读到了另外两个。短路读能解决”本地性”，但解决不了”内存确定性”。</p>
+<p>本篇不讲短路读基础（系列读路径篇已经讲透），这里专攻 <strong>HDFS Centralized Cache（集中式缓存）</strong> 这套把”指定 block 钉在内存”的机制，以及围绕它展开的读性能优化体系：哪些数据该缓存、怎么配、怎么和短路读&#x2F;对冲读&#x2F;列式下推叠加，最后落到生产踩坑与监控。</p>
+<h2 id="一、为什么需要集中式缓存：page-cache-的三个原罪"><a href="#一、为什么需要集中式缓存：page-cache-的三个原罪" class="headerlink" title="一、为什么需要集中式缓存：page cache 的三个原罪"></a>一、为什么需要集中式缓存：page cache 的三个原罪</h2><p>先把”为什么不用操作系统的 page cache 就够了”这件事讲清楚，否则后面所有配置都是无源之水。</p>
+<p>page cache 在 HDFS 读路径里的三个原罪：</p>
+<ol>
+<li><strong>不可控</strong>。内核 LRU 按自己的策略淘汰，HDFS 没有任何发言权。一个 shuffle 大作业一夜之间能把热数据的 page cache 全冲掉，第二天早高峰读延迟直接翻倍。</li>
+<li><strong>不均</strong>。同一个 block 的三个副本分布在不同 DN，每个 DN 的内存压力不同，命中情况天差地别。client 选 DN 时并不知道哪个副本在内存里，纯按网络拓扑选。</li>
+<li><strong>会被 swap 出去</strong>。即使数据暂时在 page cache 里，系统内存紧张时内核会把它 swap 到磁盘，读延迟从微秒级退化到毫秒级，等于没缓存。</li>
+</ol>
+<p>Centralized Cache 解决的就是这三点：<strong>让用户显式声明”这些 block 必须常驻内存”，由 HDFS 自己 mlock 锁住、统一调度、对 client 可见</strong>。从”靠运气命中”变成”确定性命中”。</p>
+<h2 id="二、Centralized-Cache-原理：NameNode-调度，DataNode-锁内存"><a href="#二、Centralized-Cache-原理：NameNode-调度，DataNode-锁内存" class="headerlink" title="二、Centralized Cache 原理：NameNode 调度，DataNode 锁内存"></a>二、Centralized Cache 原理：NameNode 调度，DataNode 锁内存</h2><p>集中式缓存的架构是一个典型的”控制面 &#x2F; 数据面分离”设计。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">      ┌──────────────────────────────────────────────────┐</span><br><span class="line">      │                   NameNode (控制面)                │</span><br><span class="line">      │  ┌────────────────┐   ┌────────────────────────┐  │</span><br><span class="line">      │  │ CacheManager   │   │  缓存指令聚合 / 副本选择 │  │</span><br><span class="line">      │  │  - CachePool   │   │  (哪些 block 该缓存、   │  │</span><br><span class="line">      │  │  - Directive   │   │   缓存几份、缓在哪些 DN) │  │</span><br><span class="line">      │  └────────────────┘   └────────────────────────┘  │</span><br><span class="line">      │            ▲  cacheReport (DN 上报)                │</span><br><span class="line">      │            │  下发 cache 命令                       │</span><br><span class="line">      └────────────┼─────────────────────────────────────┘</span><br><span class="line">                   │</span><br><span class="line">     ┌─────────────┼──────────────────────────┐</span><br><span class="line">     ▼             ▼                          ▼</span><br><span class="line">┌─────────┐   ┌─────────┐                ┌─────────┐</span><br><span class="line">│  DN-1   │   │  DN-2   │   ...           │  DN-n   │</span><br><span class="line">│ ┌─────┐ │   │ ┌─────┐ │                │ ┌─────┐ │</span><br><span class="line">│ │mmap │ │   │ │mmap │ │                │ │mmap │ │</span><br><span class="line">│ │+mlock││   │ │+mlock││                │ │+mlock││</span><br><span class="line">│ │(堆外)│ │   │ │(堆外)│ │                │ │(堆外)│ │</span><br><span class="line">│ └─────┘ │   │ └─────┘ │                │ └─────┘ │</span><br><span class="line">│ block钉 │   │ block钉 │                │ block钉 │</span><br><span class="line">│  在内存 │   │  在内存 │                │  在内存 │</span><br><span class="line">└────┬────┘   └────┬────┘                └────┬────┘</span><br><span class="line">     │             │                          │</span><br><span class="line">     └─────────────┴──── client zero-copy ────┘</span><br></pre></td></tr></table></figure>
+
+<p>核心机制拆开看：</p>
+<p><strong>NameNode 侧（CacheManager）</strong> 维护两类对象——Cache Pool 与 Cache Directive（下一节细讲）。它做的事情是”指令聚合”：当用户通过 <code>hdfs cacheadmin</code> 声明”缓存路径 &#x2F;user&#x2F;x&#x2F;dict”，NN 会把这条指令展开成具体的 block 列表，再根据副本分布、DN 的 <code>max.locked.memory</code> 配额，决定每个 block 该钉在哪些 DN 上。NN 不会盲目地把所有副本都缓存——默认只钉足够满足指令 replication 的副本数，省内存。</p>
+<p><strong>DataNode 侧</strong> 收到 NN 下发的缓存命令后，对目标 block 做两件事：<code>mmap</code> 把 block 文件映射到进程的<strong>堆外内存</strong>（不在 JVM heap 里，完全不受 GC 影响），然后 <code>mlock</code> 把这段内存<strong>锁住</strong>，禁止内核把它换出到 swap。这就是 HDFS 文档里反复强调的”locked memory”——它是确定性命中的物理保证。</p>
+<p>这个设计有几个关键优势：</p>
+<ul>
+<li><strong>确定性低延迟</strong>。读已缓存 block 时跳过磁盘 IO，延迟从毫秒级降到微秒级，而且抖动极小。</li>
+<li><strong>不受 GC 与 JVM 影响</strong>。缓存在堆外，JVM 哪怕 Full GC 停顿几秒，缓存数据纹丝不动。</li>
+<li><strong>抗 swap</strong>。<code>mlock</code> 锁定的内存内核无权换出，物理内存就是它的归宿。</li>
+<li><strong>client 可见</strong>。NN 在返回 <code>LocatedBlocks</code> 时，会给已缓存的副本打标记（<code>LocatedBlock.isCacheAllowed</code>），client 优先选缓存的 DN 读。</li>
+</ul>
+<h2 id="三、缓存管理对象：Cache-Pool-与-Cache-Directive"><a href="#三、缓存管理对象：Cache-Pool-与-Cache-Directive" class="headerlink" title="三、缓存管理对象：Cache Pool 与 Cache Directive"></a>三、缓存管理对象：Cache Pool 与 Cache Directive</h2><p>集中式缓存不是”想缓存谁就缓存谁”，它有一套带权限、带配额的管理模型，这是它能上生产的关键。</p>
+<h3 id="Cache-Pool：权限与配额的容器"><a href="#Cache-Pool：权限与配额的容器" class="headerlink" title="Cache Pool：权限与配额的容器"></a>Cache Pool：权限与配额的容器</h3><p>Cache Pool 是指令的”命名空间 + 权限边界”。每个 pool 有：</p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>owner</code> &#x2F; <code>group</code></td>
+<td>所有者，对应 Unix 权限模型</td>
+</tr>
+<tr>
+<td><code>mode</code></td>
+<td><code>rwx</code>：<code>r</code> 可查看、<code>w</code> 可加&#x2F;删 directive、<code>x</code> 管理权限</td>
+</tr>
+<tr>
+<td><code>limit</code></td>
+<td>该 pool 下所有 directive 缓存的<strong>总字节数上限</strong>，超限拒绝新指令</td>
+</tr>
+<tr>
+<td><code>maxTtl</code></td>
+<td>directive 的最大 TTL，防止用户设一个永久指令占内存</td>
+</tr>
+<tr>
+<td><code>weight</code></td>
+<td>pool 之间的相对权重，用于全局内存紧张时的驱逐优先级</td>
+</tr>
+</tbody></table>
+<p>生产上一定要给每个业务团队建独立的 pool，按 weight 分配内存份额，否则一个团队把热数据全缓存了，另一个团队根本抢不到份额。</p>
+<h3 id="Cache-Directive：一条”缓存这个”的指令"><a href="#Cache-Directive：一条”缓存这个”的指令" class="headerlink" title="Cache Directive：一条”缓存这个”的指令"></a>Cache Directive：一条”缓存这个”的指令</h3><p>Directive 是真正生效的缓存声明，挂在 pool 下：</p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>path</code></td>
+<td>要缓存的路径，可以是文件或目录（递归）</td>
+</tr>
+<tr>
+<td><code>replication</code></td>
+<td>缓存几份副本（注意：这是缓存副本数，不是文件本身的副本数）</td>
+</tr>
+<tr>
+<td><code>ttl</code></td>
+<td>存活时间，到期自动失效，适合临时缓存</td>
+</tr>
+<tr>
+<td><code>pool</code></td>
+<td>归属的 Cache Pool</td>
+</tr>
+</tbody></table>
+<p>比如推荐特征字典要缓存 2 份、TTL 7 天，就是一个 directive。</p>
+<h3 id="hdfs-cacheadmin-命令族"><a href="#hdfs-cacheadmin-命令族" class="headerlink" title="hdfs cacheadmin 命令族"></a>hdfs cacheadmin 命令族</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 创建带权限和配额的缓存池</span></span><br><span class="line">hdfs cacheadmin -addPool feature_dict \</span><br><span class="line">  -owner ai_team -group data -mode 0770 \</span><br><span class="line">  -<span class="built_in">limit</span> 200GB -maxTtl 604800</span><br><span class="line"></span><br><span class="line"><span class="comment"># 为某目录添加缓存指令（缓存 2 份副本，7 天后失效）</span></span><br><span class="line">hdfs cacheadmin -addDirective \</span><br><span class="line">  -path /user/ai/recommend/dict \</span><br><span class="line">  -pool feature_dict -replication 2 -ttl 604800s</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看缓存指令列表与命中情况</span></span><br><span class="line">hdfs cacheadmin -listDirectives -path /user/ai/recommend</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看缓存池状态（用量、配额、权重）</span></span><br><span class="line">hdfs cacheadmin -listPools</span><br><span class="line"></span><br><span class="line"><span class="comment"># 删除某条指令（指令 ID 从 -listDirectives 获得）</span></span><br><span class="line">hdfs cacheadmin -removeDirective 42</span><br><span class="line"></span><br><span class="line"><span class="comment"># 删除缓存池（需先清空其下所有 directive）</span></span><br><span class="line">hdfs cacheadmin -removePool feature_dict</span><br></pre></td></tr></table></figure>
+
+<p>这套命令是日常缓存治理的入口，建议做成脚本模板，CI 里审批后执行，避免人工误操作。</p>
+<h2 id="四、读命中路径：从锁定内存到-zero-copy"><a href="#四、读命中路径：从锁定内存到-zero-copy" class="headerlink" title="四、读命中路径：从锁定内存到 zero-copy"></a>四、读命中路径：从锁定内存到 zero-copy</h2><p>当 client 读一个已被集中式缓存的 block 时，链路与普通读有一个关键差异：<strong>DataNode 直接从 <code>mmap</code> 锁定的内存把数据交给 client，全程不碰磁盘、不进 page cache 二次缓存</strong>。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">Client                NameNode                 DataNode</span><br><span class="line">  |                       |                        |</span><br><span class="line">  |-- getBlockLocations -&gt;|                        |</span><br><span class="line">  |&lt;-- LocatedBlocks -----|                        |</span><br><span class="line">  |   (副本标记: cached!)  |                        |</span><br><span class="line">  |                       |                        |</span><br><span class="line">  |-- 选 cached DN ------&gt;|                        |</span><br><span class="line">  |                       |                        |</span><br><span class="line">  |--- READ_BLOCK ------ (NN 已下发过 cache 命令)   |</span><br><span class="line">  |                       |                        |</span><br><span class="line">  |                       |  DN: 从 mmap 内存直接   |</span><br><span class="line">  |                       |      sendfile() zero-copy</span><br><span class="line">  |&lt;======== 数据流 (锁定内存 → socket) ============|</span><br><span class="line">  |                       |                        |</span><br><span class="line">  |   跳过磁盘 IO、跳过 page cache 二次缓存          |</span><br></pre></td></tr></table></figure>
+
+<p>命中时 DataNode 用 <code>sendfile</code>（零拷贝）把 <code>mmap</code> 区域的数据直接推到 socket，CPU 占用极低。这是集中式缓存比 page cache 更快的原因之一：page cache 命中后，数据还是要从内核 page cache 拷到用户态再拷到 socket（除非也走 sendfile），而集中式缓存是天然的 zero-copy。</p>
+<p>未命中时会回退到普通读路径——从磁盘读、进 page cache、走正常校验链路。所以集中式缓存是”锦上添花”，不是”没有它就读不了”。</p>
+<h2 id="五、关键配置：把配额给够，把-OS-调对"><a href="#五、关键配置：把配额给够，把-OS-调对" class="headerlink" title="五、关键配置：把配额给够，把 OS 调对"></a>五、关键配置：把配额给够，把 OS 调对</h2><p>集中式缓存踩坑最多的地方不是 HDFS 配置本身，而是 <strong>OS 层的 locked memory 限制</strong>。这一节按”从下到上”的顺序讲。</p>
+<h3 id="5-1-OS-层：ulimit-l-必须先放开"><a href="#5-1-OS-层：ulimit-l-必须先放开" class="headerlink" title="5.1 OS 层：ulimit -l 必须先放开"></a>5.1 OS 层：ulimit -l 必须先放开</h3><p><code>mlock</code> 锁内存受 Linux 的 <code>RLIMIT_MEMLOCK</code> 限制，默认值小得可怜（64KB 起）。如果没调，DataNode 启动时日志里会看到 <code>Cannot lock memory...</code> 之类报错，缓存指令全部失败。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># /etc/security/limits.conf 或 limits.d/hdfs.conf</span></span><br><span class="line">hdfs  -  memlock  unlimited</span><br><span class="line">hdfs  -  nofile   1048576</span><br><span class="line">hdfs  -  <span class="built_in">nproc</span>    32768</span><br></pre></td></tr></table></figure>
+
+<p>改完要重启 DataNode 进程（或重新登录 shell）才生效。验证：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">ulimit</span> -l    <span class="comment"># 应为 unlimited</span></span><br><span class="line"><span class="built_in">cat</span> /proc/$(pidof datanode)/limits | grep -i lock</span><br></pre></td></tr></table></figure>
+
+<p>CentOS&#x2F;RHEL 上还要确认 systemd unit 里 <code>LimitMEMLOCK=infinity</code>，否则 limits.conf 会被覆盖。这一步漏掉的集群至少占我见过的故障一半 <!-- 校准：请按真实经历核实/替换 -->。</p>
+<h3 id="5-2-DataNode-层：可锁内存上限"><a href="#5-2-DataNode-层：可锁内存上限" class="headerlink" title="5.2 DataNode 层：可锁内存上限"></a>5.2 DataNode 层：可锁内存上限</h3><figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># hdfs-site.xml</span></span><br><span class="line"><span class="comment"># DN 用于集中式缓存的最大内存（堆外，单位字节）</span></span><br><span class="line"><span class="comment"># 必须小于物理可用内存，且受 OS memlock 限制</span></span><br><span class="line"><span class="attr">dfs.datanode.max.locked.memory</span>=<span class="string">128gb</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># DN 上报缓存状态给 NN 的间隔，默认 10s</span></span><br><span class="line"><span class="comment"># 越短 NN 视图越新，但 RPC 压力越大</span></span><br><span class="line"><span class="attr">dfs.cachereport.intervalMsec</span>=<span class="string">10000</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># DN 缓存管理线程在空闲时的扫描频率（一般不动）</span></span><br><span class="line"><span class="attr">dfs.datanode.fsdatasetcache.max.threads.per.volume</span>=<span class="string">4</span></span><br></pre></td></tr></table></figure>
+
+<p><code>max.locked.memory</code> 的取值经验：留给 DN 进程 heap + 操作系统 + page cache 各自的份额后，剩下的 50%-60% 给缓存 <!-- 校准：请按真实经历核实/替换 -->。给太大容易把 OS 逼到 swap 别的进程，给太小缓存命中率上不去。</p>
+<h3 id="5-3-NameNode-层：指令聚合与调度"><a href="#5-3-NameNode-层：指令聚合与调度" class="headerlink" title="5.3 NameNode 层：指令聚合与调度"></a>5.3 NameNode 层：指令聚合与调度</h3><figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># hdfs-site.xml (NN)</span></span><br><span class="line"><span class="comment"># NN 周期性扫描所有 directive，计算需要缓存的 block 列表</span></span><br><span class="line"><span class="attr">dfs.namenode.caching.enabled</span>=<span class="string">true</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># 缓存块副本数计算的间隔，默认 30s</span></span><br><span class="line"><span class="attr">dfs.namenode.path.based.cache.refresh.interval.ms</span>=<span class="string">30000</span></span><br></pre></td></tr></table></figure>
+
+<p>NN 的 <code>CacheManager</code> 会把 directive → block 列表 → DN 选择的整个过程异步化，避免阻塞 RPC。如果 directive 涉及的文件特别多（比如缓存一个百万小文件的目录），聚合扫描会比较吃 NN CPU，这是要监控的点。</p>
+<h2 id="六、选型：哪些数据该缓存，哪些千万别缓存"><a href="#六、选型：哪些数据该缓存，哪些千万别缓存" class="headerlink" title="六、选型：哪些数据该缓存，哪些千万别缓存"></a>六、选型：哪些数据该缓存，哪些千万别缓存</h2><p>集中式缓存的内存是稀缺资源，乱缓存比不缓存更糟——会挤掉真正该缓存的数据。我的选型原则：</p>
+<p><strong>强烈建议缓存</strong>：</p>
+<ul>
+<li>高频读的<strong>小表</strong>：维度表、字典表、映射表。几十 MB 到几 GB，被 join 上万次。</li>
+<li><strong>索引文件</strong>：HBase 的 region 元数据、Hive 的 ORC&#x2F;Parquet footer 与 index stripe。</li>
+<li><strong>机器学习模型文件</strong>：推理服务每次加载模型，几 GB 的 pb&#x2F;onnx，缓存后冷启动从分钟级到秒级。</li>
+<li><strong>常驻配置</strong>：业务规则表、特征 schema。</li>
+</ul>
+<p><strong>谨慎缓存</strong>：</p>
+<ul>
+<li>中等大小、读写混合的数据。缓存副本与写路径会有微妙交互，TTL 要设短。</li>
+</ul>
+<p><strong>绝不缓存</strong>：</p>
+<ul>
+<li>大文件（几十 GB 以上的事实表）。一份就把某 DN 的配额吃光，且大文件本来就是顺序读，page cache 命中率不差，缓存收益小、挤占大。</li>
+<li>一次性扫描的临时数据。缓存的代价是”长期占内存”，扫一次就丢的数据根本不配。</li>
+<li>写频繁的数据。每次写都要让缓存失效，缓存命中率低，纯属浪费。</li>
+</ul>
+<p>一句话总结：<strong>缓存”小而热”的，不缓存”大而冷”的</strong>。</p>
+<h2 id="七、读性能优化组合拳：集中式缓存只是其中一环"><a href="#七、读性能优化组合拳：集中式缓存只是其中一环" class="headerlink" title="七、读性能优化组合拳：集中式缓存只是其中一环"></a>七、读性能优化组合拳：集中式缓存只是其中一环</h2><p>集中式缓存单独用收益有限，真正把读吞吐拉起来的是它和其它优化手段的叠加。下面这套组合拳是我在线上验证过有效的。</p>
+<h3 id="7-1-集中缓存-短路读叠加"><a href="#7-1-集中缓存-短路读叠加" class="headerlink" title="7.1 集中缓存 + 短路读叠加"></a>7.1 集中缓存 + 短路读叠加</h3><p>短路读（domain socket 直连 DN 本地数据）解决”绕过 TCP”，集中式缓存解决”绕过磁盘”。两者叠加是 1+1&gt;2：</p>
+<ul>
+<li>client 在本地 DN 上，走短路读 domain socket。</li>
+<li>该 block 又被集中式缓存锁定，DN 从内存 zero-copy 返回。</li>
+<li>全程零磁盘 IO、零网络栈、零用户态拷贝。</li>
+</ul>
+<p>这套组合对本地化作业（Spark executor 与 DN 同节点）的延迟改善最明显，特征 join 这类高频小读能从毫秒级压到几十微秒。</p>
+<h3 id="7-2-Hedged-Read：对冲读砍尾部延迟"><a href="#7-2-Hedged-Read：对冲读砍尾部延迟" class="headerlink" title="7.2 Hedged Read：对冲读砍尾部延迟"></a>7.2 Hedged Read：对冲读砍尾部延迟</h3><p>即使有了缓存，偶尔还是有慢读——GC 停顿、磁盘抖动、网络毛刺。Hedged Read 的思路是：发一个读请求，等一个阈值没回来，<strong>并行再发一个</strong>到另一个副本，谁先回用谁。</p>
+<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># hdfs-site.xml (client 侧)</span></span><br><span class="line"><span class="comment"># 开启对冲读</span></span><br><span class="line"><span class="attr">dfs.client.hedged.read.threshold.millis</span>=<span class="string">50    # 等多久没回才发第二个</span></span><br><span class="line"><span class="attr">dfs.client.hedged.read.threadpool.size</span>=<span class="string">10      # 对冲读线程池大小</span></span><br></pre></td></tr></table></figure>
+
+<p>阈值别设太小（10ms 以下基本全是噪音，会大幅放大 DN 读压力），50ms 是一个比较稳的起点 <!-- 校准：请按真实经历核实/替换 -->。线程池大小按并发读数估，通常 10-20 够用。</p>
+<p>对冲读的代价是 DN 读量小幅上升（最多翻倍），所以它治的是”长尾”不是”均值”。在 SLA 对 P99 敏感的场景（交互式查询、在线推理）收益最大。</p>
+<h3 id="7-3-io-file-buffer-size-与预取"><a href="#7-3-io-file-buffer-size-与预取" class="headerlink" title="7.3 io.file.buffer.size 与预取"></a>7.3 io.file.buffer.size 与预取</h3><figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># core-site.xml</span></span><br><span class="line"><span class="comment"># 文件读写缓冲区大小，默认 4KB，太保守</span></span><br><span class="line"><span class="attr">io.file.buffer.size</span>=<span class="string">65536    # 64KB</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># hdfs-site.xml (client)</span></span><br><span class="line"><span class="comment"># 预取大小，影响一次读多少数据进 buffer</span></span><br><span class="line"><span class="attr">dfs.read.prefetch.size</span>=<span class="string">262144    # 256KB，默认通常只有几十 KB</span></span><br></pre></td></tr></table></figure>
+
+<p><code>io.file.buffer.size</code> 调大后，每次 read 系统调用拿更多数据，系统调用次数减少，对大量小读（比如 ORC 读 stripe）效果显著。预取调大对顺序扫描类作业有帮助，但对随机读是浪费——随机读场景反而要调小。</p>
+<h3 id="7-4-列式存储-谓词下推：从源头减少读量"><a href="#7-4-列式存储-谓词下推：从源头减少读量" class="headerlink" title="7.4 列式存储 + 谓词下推：从源头减少读量"></a>7.4 列式存储 + 谓词下推：从源头减少读量</h3><p>这是最容易被忽略的”读优化”——<strong>不读就是最快的读</strong>。ORC&#x2F;Parquet 这类列存格式配合谓词下推，能把一次扫描的读取量砍掉 90% 以上：</p>
+<ul>
+<li>列裁剪：只读用到的列，100 列的宽表只用 5 列，IO 直接省 95%。</li>
+<li>谓词下推：<code>WHERE dt=&#39;2026-07-01&#39; AND city=&#39;SH&#39;</code> 这种过滤条件推进到 reader 层，利用 ORC 的 min&#x2F;max index 跳过整个 stripe。</li>
+<li>字典编码：低基数列用字典编码，读出来的是 int 不是 string。</li>
+</ul>
+<p>缓存和列存是互补的：列存降低了单次读量，缓存降低了重复读的延迟。两者叠加是离线数仓读优化的标配。</p>
+<h3 id="7-5-小文件合并：治读放大的根"><a href="#7-5-小文件合并：治读放大的根" class="headerlink" title="7.5 小文件合并：治读放大的根"></a>7.5 小文件合并：治读放大的根</h3><p>小文件多的目录，读放大极其严重——一个逻辑读拆成几百次 block 定位、几百次 RPC、几百次磁盘寻道。集中式缓存对小文件也友好（每个 block 钉内存开销小），但<strong>最有效的还是从源头合并</strong>：</p>
+<ul>
+<li>写入侧用 ORC&#x2F;Parquet 的大文件，避免产出大量小文件。</li>
+<li>历史小文件定期用 <code>hadoop archive</code>（har）或 compaction 合并。</li>
+<li>NN 端控制单目录文件数阈值，超限告警。</li>
+</ul>
+<p>小文件治理是 NN 元数据压力与读性能的双重要求，不能光靠缓存兜底。</p>
+<h2 id="八、生产踩坑实录"><a href="#八、生产踩坑实录" class="headerlink" title="八、生产踩坑实录"></a>八、生产踩坑实录</h2><p>下面这些坑，每一条都是真实出过故障的。</p>
+<h3 id="坑-1：locked-memory-配额不足，缓存静默失效"><a href="#坑-1：locked-memory-配额不足，缓存静默失效" class="headerlink" title="坑 1：locked memory 配额不足，缓存静默失效"></a>坑 1：locked memory 配额不足，缓存静默失效</h3><p>现象：加了缓存指令，<code>-listDirectives</code> 显示正常，但读延迟一点没降。</p>
+<p>排查：<code>hdfs cacheadmin -listPools</code> 看 pool 用量，发现 limit 没到，但 DN 实际锁定的内存远小于指令总量。最终定位到 OS 的 <code>ulimit -l</code> 没放开，DataNode 日志里早就有 <code>mlock failed: Cannot allocate memory</code> 被忽略了。</p>
+<p>教训：<strong>部署集中式缓存的第一步永远是先验证 <code>ulimit -l</code> 与 systemd 的 <code>LimitMEMLOCK</code></strong>，否则后面所有配置都是空中楼阁。</p>
+<h3 id="坑-2：缓存池权限混乱，业务互相覆盖"><a href="#坑-2：缓存池权限混乱，业务互相覆盖" class="headerlink" title="坑 2：缓存池权限混乱，业务互相覆盖"></a>坑 2：缓存池权限混乱，业务互相覆盖</h3><p>现象：A 团队加的指令，被 B 团队误删。</p>
+<p>根因：所有业务共用一个 <code>default</code> pool，mode 给了 <code>0777</code>，谁都能删谁的 directive。</p>
+<p>修复：按业务线拆 pool，mode 收到 <code>0770</code>，owner 指定到对应团队账号。directive 的增删走审批流，不要让人手动 <code>-removeDirective</code>。</p>
+<h3 id="坑-3：缓存未命中的”假命中”"><a href="#坑-3：缓存未命中的”假命中”" class="headerlink" title="坑 3：缓存未命中的”假命中”"></a>坑 3：缓存未命中的”假命中”</h3><p>现象：<code>-listDirectives</code> 显示指令在，但 client 读延迟没改善。</p>
+<p>排查：指令在 ≠ block 已缓存。NN 聚合 directive 到 block 需要一个扫描周期（<code>dfs.namenode.path.based.cache.refresh.interval.ms</code>），而且 DN 收到命令到真正 mlock 也要时间。刚加的指令，可能要 30-60s 才生效。验证是否真正命中，要看 DN 的 JMX <code>FSDatasetState</code> 里 <code>numBlocksCached</code> 与指令目标是否对齐。</p>
+<h3 id="坑-4：缓存大文件导致内存挤占"><a href="#坑-4：缓存大文件导致内存挤占" class="headerlink" title="坑 4：缓存大文件导致内存挤占"></a>坑 4：缓存大文件导致内存挤占</h3><p>现象：某天某 DN 的 locked memory 用量飙升到上限，原本缓存的特征字典被挤掉（directive 还在，但实际没钉内存）。</p>
+<p>根因：有人给一个 80GB 的事实表加了缓存指令，replication&#x3D;3，直接吃掉 240GB 配额，把别的 pool 份额挤没了。</p>
+<p>修复：pool 的 <code>limit</code> 与 <code>weight</code> 一定要提前规划，给”大文件禁止缓存”写进规范，CI 里对 directive 的 path 做大小校验。</p>
+<h2 id="九、监控：命中率、locked-memory、驱逐"><a href="#九、监控：命中率、locked-memory、驱逐" class="headerlink" title="九、监控：命中率、locked memory、驱逐"></a>九、监控：命中率、locked memory、驱逐</h2><p>集中式缓存上线后，监控要跟上，否则故障和”没缓存”无法区分。核心指标：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>来源</th>
+<th>关注点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>缓存命中率</td>
+<td>client JMX <code>HdfsFileInputStream</code> &#x2F; 作业统计</td>
+<td>命中率掉 &#x3D; 配额被挤或 directive 失效</td>
+</tr>
+<tr>
+<td>locked memory 使用率</td>
+<td>DN JMX <code>FSDatasetState</code> 的 <code>memCacheUsed</code></td>
+<td>接近 <code>max.locked.memory</code> 说明配额不够</td>
+</tr>
+<tr>
+<td>缓存驱逐次数</td>
+<td>DN JMX <code>FsdDatasetCacheStats</code></td>
+<td>驱逐多 &#x3D; 内存压力或 directive 频繁变更</td>
+</tr>
+<tr>
+<td>DN 上 <code>numBlocksCached</code></td>
+<td>DN JMX</td>
+<td>与指令目标对比，看是否真正生效</td>
+</tr>
+<tr>
+<td>缓存指令总数</td>
+<td>NN JMX <code>NameNodeStatus</code></td>
+<td>指令异常增长可能是误操作</td>
+</tr>
+<tr>
+<td>NN CacheManager 扫描耗时</td>
+<td>NN 日志</td>
+<td>directive 多时扫描吃 CPU</td>
+</tr>
+</tbody></table>
+<p>Grafana 上建议建一个独立的”HDFS Cache”面板，把这六个指标放一起，命中率掉的时候能一眼看到是哪个环节出问题。命中率是我们的北极星指标，线下建议稳定在 90% 以上 <!-- 校准：请按真实经历核实/替换 -->，低于这个值就要排查 directive 是否覆盖了真正热的 block。</p>
+<h2 id="十、小结"><a href="#十、小结" class="headerlink" title="十、小结"></a>十、小结</h2><p>HDFS Centralized Cache 不是银弹，但它是把热数据读延迟从”看天吃饭”变成”确定性可控”的关键工具。回顾这一篇的脉络：</p>
+<ul>
+<li><strong>page cache 不可控、不均、会被 swap</strong>，这是集中式缓存要解决的根本问题。</li>
+<li><strong>NameNode 调度 + DataNode mlock 锁堆外内存</strong>，是确定性命中的物理保证；OS 的 <code>ulimit -l</code> 是这一切的地基。</li>
+<li><strong>Cache Pool + Directive</strong> 是带权限与配额的管理模型，按业务拆 pool、给小而热的数据加 directive，是落地姿势。</li>
+<li><strong>集中式缓存要和短路读、对冲读、列存下推、小文件合并组合使用</strong>，单点优化收益有限。</li>
+<li><strong>locked memory 配额、池权限、大文件挤占</strong> 是最常见的四个生产坑，监控命中率与 locked memory 是发现问题的第一道防线。</li>
+</ul>
+<p>下一篇我会落到 HDFS 的 EC（纠删码）——它和集中式缓存一样，都是在”用 CPU &#x2F; 内存换 IO”这条主线上做取舍，写起来会更有意思。</p>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop<span class="tagsPageCount">20</span></span></a><a class="post-meta__tags" href="/tags/HDFS/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>HDFS<span class="tagsPageCount">12</span></span></a><a class="post-meta__tags" href="/tags/%E7%BC%93%E5%AD%98/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>缓存<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/spark-sql-catalyst"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">Spark SQL 与 Catalyst 优化器：从 SQL 文本到向量化执行的全链路复盘</div></div></a></div><div class="next-post pull-right"><a href="/posts/spark-memory-management"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">Spark 内存管理：从统一内存模型到 Tungsten 页表，一次线上 OOM 的复盘</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E8%A8%80"><span class="toc-text">引言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9C%80%E8%A6%81%E9%9B%86%E4%B8%AD%E5%BC%8F%E7%BC%93%E5%AD%98%EF%BC%9Apage-cache-%E7%9A%84%E4%B8%89%E4%B8%AA%E5%8E%9F%E7%BD%AA"><span class="toc-text">一、为什么需要集中式缓存：page cache 的三个原罪</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81Centralized-Cache-%E5%8E%9F%E7%90%86%EF%BC%9ANameNode-%E8%B0%83%E5%BA%A6%EF%BC%8CDataNode-%E9%94%81%E5%86%85%E5%AD%98"><span class="toc-text">二、Centralized Cache 原理：NameNode 调度，DataNode 锁内存</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E7%BC%93%E5%AD%98%E7%AE%A1%E7%90%86%E5%AF%B9%E8%B1%A1%EF%BC%9ACache-Pool-%E4%B8%8E-Cache-Directive"><span class="toc-text">三、缓存管理对象：Cache Pool 与 Cache Directive</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#Cache-Pool%EF%BC%9A%E6%9D%83%E9%99%90%E4%B8%8E%E9%85%8D%E9%A2%9D%E7%9A%84%E5%AE%B9%E5%99%A8"><span class="toc-text">Cache Pool：权限与配额的容器</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Cache-Directive%EF%BC%9A%E4%B8%80%E6%9D%A1%E2%80%9D%E7%BC%93%E5%AD%98%E8%BF%99%E4%B8%AA%E2%80%9D%E7%9A%84%E6%8C%87%E4%BB%A4"><span class="toc-text">Cache Directive：一条”缓存这个”的指令</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#hdfs-cacheadmin-%E5%91%BD%E4%BB%A4%E6%97%8F"><span class="toc-text">hdfs cacheadmin 命令族</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E8%AF%BB%E5%91%BD%E4%B8%AD%E8%B7%AF%E5%BE%84%EF%BC%9A%E4%BB%8E%E9%94%81%E5%AE%9A%E5%86%85%E5%AD%98%E5%88%B0-zero-copy"><span class="toc-text">四、读命中路径：从锁定内存到 zero-copy</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E5%85%B3%E9%94%AE%E9%85%8D%E7%BD%AE%EF%BC%9A%E6%8A%8A%E9%85%8D%E9%A2%9D%E7%BB%99%E5%A4%9F%EF%BC%8C%E6%8A%8A-OS-%E8%B0%83%E5%AF%B9"><span class="toc-text">五、关键配置：把配额给够，把 OS 调对</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-OS-%E5%B1%82%EF%BC%9Aulimit-l-%E5%BF%85%E9%A1%BB%E5%85%88%E6%94%BE%E5%BC%80"><span class="toc-text">5.1 OS 层：ulimit -l 必须先放开</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-DataNode-%E5%B1%82%EF%BC%9A%E5%8F%AF%E9%94%81%E5%86%85%E5%AD%98%E4%B8%8A%E9%99%90"><span class="toc-text">5.2 DataNode 层：可锁内存上限</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-3-NameNode-%E5%B1%82%EF%BC%9A%E6%8C%87%E4%BB%A4%E8%81%9A%E5%90%88%E4%B8%8E%E8%B0%83%E5%BA%A6"><span class="toc-text">5.3 NameNode 层：指令聚合与调度</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E9%80%89%E5%9E%8B%EF%BC%9A%E5%93%AA%E4%BA%9B%E6%95%B0%E6%8D%AE%E8%AF%A5%E7%BC%93%E5%AD%98%EF%BC%8C%E5%93%AA%E4%BA%9B%E5%8D%83%E4%B8%87%E5%88%AB%E7%BC%93%E5%AD%98"><span class="toc-text">六、选型：哪些数据该缓存，哪些千万别缓存</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E8%AF%BB%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96%E7%BB%84%E5%90%88%E6%8B%B3%EF%BC%9A%E9%9B%86%E4%B8%AD%E5%BC%8F%E7%BC%93%E5%AD%98%E5%8F%AA%E6%98%AF%E5%85%B6%E4%B8%AD%E4%B8%80%E7%8E%AF"><span class="toc-text">七、读性能优化组合拳：集中式缓存只是其中一环</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#7-1-%E9%9B%86%E4%B8%AD%E7%BC%93%E5%AD%98-%E7%9F%AD%E8%B7%AF%E8%AF%BB%E5%8F%A0%E5%8A%A0"><span class="toc-text">7.1 集中缓存 + 短路读叠加</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-2-Hedged-Read%EF%BC%9A%E5%AF%B9%E5%86%B2%E8%AF%BB%E7%A0%8D%E5%B0%BE%E9%83%A8%E5%BB%B6%E8%BF%9F"><span class="toc-text">7.2 Hedged Read：对冲读砍尾部延迟</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-3-io-file-buffer-size-%E4%B8%8E%E9%A2%84%E5%8F%96"><span class="toc-text">7.3 io.file.buffer.size 与预取</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-4-%E5%88%97%E5%BC%8F%E5%AD%98%E5%82%A8-%E8%B0%93%E8%AF%8D%E4%B8%8B%E6%8E%A8%EF%BC%9A%E4%BB%8E%E6%BA%90%E5%A4%B4%E5%87%8F%E5%B0%91%E8%AF%BB%E9%87%8F"><span class="toc-text">7.4 列式存储 + 谓词下推：从源头减少读量</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-5-%E5%B0%8F%E6%96%87%E4%BB%B6%E5%90%88%E5%B9%B6%EF%BC%9A%E6%B2%BB%E8%AF%BB%E6%94%BE%E5%A4%A7%E7%9A%84%E6%A0%B9"><span class="toc-text">7.5 小文件合并：治读放大的根</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81%E7%94%9F%E4%BA%A7%E8%B8%A9%E5%9D%91%E5%AE%9E%E5%BD%95"><span class="toc-text">八、生产踩坑实录</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-1%EF%BC%9Alocked-memory-%E9%85%8D%E9%A2%9D%E4%B8%8D%E8%B6%B3%EF%BC%8C%E7%BC%93%E5%AD%98%E9%9D%99%E9%BB%98%E5%A4%B1%E6%95%88"><span class="toc-text">坑 1：locked memory 配额不足，缓存静默失效</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-2%EF%BC%9A%E7%BC%93%E5%AD%98%E6%B1%A0%E6%9D%83%E9%99%90%E6%B7%B7%E4%B9%B1%EF%BC%8C%E4%B8%9A%E5%8A%A1%E4%BA%92%E7%9B%B8%E8%A6%86%E7%9B%96"><span class="toc-text">坑 2：缓存池权限混乱，业务互相覆盖</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-3%EF%BC%9A%E7%BC%93%E5%AD%98%E6%9C%AA%E5%91%BD%E4%B8%AD%E7%9A%84%E2%80%9D%E5%81%87%E5%91%BD%E4%B8%AD%E2%80%9D"><span class="toc-text">坑 3：缓存未命中的”假命中”</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%9D%91-4%EF%BC%9A%E7%BC%93%E5%AD%98%E5%A4%A7%E6%96%87%E4%BB%B6%E5%AF%BC%E8%87%B4%E5%86%85%E5%AD%98%E6%8C%A4%E5%8D%A0"><span class="toc-text">坑 4：缓存大文件导致内存挤占</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B9%9D%E3%80%81%E7%9B%91%E6%8E%A7%EF%BC%9A%E5%91%BD%E4%B8%AD%E7%8E%87%E3%80%81locked-memory%E3%80%81%E9%A9%B1%E9%80%90"><span class="toc-text">九、监控：命中率、locked memory、驱逐</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8D%81%E3%80%81%E5%B0%8F%E7%BB%93"><span class="toc-text">十、小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

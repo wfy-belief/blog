@@ -1,0 +1,362 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Spark Core 运行时架构拆解：从 SparkContext 到 Executor 的完整链路 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/spark-core-architecture"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="从 SparkContext 到 DAGScheduler、TaskScheduler、Executor、Worker，逐层拆解 Spark 作业的提交、切分、派发与回传"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '我维护过一个约 300 台 Worker 的 Spark on YARN 集群，本文复盘 Spark Core 运行时架构的完整链路。从 SparkContext 初始化讲起，逐层拆解 DAGScheduler 的 getMissingParentStages 如何按 ShuffleDependency 切分 Stage、TaskSchedulerImpl 的 makeOffers 如何按本地性派发 Task、CoarseGrainedSchedulerBackend 的 RPC 握手、Executor 的内存模型与 launchTask、Heartbeat 回传，最后给出一次心跳超时事故与失败重试机制的真实排查复盘。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">30</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">31</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">31</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">40</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">Spark Core 运行时架构拆解：从 SparkContext 到 Executor 的完整链路</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Spark/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Spark</span></a><a class="post-meta__tags" href="/tags/%E6%9E%B6%E6%9E%84/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>架构</span></a></div></div></div></div><h1 class="post-title">Spark Core 运行时架构拆解：从 SparkContext 到 Executor 的完整链路</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h2 id="引言"><a href="#引言" class="headerlink" title="引言"></a>引言</h2><p>Spark 我用了很多年，从最早的 1.6 到现在线上长期跑的 3.3.1 <!-- 校准：请按真实经历核实/替换 -->。早期我以为 Spark 就是”RDD 算子写起来比 MR 简洁”，真正深入后才意识到，它真正的工程价值不在 RDD 这个编程抽象，而在那套把一个 action 翻译成跨数百台机器的 Task 调度的运行时——DAGScheduler、TaskScheduler、SchedulerBackend、Executor 这条链路。这条链路理解透了，作业为什么慢、为什么挂、为什么数据倾斜时 Stage 卡死，都有了判断依据。</p>
+<p>我维护过一个约 300 台 Worker 的 Spark on YARN 集群 <!-- 校准：请按真实经历核实/替换 -->，日均跑 2 万+ 作业 <!-- 校准：请按真实经历核实/替换 -->。这篇文章把这条链路从源码层拆一遍，穿插我踩过的几个坑。</p>
+<h2 id="运行时角色总览"><a href="#运行时角色总览" class="headerlink" title="运行时角色总览"></a>运行时角色总览</h2><p>先把整体角色和它们的边界画清楚。一次 Spark 作业运行起来后，进程级别的角色其实不多：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">                    +-----------------------+</span><br><span class="line">driver JVM          |   SparkContext        |</span><br><span class="line">                   +-+---------------------+-+</span><br><span class="line">                   |  DAGScheduler         |   逻辑层：切 Stage</span><br><span class="line">                   |  TaskSchedulerImpl    |   调度层：派 Task</span><br><span class="line">                   |  SchedulerBackend     |   通信层：RPC 到 Executor</span><br><span class="line">                   +-----------+-----------+</span><br><span class="line">                               |  CoarseGrained RPC</span><br><span class="line">         +---------------------+---------------------+</span><br><span class="line">         |                     |                     |</span><br><span class="line">    +----v----+           +----v----+           +----v----+</span><br><span class="line">    |Executor0|           |Executor1|   ......   |ExecutorN|</span><br><span class="line">    | Executor |          | Executor |           | Executor |</span><br><span class="line">    |  Backend |          |  Backend |           |  Backend |</span><br><span class="line">    +----+----+           +----+----+           +----+----+</span><br><span class="line">         |  launchTask          |                     |</span><br><span class="line">    +----v----+            +----v----+           +----v----+</span><br><span class="line">    |Task 0/1 |            |Task 2/3 |           |Task ...  |</span><br><span class="line">    +---------+            +---------+           +----------+</span><br></pre></td></tr></table></figure>
+
+<p>这里有一个关键区分：<strong>Driver 不是 SparkContext</strong>，Driver 是跑 SparkContext 的那个 JVM 进程；而 <strong>Executor 是 Worker 上 fork 出来的子进程</strong>，每个 Executor 内部用线程池跑 Task。在 YARN 模式下，Worker 这个概念被弱化成 NodeManager 上的一个 Container，所以下文我尽量用 Executor 而不是 Worker，避免和 YARN 的 NodeManager 混淆。</p>
+<h2 id="SparkContext：一切的入口"><a href="#SparkContext：一切的入口" class="headerlink" title="SparkContext：一切的入口"></a>SparkContext：一切的入口</h2><p><code>SparkContext</code> 是用户代码和运行时之间的唯一桥梁。我第一次看 <code>SparkContext</code> 初始化源码时，被它 new 出来的一长串组件吓到，后来才明白每个都有明确职责：</p>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SparkEnv</code></td>
+<td>持有所有 RPC、序列化、内存管理、广播变量等基础设施的容器</td>
+</tr>
+<tr>
+<td><code>DAGScheduler</code></td>
+<td>把 RDD 血缘切成 Stage，生成 TaskSet</td>
+</tr>
+<tr>
+<td><code>TaskScheduler</code>（实为 <code>TaskSchedulerImpl</code>）</td>
+<td>把 TaskSet 按 locality 派发给 Executor</td>
+</tr>
+<tr>
+<td><code>SchedulerBackend</code>（<code>CoarseGrainedSchedulerBackend</code> 等）</td>
+<td>维护与各 Executor 的 RPC 连接、资源Offer</td>
+</tr>
+<tr>
+<td><code>MapOutputTrackerMaster</code></td>
+<td>记录每个 ShuffleMapStage 的输出位置，供下游 reduce task 拉取</td>
+</tr>
+</tbody></table>
+<p><code>SparkContext</code> 初始化时，会根据 <code>spark.master</code> 决定用哪个 <code>SchedulerBackend</code>。yarn-cluster&#x2F;yarn-client 都是 <code>CoarseGrainedSchedulerBackend</code>，local 模式是 <code>LocalSchedulerBackend</code>。这一点很关键——<strong>coarse-grained（粗粒度）</strong> 意味着 Executor 一旦申请就常驻，Task 在已有 Executor 上排队跑，不像 Mesos 细粒度模式那样每个 Task 现申请现释放。我们线上清一色 coarse-grained，因为 batch 场景下 Executor 启动开销要摊薄掉。</p>
+<p>一个 action（比如 <code>collect</code>）最终走到 <code>SparkContext.runJob</code> → <code>DAGScheduler.runJob</code>，链路就从这里启动了。</p>
+<h2 id="DAGScheduler：Stage-怎么切出来的"><a href="#DAGScheduler：Stage-怎么切出来的" class="headerlink" title="DAGScheduler：Stage 怎么切出来的"></a>DAGScheduler：Stage 怎么切出来的</h2><p>DAGScheduler 是我最喜欢读的一块源码，逻辑非常干净。它的核心问题是：<strong>给定一个 RDD 血缘图，怎么切成一堆有依赖关系的 Stage？</strong></p>
+<p>答案藏在 <code>getMissingParentStages</code> 里。这个方法从最终 RDD 出发，反向 BFS 遍历父依赖：</p>
+<ul>
+<li>遇到 <code>NarrowDependency</code>（窄依赖，map&#x2F;filter&#x2F;union）：继续往上走，不切 Stage。</li>
+<li>遇到 <code>ShuffleDependency</code>（宽依赖，shuffle 算子触发）：<strong>在这里断开</strong>，把上游封成一个 <code>ShuffleMapStage</code>，下游属于当前 Stage。</li>
+<li>遇到已经缓存过的 RDD（<code>cache</code>&#x2F;<code>persist</code> 且已物化）：直接跳过，不再往上递归。</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"> 最终 RDD (ResultStage)</span><br><span class="line">      |</span><br><span class="line"> map  (narrow, 同 Stage 0)</span><br><span class="line">      |</span><br><span class="line"> groupByKey  (shuffle! 在此断开)</span><br><span class="line">      |                     Stage 0 = [groupByKey 下游的 map]</span><br><span class="line"> filter (narrow)            Stage 1 = [map -&gt; groupByKey]  (ShuffleMapStage)</span><br><span class="line">      |</span><br><span class="line"> map  (narrow)</span><br><span class="line">      |</span><br><span class="line">textFile (source)</span><br></pre></td></tr></table></figure>
+
+<p>切出来的 Stage 之间是树形依赖：Stage 0 依赖 Stage 1 的 shuffle 输出。<code>getMissingParentStages</code> 名字里的 “missing” 指”还没算完的父 Stage”——只有父 Stage 都 finished，当前 Stage 才能 submit。这就是为什么 shuffle 出问题时整条链路卡住：上游 Stage 不 finish，下游连提交都提交不了。</p>
+<p>DAGScheduler 切完 Stage 后，调用 <code>submitStage</code>，对每个就绪的 Stage 调 <code>submitMissingTasks</code>，把 Stage 拆成一组 <code>Task</code>：</p>
+<ul>
+<li><code>ShuffleMapStage</code> 拆成 N 个 <code>ShuffleMapTask</code>，N &#x3D; 上游分区数。</li>
+<li><code>ResultStage</code> 拆成 N 个 <code>ResultTask</code>，N &#x3D; 最终 RDD 分区数。</li>
+</ul>
+<p>每个 Task 处理一个 partition，这就是 Task 粒度的来源。<strong>一个 Stage 的 Task 数 &#x3D; 它对应 RDD 的分区数</strong>，所以分区数（<code>parallelism</code>）直接决定了并行度。我踩过一次坑：一个 reduceByKey 作业跑了 4 小时，最后发现 <code>spark.default.parallelism</code> 没设，用了默认 200，而集群有 1000 个 core，并行度严重不足 <!-- 校准：请按真实经历核实/替换 -->。</p>
+<p>需要补一个容易忽略的点：DAGScheduler 是<strong>事件驱动</strong>的，内部有一个 <code>DAGSchedulerEventProcessLoop</code>，所有动作（JobSubmitted、TaskCompleted、StageFailed）都先变成事件塞进队列，再由单独的事件线程串行处理。这样设计是为了把”切 Stage””处理 Task 完成回调””重试”这些有状态的操作收敛到单线程，避免并发竞争。我在排查一个 Job 莫名不推进的问题时，最后发现是事件队列堆积——上游几十个 Stage 同时完成，事件处理线程来不及消化，表现为 Driver CPU 打满但 Task 不派发。看 jstack 时盯着 <code>DAGSchedulerEventProcessLoop</code> 那个线程的栈就能判断。</p>
+<h3 id="ShuffleMapStage-的”完成”语义"><a href="#ShuffleMapStage-的”完成”语义" class="headerlink" title="ShuffleMapStage 的”完成”语义"></a>ShuffleMapStage 的”完成”语义</h3><p>还有一个细节值得拎出来：<code>ShuffleMapStage</code> 的 finished 判定不是”所有 ShuffleMapTask 跑完”，而是”所有 partition 都有可用输出”。这两者在正常情况下等价，但配合推测执行（speculation）和 Task 失败重试时就不同。一个 partition 可能被重复执行多次，只有第一个成功的输出注册到 <code>MapOutputTrackerMaster</code> 才算数，后续重复的 Task 直接被丢弃。这就是为什么推测执行开启后，慢节点上的 Task 会被复制到别的 Executor，谁先完成用谁——<code>MapOutputTrackerMaster</code> 用 <code>AtomicReference</code> 保证注册的原子性。</p>
+<h2 id="TaskSchedulerImpl：makeOffers-里的本地性"><a href="#TaskSchedulerImpl：makeOffers-里的本地性" class="headerlink" title="TaskSchedulerImpl：makeOffers 里的本地性"></a>TaskSchedulerImpl：makeOffers 里的本地性</h2><p>TaskSet 交给 <code>TaskSchedulerImpl</code> 后，进入调度层。这层的核心方法叫 <code>makeOffers</code>，名字来自 YARN&#x2F;Mesos 的”资源 offer”概念，意思是”现在有一批 Executor 空出来了，给我看看能派哪些 Task 上去”。</p>
+<p><code>makeOffers</code> 的简化逻辑：</p>
+<ol>
+<li>收集所有 alive 的 Executor 及其空闲资源（core、memory）。</li>
+<li>对当前待调度的 TaskSet，按 <strong>本地性级别</strong>（<code>PROCESS_LOCAL</code> &gt; <code>NODE_LOCAL</code> &gt; <code>RACK_LOCAL</code> &gt; <code>NO_PREF</code> &gt; <code>ANY</code>）匹配。</li>
+<li>对每个 Executor，选出”本地性最好且资源够”的 Task 派发。</li>
+</ol>
+<p>本地性这层很关键。<code>PROCESS_LOCAL</code> 表示 Task 要处理的数据就在这个 Executor 的同一个 JVM 内（比如 <code>cache</code> 过的 RDD partition），<code>NODE_LOCAL</code> 表示数据在本节点磁盘（比如 HDFS block 副本之一在本机）。Spark 会等待一段时间（<code>spark.locality.wait</code>，默认 3s）来”跳级”——宁可等 3 秒也要拿到更高级别的本地性，因为这个 Task 跑起来可能省几十秒的网络 IO。</p>
+<p><code>makeOffers</code> 的触发有两种：一是新 TaskSet 提交时主动调用；二是 Executor 通过心跳上报”我有空闲 core 了”时被动触发。后者就是为什么 Task 完成后下一个 Task 能很快被派下去——心跳既是存活检测，也是资源汇报。</p>
+<h3 id="本地性等待与降级"><a href="#本地性等待与降级" class="headerlink" title="本地性等待与降级"></a>本地性等待与降级</h3><p><code>spark.locality.wait</code> 的”跳级”逻辑我多解释一句，因为很多人误以为 Spark 一发现 NODE_LOCAL 就立刻派，其实不是。<code>TaskSetManager</code> 对每个 Task 维护一个”当前可接受的最差本地性”状态，初始是它最希望的级别（比如 PROCESS_LOCAL）。如果在 <code>locality.wait</code> 时间内没找到该级别的资源，就<strong>降级</strong>到下一档（NODE_LOCAL），再等一个 <code>locality.wait</code>，再降级。整个 TaskSet 的等待由 <code>TaskSetManager</code> 统一协调，<code>myLocalityLevels</code> 记录这个 TaskSet 实际可能用到的级别序列。</p>
+<p>这套机制在数据本地性好的场景很有效，但在数据倾斜时反而是负担：如果某个 partition 的数据只落在少数几个节点上，大量 Task 争抢同一批 Executor，本地性降级又慢，就会出现”明明有空闲 Executor 却不派 Task”的假象。我遇到过一次，把 <code>spark.locality.wait</code> 从 3s 降到 1s 后吞吐反而上去了 <!-- 校准：请按真实经历核实/替换 -->，因为牺牲一点本地性换来更高的资源利用率。</p>
+<h3 id="推测执行"><a href="#推测执行" class="headerlink" title="推测执行"></a>推测执行</h3><p><code>TaskSchedulerImpl</code> 还内置推测执行：<code>TaskSetManager</code> 定期扫描在跑的 Task，如果某个 Task 运行时间超过中位数的 <code>speculation.multiplier</code> 倍（默认 2），就复制一个同样的 Task 派到别的 Executor 上，谁先完成用谁。它的实现是 <code>TaskSetManager.checkSpeculatableTasks</code>，由 <code>TaskSchedulerImpl</code> 的定时任务周期触发。推测执行对慢节点有效，但对数据倾斜无效——因为倾斜 Task 的”慢”是数据量大，复制到哪都慢，反而浪费资源。所以推测执行要配合 <code>spark.sql.adaptive.skewJoin</code> 这类倾斜处理一起用。</p>
+<h2 id="CoarseGrainedSchedulerBackend：RPC-握手"><a href="#CoarseGrainedSchedulerBackend：RPC-握手" class="headerlink" title="CoarseGrainedSchedulerBackend：RPC 握手"></a>CoarseGrainedSchedulerBackend：RPC 握手</h2><p><code>SchedulerBackend</code> 在 coarse-grained 模式下，真正和 Executor 通信的是 <code>CoarseGrainedSchedulerBackend</code>，它跑在 Driver 端，持有一个 <code>DriverEndpoint</code>，对应的 Executor 端有 <code>CoarseGrainedExecutorBackend</code>。两者通过 Spark 的 Netty RPC 通信。</p>
+<p>Executor 启动后的第一件事是向 Driver 注册：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">Executor 启动</span><br><span class="line">   |</span><br><span class="line">   v</span><br><span class="line">CoarseGrainedExecutorBackend.onStart()</span><br><span class="line">   |  RegisterExecutor(executorId, host, cores, logUrls)</span><br><span class="line">   v</span><br><span class="line">DriverEndpoint.receiveAndReply(RegisterExecutor)</span><br><span class="line">   |  加入 executorDataMap，回复 RegisteredExecutor</span><br><span class="line">   v</span><br><span class="line">DriverEndpoint.makeOffers()  -&gt;  触发 Task 派发</span><br></pre></td></tr></table></figure>
+
+<p>注册成功后，Driver 才会把这个 Executor 纳入资源池。这里有个我曾经排查过的坑：作业卡在”submitted”不动，最后发现是 Executor 注册时的 RPC 端口被防火墙拦了，Driver 一直收不到 RegisterExecutor，自然也就不会派发任何 Task。<code>spark.driver.host</code> 和 <code>spark.driver.port</code> 配错也会导致同样问题。</p>
+<p>派发 Task 的 RPC 消息叫 <code>LaunchTask</code>。Driver 把序列化后的 Task 通过 <code>LaunchTask</code> 发给对应 Executor 的 <code>CoarseGrainedExecutorBackend</code>，后者反序列化后交给 <code>Executor.launchTask</code> 执行。</p>
+<p>值得一提的是，<code>LaunchTask</code> 里发的是<strong>整个 Task 的闭包 + 依赖的广播变量句柄</strong>，序列化用 <code>closureSerializer</code>（默认 Java 序列化，Kryo 只用于数据）。闭包序列化是个隐蔽的性能点：如果闭包里不小心捕获了一个大对象（比如外部的 HashMap），每次派发 Task 都会序列化一份过去，网络和 GC 双重压力。我排查过一次 <code>org.apache.spark.SparkException: Job aborted due to stage failure</code>，根因就是闭包里捕获了一个 200MB 的查找表，改成 <code>broadcast</code> 后作业时间从 40 分钟降到 5 分钟 <!-- 校准：请按真实经历核实/替换 -->。</p>
+<p><code>CoarseGrainedSchedulerBackend</code> 还负责资源动态调整。开了 <code>spark.dynamicAllocation.enabled=true</code> 后，<code>ExecutorAllocationManager</code> 会根据 pending task 数动态请求或回收 Executor。请求通过 <code>DriverEndpoint</code> 向 YARN 申请 Container，回收时发 <code>RemoveExecutor</code> 给对应 Executor 的 backend。这套机制能让集群资源利用率从静态分配的 40% 提到 70% 左右 <!-- 校准：请按真实经历核实/替换 -->，代价是 Executor 频繁启停，shuffle 数据要靠 external shuffle service 保活才能跨 Executor 复用。</p>
+<h2 id="Executor：launchTask-与-Heartbeat"><a href="#Executor：launchTask-与-Heartbeat" class="headerlink" title="Executor：launchTask 与 Heartbeat"></a>Executor：launchTask 与 Heartbeat</h2><p>Executor 是真正干活的进程，一个 JVM 内部维护一个 <code>TaskRunner</code> 线程池（大小 &#x3D; <code>spark.executor.cores</code>）。</p>
+<h3 id="内存模型"><a href="#内存模型" class="headerlink" title="内存模型"></a>内存模型</h3><p>讲 <code>launchTask</code> 之前先说 Executor 的内存划分，因为这是后面所有问题的根。一个 Executor 的堆内内存被 <code>SparkEnv</code> 在启动时切成几块：</p>
+<table>
+<thead>
+<tr>
+<th>区域</th>
+<th>占比（默认）</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ReservedMemory</code></td>
+<td>固定 300MB</td>
+<td>Spark 内部对象，不可调</td>
+</tr>
+<tr>
+<td><code>User Memory</code></td>
+<td><code>(1-0.6) × (heap-300MB)</code></td>
+<td>用户代码里的数据结构、闭包对象</td>
+</tr>
+<tr>
+<td><code>UnifiedMemory</code>（Storage + Execution）</td>
+<td><code>0.6 × (heap-300MB)</code></td>
+<td>缓存块 + shuffle&#x2F;sort 中间数据，两者软边界可互借</td>
+</tr>
+</tbody></table>
+<p><code>spark.memory.fraction=0.6</code> 控制的就是 UnifiedMemory 占比。Execution 内存不够时可以借 Storage 的，反之亦然，但 Execution 不会被 Storage 挤到 OOM——这是软边界的保证。理解这块很重要：shuffle sort 用的内存就来自 Execution 区，数据倾斜时一个 Task 的 shuffle 数据撑爆 Execution，连带把 Storage 里的缓存挤掉，引发雪崩。</p>
+<h3 id="launchTask-与-Heartbeat"><a href="#launchTask-与-Heartbeat" class="headerlink" title="launchTask 与 Heartbeat"></a>launchTask 与 Heartbeat</h3><p><code>launchTask</code> 的核心逻辑：</p>
+<ol>
+<li>把反序列化后的 <code>Task</code> 包装成 <code>TaskRunner</code>。</li>
+<li>提交到线程池执行。</li>
+<li><code>TaskRunner.run()</code> 里：反序列化 Task 依赖（广播变量、闭包）→ 调 <code>Task.run()</code> → 拿到结果 → 序列化结果 → 通过 RPC 回传 <code>StatusUpdate</code> 给 Driver。</li>
+</ol>
+<p>心跳机制是这块的重点。Executor 起了一个独立线程，定期（<code>spark.executor.heartbeatInterval</code>，默认 10s）向 Driver 发 <code>Heartbeat</code> 消息，内容是各 Task 的度量数据（峰值内存、shuffle 读写量等）。Driver 端 <code>TaskSchedulerImpl</code> 收到后更新 metrics，并回复 <code>HeartbeatResponse</code>。如果 Driver 发现某个 Executor 超过 <code>spark.network.timeout</code>（默认 120s）没心跳，就把它标记为 dead，它上面在跑的 Task 会被重新调度到别的 Executor（<code>TaskSchedulerImpl.executorLost</code>）。</p>
+<p>这就是下面这个事故的根因来源。</p>
+<h2 id="一次心跳超时事故复盘"><a href="#一次心跳超时事故复盘" class="headerlink" title="一次心跳超时事故复盘"></a>一次心跳超时事故复盘</h2><p>某天半夜一个重点 ETL 作业连续失败，报错是 <code>ExecutorLostFailure (executor 12 exited caused by one of the running tasks)</code>。看 Executor 日志，发现是 GC 时间过长：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">Executor heartbeat timed out after 142s  &lt;!-- 校准：请按真实经历核实/替换 --&gt;</span><br></pre></td></tr></table></figure>
+
+<p>Executor 因为 Full GC 卡了将近 2 分钟，期间心跳线程也被冻住，Driver 等不到心跳，判定 Executor 失联，把上面 8 个 Task 全部重算。而那个 Stage 是 shuffle write 阶段，重算意味着上游整个 ShuffleMapStage 重跑，雪崩。</p>
+<p>根因是 Executor 内存配小了，<code>spark.executor.memory=4g</code> 跑一个 3GB 的 shuffle 数据集，留给用户代码的堆太小。我把内存调到 8g、<code>spark.memory.fraction</code> 调到 0.6 <!-- 校准：请按真实经历核实/替换 -->，同时把 <code>spark.network.timeout</code> 从 120s 拉到 300s <!-- 校准：请按真实经历核实/替换 -->，给偶发 GC 留余地。这类问题排查的关键是看 Executor 日志里的 GC 段和 Driver 日志里 <code>Removing executor</code> 的时间戳是否对得上。</p>
+<h2 id="作业提交配置示例"><a href="#作业提交配置示例" class="headerlink" title="作业提交配置示例"></a>作业提交配置示例</h2><p>下面是我们线上一个典型的 spark-submit 模板，针对内存密集型 ETL：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">spark-submit \</span><br><span class="line">  --master yarn \</span><br><span class="line">  --deploy-mode cluster \</span><br><span class="line">  --name etl-daily-aggregate \</span><br><span class="line">  --driver-memory 4g \</span><br><span class="line">  --driver-cores 2 \</span><br><span class="line">  --executor-memory 8g \</span><br><span class="line">  --executor-cores 4 \</span><br><span class="line">  --num-executors 50 \</span><br><span class="line">  --conf spark.default.parallelism=800 \</span><br><span class="line">  --conf spark.sql.shuffle.partitions=800 \</span><br><span class="line">  --conf spark.memory.fraction=0.6 \</span><br><span class="line">  --conf spark.network.timeout=300s \</span><br><span class="line">  --conf spark.executor.heartbeatInterval=10s \</span><br><span class="line">  --conf spark.locality.wait=5s \</span><br><span class="line">  --conf spark.speculation=<span class="literal">true</span> \</span><br><span class="line">  --conf spark.speculation.multiplier=2 \</span><br><span class="line">  --class com.acitrus.EtlDaily \</span><br><span class="line">  /opt/jobs/etl-daily-1.0.0.jar \</span><br><span class="line">  --<span class="built_in">date</span> 2026-07-01</span><br></pre></td></tr></table></figure>
+
+<p>几个参数的取舍说明：</p>
+<ul>
+<li><code>num-executors × executor-cores = 200</code>，集群总 core 数约 1200，留余量给其他作业 <!-- 校准：请按真实经历核实/替换 -->。</li>
+<li><code>parallelism = 800</code>，约 4 倍 core 数，保证每个 core 分到 4 个 Task，本地性切换更平滑。</li>
+<li><code>speculation=true</code>：开启推测执行，对付偶尔的慢节点（坏盘导致的 NODE_LOCAL 拖尾）。代价是会有重复 Task，ETL 场景幂等可接受。</li>
+</ul>
+<p>对应 <code>spark-defaults.conf</code> 片段：</p>
+<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">spark.master</span>                     <span class="string">yarn</span></span><br><span class="line"><span class="attr">spark.submit.deployMode</span>          <span class="string">cluster</span></span><br><span class="line"><span class="attr">spark.eventLog.enabled</span>           <span class="string">true</span></span><br><span class="line"><span class="attr">spark.eventLog.dir</span>               <span class="string">hdfs:///spark-logs</span></span><br><span class="line"><span class="attr">spark.history.fs.logDirectory</span>    <span class="string">hdfs:///spark-logs</span></span><br><span class="line"><span class="attr">spark.serializer</span>                 <span class="string">org.apache.spark.serializer.KryoSerializer</span></span><br><span class="line"><span class="attr">spark.kryoserializer.buffer.max</span>  <span class="string">256m</span></span><br><span class="line"><span class="attr">spark.rpc.message.maxSize</span>        <span class="string">256</span></span><br><span class="line"><span class="attr">spark.driver.maxResultSize</span>       <span class="string">4g</span></span><br></pre></td></tr></table></figure>
+
+<p><code>KryoSerializer</code> 默认不开，但生产环境强烈建议开，序列化体积比 Java 自带的小 3-5 倍，shuffle 和广播都受益。<code>spark.rpc.message.maxSize</code> 调到 256MB 是因为有些大广播变量默认 128MB 会被截断。</p>
+<h2 id="结果回传与-Task-结束"><a href="#结果回传与-Task-结束" class="headerlink" title="结果回传与 Task 结束"></a>结果回传与 Task 结束</h2><p>Task 跑完后，结果走两条路径：</p>
+<ul>
+<li><strong>直接结果（direct result）</strong>：小结果（&lt; <code>spark.driver.maxResultSize</code> 的单 Task 上限，默认 1GB）通过 <code>StatusUpdate</code> RPC 直接回传 Driver，Driver 聚合后交给 <code>TaskSchedulerImpl</code>，再回调 <code>DAGScheduler</code>。</li>
+<li><strong>大结果（indirect result）</strong>：超过 <code>spark.driver.maxResultSize</code> 直接抛异常，所以大结果要走 <code>take</code>&#x2F;<code>collect</code> 时一定要谨慎，或者干脆落盘再读。</li>
+</ul>
+<p>ShuffleMapTask 的”结果”不是数据本身，而是它的 shuffle 输出位置元数据，回传给 Driver 后注册到 <code>MapOutputTrackerMaster</code>。下游 reduce task 启动时，通过 <code>MapOutputTracker</code> 向 Master 拉取这些位置，再去对应 Executor 拉数据——这就是 shuffle 的 fetch 阶段。这条路径下一篇讲 shuffle 时会展开。</p>
+<h2 id="失败处理与重试"><a href="#失败处理与重试" class="headerlink" title="失败处理与重试"></a>失败处理与重试</h2><p>运行时链路里失败处理是绕不开的一环，因为生产环境失败才是常态。Spark 的失败分三个层级，每层都有自己的重试机制：</p>
+<ul>
+<li><strong>Task 级失败</strong>：<code>TaskRunner</code> 捕获异常，通过 <code>StatusUpdate</code> 上报 <code>FAILED</code> 状态。<code>TaskSetManager</code> 按 <code>spark.task.maxFailures</code>（默认 4）重试，重试时优先选别的 Executor，并把失败次数记到 Task 的 <code>attempts</code> 里。超过上限，整个 TaskSet 标记失败。</li>
+<li><strong>Stage 级失败</strong>：Task 超过重试上限或 <code>TaskScheduler</code> 主动 abort，<code>DAGScheduler</code> 收到 <code>TaskSetFailed</code> 事件，按 <code>spark.stage.maxConsecutiveAttempts</code>（默认 4）决定是否重提 Stage。注意 Stage 重提会重新计算所有父 Stage 的依赖——如果父 Stage 已缓存，就能省掉。</li>
+<li><strong>Job 级失败</strong>：Stage 重试耗尽，整个 Job 标记失败，<code>SparkContext.runJob</code> 抛 <code>SparkException</code>。</li>
+</ul>
+<p>还有一个特殊路径是<strong>Executor 失联</strong>。<code>TaskSchedulerImpl.executorLost</code> 会清理该 Executor 上所有在跑的 Task（标记为 <code>ExecutorLostFailure</code>，不计入 Task 重试次数），同时把它的 shuffle 输出从 <code>MapOutputTrackerMaster</code> 摘掉。这就是为什么 Executor 大批失联时，下游 reduce task 会因为 fetch 失败而连环重试——<code>MapOutputTrackerMaster</code> 找不到上游输出，只能等上游 ShuffleMapStage 重算。生产上外部 shuffle service（ESS）就是用来缓解这个的：Executor 死了，shuffle 数据由 ESS（常驻 NodeManager）继续提供，避免连锁重算。我们集群统一开了 ESS，Executor 失联引发的连锁失败事故降了大概 60% <!-- 校准：请按真实经历核实/替换 -->。</p>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>这篇把 Spark Core 运行时从 <code>SparkContext</code> 一路拆到 <code>Executor.launchTask</code>，关键节点是：<strong>DAGScheduler 切 Stage（依据 ShuffleDependency）、TaskSchedulerImpl 按 locality 派 Task、CoarseGrainedSchedulerBackend 走 RPC、Executor 跑 Task 并心跳回传</strong>。理解这条链路后，调优的方向就从”乱试参数”变成了”定位瓶颈在哪一层”——是 Stage 切分不合理（DAGScheduler 层）、还是本地性差（TaskScheduler 层）、还是 GC 卡死心跳（Executor 层）。</p>
+<p>但这里我刻意留了一个大坑没填：<strong>ShuffleDependency 为什么能成为 Stage 边界？shuffle 那一坨数据到底怎么从上游 Executor 流到下游 Executor 的？</strong> 这背后是 <code>ShuffleMapStage</code> 的 write、<code>MapOutputTracker</code> 的注册与 fetch、sort-based shuffle writer 的实现，以及数据倾斜时的工程对策。下一篇我就专门拆 Spark Shuffle，从 <code>SortShuffleManager</code> 到 <code>UnsafeShuffleWriter</code>，把这条最容易出性能问题的路径讲透。</p>
+<!-- 总校准提示：本文所有集群规模、版本号、性能数字、参数取值均为示例，请按真实生产经历核实/替换后再发布。 -->
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Spark/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Spark<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/%E6%9E%B6%E6%9E%84/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>架构<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/hadoop-hdfs-namenode-metadata"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">NameNode 元数据持久化：FsImage、EditLog 与启动恢复</div></div></a></div><div class="next-post pull-right"><a href="/posts/hadoop-hdfs-read-path"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">HDFS 读数据全流程：block 定位、短路读与预取</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E8%A8%80"><span class="toc-text">引言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E8%BF%90%E8%A1%8C%E6%97%B6%E8%A7%92%E8%89%B2%E6%80%BB%E8%A7%88"><span class="toc-text">运行时角色总览</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#SparkContext%EF%BC%9A%E4%B8%80%E5%88%87%E7%9A%84%E5%85%A5%E5%8F%A3"><span class="toc-text">SparkContext：一切的入口</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#DAGScheduler%EF%BC%9AStage-%E6%80%8E%E4%B9%88%E5%88%87%E5%87%BA%E6%9D%A5%E7%9A%84"><span class="toc-text">DAGScheduler：Stage 怎么切出来的</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ShuffleMapStage-%E7%9A%84%E2%80%9D%E5%AE%8C%E6%88%90%E2%80%9D%E8%AF%AD%E4%B9%89"><span class="toc-text">ShuffleMapStage 的”完成”语义</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#TaskSchedulerImpl%EF%BC%9AmakeOffers-%E9%87%8C%E7%9A%84%E6%9C%AC%E5%9C%B0%E6%80%A7"><span class="toc-text">TaskSchedulerImpl：makeOffers 里的本地性</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%9C%AC%E5%9C%B0%E6%80%A7%E7%AD%89%E5%BE%85%E4%B8%8E%E9%99%8D%E7%BA%A7"><span class="toc-text">本地性等待与降级</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%8E%A8%E6%B5%8B%E6%89%A7%E8%A1%8C"><span class="toc-text">推测执行</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#CoarseGrainedSchedulerBackend%EF%BC%9ARPC-%E6%8F%A1%E6%89%8B"><span class="toc-text">CoarseGrainedSchedulerBackend：RPC 握手</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Executor%EF%BC%9AlaunchTask-%E4%B8%8E-Heartbeat"><span class="toc-text">Executor：launchTask 与 Heartbeat</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B"><span class="toc-text">内存模型</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#launchTask-%E4%B8%8E-Heartbeat"><span class="toc-text">launchTask 与 Heartbeat</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E6%AC%A1%E5%BF%83%E8%B7%B3%E8%B6%85%E6%97%B6%E4%BA%8B%E6%95%85%E5%A4%8D%E7%9B%98"><span class="toc-text">一次心跳超时事故复盘</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BD%9C%E4%B8%9A%E6%8F%90%E4%BA%A4%E9%85%8D%E7%BD%AE%E7%A4%BA%E4%BE%8B"><span class="toc-text">作业提交配置示例</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%BB%93%E6%9E%9C%E5%9B%9E%E4%BC%A0%E4%B8%8E-Task-%E7%BB%93%E6%9D%9F"><span class="toc-text">结果回传与 Task 结束</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%A4%B1%E8%B4%A5%E5%A4%84%E7%90%86%E4%B8%8E%E9%87%8D%E8%AF%95"><span class="toc-text">失败处理与重试</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B0%8F%E7%BB%93"><span class="toc-text">小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

@@ -1,0 +1,378 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RDD 抽象与 lineage 容错：从五大特性到迭代场景的血缘治理 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/spark-rdd-lineage"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="从 RDD 五大特性到窄宽依赖、lineage 重算、persist&amp;#x2F;cache&amp;#x2F;checkpoint 取舍与迭代血缘治理"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文以第一人称复盘 Spark RDD 抽象：从五大特性、窄宽依赖的 stage 划分、分区与算子并行度，到 lineage 重算容错，再落到 persist/cache/checkpoint 三种固化手段取舍，最后剖析迭代场景血缘链过长的 OOM 与调度栈风险及周期性 checkpoint 治理。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">30</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">31</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">31</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">40</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">RDD 抽象与 lineage 容错：从五大特性到迭代场景的血缘治理</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Spark/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Spark</span></a><a class="post-meta__tags" href="/tags/RDD/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>RDD</span></a></div></div></div></div><h1 class="post-title">RDD 抽象与 lineage 容错：从五大特性到迭代场景的血缘治理</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h1 id="RDD-抽象与-lineage-容错：从五大特性到迭代场景的血缘治理"><a href="#RDD-抽象与-lineage-容错：从五大特性到迭代场景的血缘治理" class="headerlink" title="RDD 抽象与 lineage 容错：从五大特性到迭代场景的血缘治理"></a>RDD 抽象与 lineage 容错：从五大特性到迭代场景的血缘治理</h1><h2 id="一、引言：Spark-蹚过这么多坑，最终还是绕回-RDD"><a href="#一、引言：Spark-蹚过这么多坑，最终还是绕回-RDD" class="headerlink" title="一、引言：Spark 蹚过这么多坑，最终还是绕回 RDD"></a>一、引言：Spark 蹚过这么多坑，最终还是绕回 RDD</h2><p>这几年我做的离线链路基本都跑在 Spark SQL 和 DataFrame 上，写原生 RDD 的机会越来越少。但每次线上出事——一个跑了三个小时的作业因为某个 Executor OOM 挂掉、整条链路从头重算；一个迭代算法跑到第 40 轮突然 <code>StackOverflowError</code>；一个 checkpoint 写盘把 NameNode RPC 打爆——最后都得回到 RDD 这一层来解释。</p>
+<p>原因很朴素：<strong>DataFrame &#x2F; Dataset 的物理计划再聪明，落到执行层仍然是 RDD 的 transform 和 action</strong>。Catalyst 优化掉的是冗余算子，Tungsten 加速的是单算子执行，但容错模型、shuffle 边界、缓存与重算的取舍，全都还压在 RDD 这套抽象上。不理解 RDD，遇到 Stage 重试、缓存丢失、lineage 风暴这类问题就只能瞎试参数。这篇文章把我过去几年在 Spark 上踩过的与 RDD 直接相关的坑复盘一遍，重点放在五大特性、依赖与 stage、lineage 重算、persist&#x2F;checkpoint 的取舍，以及迭代场景里血缘过长这个容易被忽视的杀手。</p>
+<h2 id="二、五大特性：不只是”弹性分布式数据集”这句口号"><a href="#二、五大特性：不只是”弹性分布式数据集”这句口号" class="headerlink" title="二、五大特性：不只是”弹性分布式数据集”这句口号"></a>二、五大特性：不只是”弹性分布式数据集”这句口号</h2><p>RDD 的论文定义只有一句——只读、分区、可容错的抽象。但真正决定它行为的，是源码里那五条特性。我每次面试都会问，能答全的人不多。</p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>含义</th>
+<th>由谁决定</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>partitions</td>
+<td>一组分区，是并行度的物理单元</td>
+<td><code>getPartitions</code>，由 InputFormat &#x2F; shuffle 决定</td>
+</tr>
+<tr>
+<td>compute</td>
+<td>每个分区的计算函数</td>
+<td><code>compute(split, context)</code>，无需落盘即可重算</td>
+</tr>
+<tr>
+<td>dependencies</td>
+<td>对父 RDD 的依赖列表</td>
+<td><code>getDependencies</code>，窄&#x2F;宽依赖的分水岭</td>
+</tr>
+<tr>
+<td>partitioner</td>
+<td>KV 类型 RDD 的分区器（可选）</td>
+<td>HashPartitioner &#x2F; RangePartitioner</td>
+</tr>
+<tr>
+<td>preferredLocations</td>
+<td>每个分区的偏好位置（可选）</td>
+<td>数据本地性 hints</td>
+</tr>
+</tbody></table>
+<p>这五条里，<strong>dependencies 是容错的根，partitioner 是 shuffle 的根，compute 是重算的根</strong>。其余两条服务于并行度和本地性。理解 RDD 不要从”弹性”这个营销词入手，要从这三条入手。</p>
+<p>一个关键认知：<strong>RDD 本身不存数据</strong>。它只存”怎么算出来”的描述。真正有数据的是被 <code>persist</code> 或 <code>cache</code> 物化过的分区，以及 source（HDFS 文件等）。这是 lineage 容错能够成立的前提——只要描述在，数据随时可重算。</p>
+<p>这里要多说一句 <code>preferredLocations</code>。它返回一个分区偏好跑在哪些 Executor 上（HDFS 块所在节点、<code>RDDCheckpointLocation</code> 等）。TaskScheduler 调度时会按 <code>PROCESS_LOCAL → NODE_LOCAL → RACK_LOCAL → ANY</code> 的层级降级等待，超时就跨层级。我曾排过一个作业 map 阶段比预期慢 3 倍，最后定位是上游 HDFS 文件被一次 <code>hdfs balancer</code> 重新分布后块位置变了，而 RDD 的 <code>preferredLocations</code> 还指向旧节点，导致大量 task 退化成 <code>ANY</code> 跨网络读。理解本地性这一层，对排”明明没倾斜但就是慢”的作业非常关键。</p>
+<h2 id="三、窄依赖-vs-宽依赖：stage-划分的唯一依据"><a href="#三、窄依赖-vs-宽依赖：stage-划分的唯一依据" class="headerlink" title="三、窄依赖 vs 宽依赖：stage 划分的唯一依据"></a>三、窄依赖 vs 宽依赖：stage 划分的唯一依据</h2><p>DAGScheduler 切分 stage，依据只有一条：<strong>遇到宽依赖就断开</strong>。窄依赖可以 pipeline 进同一个 stage，宽依赖必须落 shuffle boundary。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"> 窄依赖 (map / filter / union)         宽依赖 (groupByKey / reduceByKey / join)</span><br><span class="line"></span><br><span class="line"> 父 RDD            子 RDD              父 RDD            子 RDD</span><br><span class="line">+------+         +------+            +------+---------+------+</span><br><span class="line">| P0   |--map---&gt;| P0&#x27;  |            | P0   |  \  /   | P0&#x27;  |</span><br><span class="line">+------+         +------+            +------+   X     +------+</span><br><span class="line">| P1   |--map---&gt;| P1&#x27;  |            | P1   |  /  \   | P1&#x27;  |</span><br><span class="line">+------+         +------+            +------+         +------+</span><br><span class="line">| P2   |--map---&gt;| P2&#x27;  |            | P2   |----\    | P2&#x27;  |</span><br><span class="line">+------+         +------+            +------+         +------+</span><br><span class="line">                                        shuffle boundary</span><br><span class="line">                                     (按 key 重分布，必须落盘/网络洗牌)</span><br><span class="line"> 父子分区一对一/一对多                父分区被多个子分区消费</span><br><span class="line"> 失败只需重算对应父分区                失败需重算所有父分区</span><br></pre></td></tr></table></figure>
+
+<p>源码里这层抽象是 <code>Dependency[T]</code>，分两支：</p>
+<ul>
+<li><code>NarrowDependency</code>（窄依赖）：抽象类，核心方法是 <code>getParents(partitionId): Seq[Int]</code>，返回这个子分区依赖哪些父分区。它的两个实现是 <code>OneToOneDependency</code>（map &#x2F; filter，父分区号等于子分区号）和 <code>RangeDependency</code>（<code>union</code> 算子用，一段连续父分区映射到一段子分区）。窄依赖的好处是父分区数据可在本地管道消费，不落 shuffle。</li>
+<li><code>ShuffleDependency</code>（宽依赖）：携带 <code>partitioner</code>、<code>serializer</code>、<code>mapSideCombine</code>、<code>shuffleId</code>、<code>keyOrdering</code> 等信息。一旦出现，DAGScheduler 就以此为界生成 <code>ShuffleMapStage</code>，子 stage 作为 <code>ResultStage</code> 或下一个 <code>ShuffleMapStage</code> 的输入。这里有个性能细节：<code>mapSideCombine</code> 默认对 <code>reduceByKey</code> 开、对 <code>groupByKey</code> 关。开了 map 端预聚合能把 map 输出字节数压一个数量级，但前提是聚合函数满足结合律。把 <code>groupByKey</code> 强行加 combiner 是没用的——它没有可结合的聚合函数，这也是为什么 <code>groupByKey</code> 永远是性能黑洞，能用 <code>reduceByKey</code> &#x2F; <code>aggregateByKey</code> 就别用 <code>groupByKey</code>。</li>
+</ul>
+<p>这里有个常被忽略的细节：<strong><code>coalesce</code> 默认是窄依赖，但 <code>shuffle=true</code> 时变宽</strong>。我曾在压缩分区数时忘了加 <code>shuffle=true</code>，结果上游 2000 个分区里的数据被强行塞进下游 200 个分区，绝大多数分区数据分布严重不均，长尾 task 一堆。正确写法是 <code>repartition</code>（等价 <code>coalesce(n, shuffle=true)</code>），让数据真的走一次 shuffle 重分布。</p>
+<p>还有一类容易被误判的——<strong><code>join</code> 不一定是宽依赖</strong>。如果两张表已经同 partitioner 且同分区数，Spark 会走 <code>CoGroupedRDD</code> 的窄依赖路径（<code>PartitionwiseSampledRDD</code> 之类），不走 shuffle。这是 BroadcastHashJoin 之外另一条”免 shuffle join”的路，但前提是分区对齐，生产里得显式 <code>repartition</code> 好。</p>
+<h2 id="四、分区与算子：并行度的物理表达"><a href="#四、分区与算子：并行度的物理表达" class="headerlink" title="四、分区与算子：并行度的物理表达"></a>四、分区与算子：并行度的物理表达</h2><p>分区数直接决定 task 数，task 数过多则调度开销大、JVM 启动占比高；过少则并行度低、长尾严重。我的经验阈值：</p>
+<ul>
+<li><code>spark.default.parallelism</code>：给非 SQL RDD 作业用，一般设为 executor core 总数的 2~3 倍 <!-- 校准：请按真实经历核实/替换 -->。</li>
+<li><code>spark.sql.shuffle.partitions</code>：给 DataFrame&#x2F;SQL 用，默认 200 在任何正经规模都太小，我们生产设 2000 <!-- 校准：请按真实经历核实/替换 -->，再配合 AQE 自适应压缩。</li>
+</ul>
+<p>算子分两类：<code>transform</code> 惰性、<code>action</code> 触发。下面是我常用的一个 RDD 算子链骨架，把过滤、映射、聚合、排序串起来：</p>
+<figure class="highlight scala"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">val</span> topUsers = sc.textFile(<span class="string">&quot;hdfs:///logs/2026-07-01/*&quot;</span>)</span><br><span class="line">  .filter(_.contains(<span class="string">&quot;ERROR&quot;</span>))</span><br><span class="line">  .map(line =&gt; (line.split(<span class="string">&quot;\t&quot;</span>)(<span class="number">1</span>), <span class="number">1</span>))</span><br><span class="line">  .reduceByKey(_ + _, <span class="number">2000</span>)        <span class="comment">// 显式给分区数，避免默认值失控</span></span><br><span class="line">  .sortByKey(ascending = <span class="literal">false</span>)    <span class="comment">// 触发一次 RangePartitioner 的采样</span></span><br><span class="line"></span><br><span class="line">topUsers.take(<span class="number">10</span>).foreach(println)</span><br></pre></td></tr></table></figure>
+
+<p>这里 <code>sortByKey</code> 背后是 <code>OrderedRDDFunctions</code> 隐式增强 + <code>RangePartitioner</code>：它先对父 RDD 分区做水塘采样，估出分位边界，再按边界把 key 分到各分区，使每个分区内部有序、分区之间也有序。这就是所谓的 <strong>OrderedRDD 语义</strong>——<code>sortByKey</code> 之后，RDD 同时具备”分区有序”和”分区内有序”，后续若再做 <code>repartitionAndSortWithinPartitions</code>，可以把一次 shuffle 同时完成重分区和排序，省掉一轮额外 shuffle。这是 RDD 层比朴素 DataFrame 写法更精细的地方，点查或范围扫场景非常受用。</p>
+<p>再补两个算子选择的实战心得。第一，<code>mapPartitions</code> 比 <code>map</code> 更适合”每分区建一次昂贵资源”的场景，比如每分区开一个数据库连接、加载一个模型——<code>map</code> 会在每条记录上重复建连，而 <code>mapPartitions</code> 在分区粒度复用。但代价是 <code>mapPartitions</code> 一次性把整个分区的迭代器交给你，如果你在内部把它 <code>toList</code> 全量物化，分区内存就会爆，正确做法是惰性 <code>Iterator</code> 转换。第二，<code>coalesce(n, shuffle=false)</code> 用来”压缩”分区数，但它是把多个相邻小分区合并成一个大分区，不会触发 shuffle，适合 map 后分区过碎的场景；如果分区分布不均，<code>shuffle=false</code> 的 coalesce 只会加剧倾斜，这时必须 <code>repartition</code>。</p>
+<h2 id="五、lineage-重算：容错的灵魂，也是双刃剑"><a href="#五、lineage-重算：容错的灵魂，也是双刃剑" class="headerlink" title="五、lineage 重算：容错的灵魂，也是双刃剑"></a>五、lineage 重算：容错的灵魂，也是双刃剑</h2><p>RDD 不存数据，只存血缘。某个分区丢了，DAGScheduler 沿 dependencies 反向回溯到最近的物化点（cache 的 &#x2F; checkpoint 的 &#x2F; source），正向重算这一段。这就是 lineage 重算。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">source(HDFS) -&gt; map -&gt; filter -&gt; persist(MEM_AND_DISK) -&gt; join -&gt; reduce</span><br><span class="line">                                                       ^</span><br><span class="line">                                                  task 在此失败</span><br><span class="line">                               &lt;-------- 重算只需从此点正向 --------+</span><br><span class="line">                               (被 persist 物化的分区不重算)</span><br></pre></td></tr></table></figure>
+
+<p>重算路径的长度 &#x3D; 失败分区到最近物化点的算子数。物化点越近，重算越便宜；没有物化点，就要回到 source 全算。我吃过一次大亏：一个 1.2 TB 的中间结果没 persist，下游 join 阶段某个 Executor 磁盘故障触发 Stage 重试，结果整条链路从读 HDFS 开始重算，多花了 47 分钟 <!-- 校准：请按真实经历核实/替换 -->。从那以后我定了规矩：<strong>任何会被下游多次使用的中间 RDD，必须 persist</strong>，且优先 <code>MEMORY_AND_DISK_SER</code>。</p>
+<p>还有一类隐蔽的重算陷阱：<strong><code>cache</code> 后没触发 action 就直接用</strong>。<code>persist</code> &#x2F; <code>cache</code> 是惰性的，只标记不物化，必须有一个 action 强制计算该 RDD 才会把分区真正缓存进 BlockManager。我见过不少代码写成 <code>val rdd = src.map(...).cache(); rdd.map(...).count()</code>，看似缓存了，实际上第一个 action 触发的是下游 RDD 的计算，缓存的只是计算过程中顺手存下来的分区——如果下游是窄依赖链到 cache 点，这没问题；但如果中间还隔着宽依赖，cache 点的分区可能根本没被独立物化。最稳的写法是显式 <code>rdd.count()</code> 或 <code>rdd.first()</code> 把它”暖”起来，再交给后续算子。判断是否真缓存住，看 Spark UI 的 Storage 标签页，<code>Fraction Cached</code> 必须是 100%。</p>
+<p>lineage 的危险面在迭代场景被放大，下面专门讲。</p>
+<h2 id="六、persist-cache-checkpoint：三种固化手段的取舍"><a href="#六、persist-cache-checkpoint：三种固化手段的取舍" class="headerlink" title="六、persist &#x2F; cache &#x2F; checkpoint：三种固化手段的取舍"></a>六、persist &#x2F; cache &#x2F; checkpoint：三种固化手段的取舍</h2><p>这三者经常被混为一谈，其实定位完全不同。</p>
+<p><strong><code>cache()</code> &#x3D; <code>persist(StorageLevel.MEMORY_ONLY)</code></strong>。只放内存，丢了不落盘，丢了就靠 lineage 重算。适合数据量小、重算便宜的 RDD。</p>
+<p><strong><code>persist(level)</code></strong>：按指定级别固化，但<strong>不切断血缘</strong>。即使数据在内存&#x2F;磁盘里，一旦 Executor 挂了，对应 BlockManager 失联，缓存的分区没了，DAGScheduler 仍会沿 lineage 重算。也就是说，persist 是”加速”，不是”容错”。</p>
+<p><strong><code>checkpoint()</code></strong>：把 RDD 各分区写到 <code>setCheckpointDir</code> 指定的可靠目录（必须 HDFS &#x2F; S3 等分布式 FS，不能本地），<strong>写完后切断血缘</strong>。后续该 RDD 的 <code>dependencies</code> 返回 <code>Nil</code>，<code>compute</code> 直接从 checkpoint 文件读，由内部的 <code>ReliableRDDCheckpointData</code> + <code>CheckpointRDD</code> 接管。这是真正的容错手段。</p>
+<p>StorageLevel 取舍表：</p>
+<table>
+<thead>
+<tr>
+<th>级别</th>
+<th>内存</th>
+<th>磁盘</th>
+<th>序列化</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>MEMORY_ONLY</td>
+<td>是</td>
+<td>否</td>
+<td>否</td>
+<td>数据量小、频繁用</td>
+</tr>
+<tr>
+<td>MEMORY_ONLY_SER</td>
+<td>是</td>
+<td>否</td>
+<td>是</td>
+<td>内存紧、对象大</td>
+</tr>
+<tr>
+<td>MEMORY_AND_DISK</td>
+<td>是</td>
+<td>是</td>
+<td>否</td>
+<td>略超内存</td>
+</tr>
+<tr>
+<td>MEMORY_AND_DISK_SER</td>
+<td>是</td>
+<td>是</td>
+<td>是</td>
+<td>生产默认首选</td>
+</tr>
+<tr>
+<td>DISK_ONLY</td>
+<td>否</td>
+<td>是</td>
+<td>是</td>
+<td>数据极大、重算极贵</td>
+</tr>
+<tr>
+<td>OFF_HEAP</td>
+<td>堆外</td>
+<td>-</td>
+<td>是</td>
+<td>GC 压力大</td>
+</tr>
+</tbody></table>
+<p>我的默认选型几乎都是 <code>MEMORY_AND_DISK_SER</code>：序列化省内存（对象能小 3~5 倍 <!-- 校准：请按真实经历核实/替换 -->），装不下自动落盘而不是直接丢，代价是反序列化 CPU 开销，但对绝大多数 ETL 不是瓶颈。序列化器我用 <code>org.apache.spark.serializer.KryoSerializer</code> 并 <code>kryo.register</code> 注册业务类，比默认 Java 序列化快一个量级且体积更小。</p>
+<p><code>OFF_HEAP</code> 是另一个值得单说的级别：数据放到堆外的 <code>Unsafe</code> 内存里，不进 JVM 堆、不参与 GC。在堆上有几十 GB 大对象、GC 停顿明显的作业里效果显著，但代价是 off-heap 内存受 <code>spark.memory.offHeapSize</code> 硬上限约束，超出会直接 OOM 而不是缓慢退化，调试也更难。我对它的态度是”GC 真成了瓶颈再上，别默认开”。</p>
+<p>checkpoint 的标准用法：</p>
+<figure class="highlight scala"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">sc.setCheckpointDir(<span class="string">&quot;hdfs:///spark/ckpt/lineage&quot;</span>)  <span class="comment">// 必须是分布式 FS</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">val</span> features = rawEvents</span><br><span class="line">  .map(parseEvent)</span><br><span class="line">  .filter(_.isValid)</span><br><span class="line">  .map(_.toFeatureVector)</span><br><span class="line">  .persist(<span class="type">StorageLevel</span>.<span class="type">MEMORY_AND_DISK_SER</span>)</span><br><span class="line"></span><br><span class="line">features.checkpoint()      <span class="comment">// 只标记，不触发</span></span><br><span class="line">features.count()           <span class="comment">// 这次 action 会先算出 features，再额外起一个 job 写 checkpoint</span></span><br></pre></td></tr></table></figure>
+
+<p><code>setCheckpointDir</code> 的机制要交代清楚：它把路径广播给所有 Executor，<code>ReliableRDDCheckpointData</code> 为每个分区写一个 <code>rdd-{id}-{partition}.bin</code> 文件。checkpoint 是<strong>惰性</strong>的——<code>checkpoint()</code> 只登记，真正写盘发生在下一个 action 触发该 RDD 计算之后，而且会<strong>额外提交一个 job</strong>专门写 checkpoint。这意味着 checkpoint 一次的成本 &#x3D; 一次完整计算 + 一次写 HDFS。我测过 800 GB 的中间 RDD 写 checkpoint 大概 12 分钟 <!-- 校准：请按真实经历核实/替换 -->，期间 NameNode RPC QPS 会明显上涨，所以别在生产高峰对大 RDD 滥用。</p>
+<p>checkpoint 与 persist 的配合有个推荐顺序：<strong>先 persist 再 checkpoint</strong>。如果直接 checkpoint 一个没缓存的 RDD，写 checkpoint 的那个额外 job 会从头把 RDD 算一遍；而如果先 persist 把它物化在内存，checkpoint job 直接读缓存写盘，省掉重复计算。写完 checkpoint 后再 <code>unpersist</code> 释放缓存，让后续重算直接走 checkpoint 文件。这套”persist → count → checkpoint → count → unpersist”是迭代场景的标配写法。</p>
+<h2 id="七、迭代计算：lineage-过长的-OOM-与调度栈风险"><a href="#七、迭代计算：lineage-过长的-OOM-与调度栈风险" class="headerlink" title="七、迭代计算：lineage 过长的 OOM 与调度栈风险"></a>七、迭代计算：lineage 过长的 OOM 与调度栈风险</h2><p>这是我最想讲的一节。GraphX 的 PageRank、MLlib 的迭代算法、自定义的梯度下降，都会形成”同一个 RDD 在循环里被反复派生”的模式。</p>
+<p>朴素写法的陷阱：</p>
+<figure class="highlight scala"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">var</span> g = loadGraph().persist(<span class="type">StorageLevel</span>.<span class="type">MEMORY_AND_DISK_SER</span>)</span><br><span class="line">g.count()</span><br><span class="line"><span class="keyword">for</span> (i &lt;- <span class="number">1</span> to <span class="number">100</span>) &#123;</span><br><span class="line">  g = g.pregel(msg)(vprog, sendMsg, mergeMsg)</span><br><span class="line">      .persist(<span class="type">StorageLevel</span>.<span class="type">MEMORY_AND_DISK_SER</span>)</span><br><span class="line">  g.count()</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>每轮 <code>g</code> 都是一个新 RDD，父依赖指向上一轮的 <code>g</code>。100 轮后 lineage 链长 100 层。这会带来三个真实风险：</p>
+<ol>
+<li><strong>重算爆炸</strong>：某个 Executor 挂了，缓存的分区丢失，DAGScheduler 要沿 100 层血缘回溯。如果中间几轮没缓存住（<code>MEMORY_AND_DISK_SER</code> 装不下被 evict 到磁盘又恰巧磁盘满），回溯会一直退到 source，重算等价于把整个 100 轮迭代重跑。</li>
+<li><strong>调度栈&#x2F;递归深度</strong>：<code>DAGScheduler.getMissingParentStages</code> 与 <code>RDD.dependencies</code> 是递归遍历的，lineage 极深时偶发 <code>StackOverflowError</code>。社区有相关 issue，生产里我在第 60+ 轮踩过 <!-- 校准：请按真实经历核实/替换 -->。</li>
+<li><strong>内存引用堆积</strong>：旧 <code>g</code> 如果没 <code>unpersist</code>，每轮的 BlockManager 都持有上轮缓存，迭代越多内存占用线性增长，最终 OOM。</li>
+</ol>
+<p>治理套路是<strong>周期性 checkpoint 切血缘 + 主动 unpersist 释放旧分区</strong>：</p>
+<figure class="highlight scala"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">sc.setCheckpointDir(<span class="string">&quot;hdfs:///spark/ckpt/iter&quot;</span>)</span><br><span class="line"><span class="keyword">var</span> g = loadGraph().persist(<span class="type">StorageLevel</span>.<span class="type">MEMORY_AND_DISK_SER</span>)</span><br><span class="line">g.count()</span><br><span class="line"></span><br><span class="line"><span class="keyword">val</span> ckptEvery = <span class="number">10</span>  <span class="comment">// 校准：按血缘深度与重算成本权衡</span></span><br><span class="line"><span class="keyword">for</span> (i &lt;- <span class="number">1</span> to <span class="number">100</span>) &#123;</span><br><span class="line">  <span class="keyword">val</span> prev = g</span><br><span class="line">  g = prev.pregel(msg)(vprog, sendMsg, mergeMsg)</span><br><span class="line">       .persist(<span class="type">StorageLevel</span>.<span class="type">MEMORY_AND_DISK_SER</span>)</span><br><span class="line">  g.count()</span><br><span class="line">  <span class="keyword">if</span> (i % ckptEvery == <span class="number">0</span>) &#123;</span><br><span class="line">    g.checkpoint()</span><br><span class="line">    g.count()              <span class="comment">// 真正写盘并切断血缘</span></span><br><span class="line">  &#125;</span><br><span class="line">  prev.unpersist(blocking = <span class="literal">false</span>)  <span class="comment">// 释放上一轮缓存</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>ckptEvery</code> 的取舍：太小则 checkpoint 写盘开销主导；太大则 lineage 仍长、重算风险高。我的经验值 8~15 轮一次 <!-- 校准：请按真实经历核实/替换 -->，看单轮算子成本和单轮数据量。配合 <code>spark.cleaner.referenceTracking=true</code>（默认开）能让被切断血缘的旧 RDD 尽快被 GC。</p>
+<p>这里有一个真实事故复盘。我们一个图计算作业跑 80 轮迭代，最初没加 checkpoint，第 63 轮时一台 Executor 因宿主机内存压力被 YARN kill。本来期望 Spark 重试那个 task 就行，结果因为 lineage 没断，回溯要回到第 1 轮的 source，单 task 重算等价于重跑 60+ 轮，直接把作业拖到超时失败。加了周期性 checkpoint 后，最坏情况只回退到上一个 checkpoint 点（10 轮以内），单 task 重算控制在分钟级。这个对比让我彻底理解了”checkpoint 不是可选优化，是长血缘作业的必需品”。</p>
+<p>还有一个反直觉的点：<strong>checkpoint 写完不等于血缘立刻断</strong>。血缘是在该 RDD 下一次被计算时才”看到”checkpoint 已完成并切换到 <code>CheckpointRDD</code> 读取。所以 checkpoint 之后必须紧跟一个 action，让框架真正走一次重算路径，这之后 <code>isCheckpointed</code> 才稳定返回 true、<code>getCheckpointFile</code> 才有值。生产里我会在 checkpoint 后显式跑一次 <code>count()</code> 验证，再继续下游。</p>
+<h2 id="八、小结"><a href="#八、小结" class="headerlink" title="八、小结"></a>八、小结</h2><p>把这篇收个口：</p>
+<ol>
+<li>RDD 的五条特性里，dependencies 决定容错边界、partitioner 决定 shuffle 边界、compute 决定重算路径。理解这三条，比背”弹性分布式数据集”有意义得多。</li>
+<li>窄依赖 pipeline、宽依赖断 stage，这是 DAGScheduler 唯一的切分规则。<code>OneToOneDependency</code> &#x2F; <code>RangeDependency</code> 是窄依赖的两种实现，<code>ShuffleDependency</code> 携带 partitioner 触发 shuffle。<code>join</code> 在分区对齐时可以免 shuffle。</li>
+<li>lineage 重算是 Spark 容错的灵魂，但代价是重算路径上每个算子都要重新执行。物化点（persist &#x2F; checkpoint &#x2F; source）越近，重算越便宜。</li>
+<li><code>persist</code> 加速不切断血缘、<code>cache</code> 是其特例、<code>checkpoint</code> 切断血缘写可靠存储。生产默认 <code>MEMORY_AND_DISK_SER</code>，迭代场景周期性 checkpoint + 主动 unpersist 是治血缘过长的标准套路。</li>
+<li>迭代场景的三个杀手：重算爆炸、调度栈溢出、内存引用堆积，根因都是血缘链太长且无切断点。</li>
+</ol>
+<p>下一篇我会接着讲 Spark 的 Shuffle 机制——从 sort-based shuffle 的写入&#x2F;索引结构，到 AQE 自适应分区、shuffle 服务与 External Shuffle Service 的取舍，把”宽依赖两侧到底发生了什么”这层彻底拆开。那是理解 Spark 性能与稳定性另一块更大的拼图。</p>
+<!-- 校准：请按真实经历核实/替换 -->
+<blockquote>
+<p>全文涉及的所有具体数字（分区数、内存倍数、重算耗时、checkpoint 写盘耗时、迭代轮数、ckptEvery 阈值等）均为示例性占位，请按你自己的集群规模、数据分布与真实经历核实替换。博客代表个人可追溯履历，数字必须落到自己身上。</p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Spark/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Spark<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/RDD/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>RDD<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/hadoop-hdfs-replica-management"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">HDFS 副本管理：Placement、Re-replication 与 Decommission</div></div></a></div><div class="next-post pull-right"><a href="/posts/hadoop-hdfs-namenode-metadata"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">NameNode 元数据持久化：FsImage、EditLog 与启动恢复</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#RDD-%E6%8A%BD%E8%B1%A1%E4%B8%8E-lineage-%E5%AE%B9%E9%94%99%EF%BC%9A%E4%BB%8E%E4%BA%94%E5%A4%A7%E7%89%B9%E6%80%A7%E5%88%B0%E8%BF%AD%E4%BB%A3%E5%9C%BA%E6%99%AF%E7%9A%84%E8%A1%80%E7%BC%98%E6%B2%BB%E7%90%86"><span class="toc-text">RDD 抽象与 lineage 容错：从五大特性到迭代场景的血缘治理</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E5%BC%95%E8%A8%80%EF%BC%9ASpark-%E8%B9%9A%E8%BF%87%E8%BF%99%E4%B9%88%E5%A4%9A%E5%9D%91%EF%BC%8C%E6%9C%80%E7%BB%88%E8%BF%98%E6%98%AF%E7%BB%95%E5%9B%9E-RDD"><span class="toc-text">一、引言：Spark 蹚过这么多坑，最终还是绕回 RDD</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E4%BA%94%E5%A4%A7%E7%89%B9%E6%80%A7%EF%BC%9A%E4%B8%8D%E5%8F%AA%E6%98%AF%E2%80%9D%E5%BC%B9%E6%80%A7%E5%88%86%E5%B8%83%E5%BC%8F%E6%95%B0%E6%8D%AE%E9%9B%86%E2%80%9D%E8%BF%99%E5%8F%A5%E5%8F%A3%E5%8F%B7"><span class="toc-text">二、五大特性：不只是”弹性分布式数据集”这句口号</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E7%AA%84%E4%BE%9D%E8%B5%96-vs-%E5%AE%BD%E4%BE%9D%E8%B5%96%EF%BC%9Astage-%E5%88%92%E5%88%86%E7%9A%84%E5%94%AF%E4%B8%80%E4%BE%9D%E6%8D%AE"><span class="toc-text">三、窄依赖 vs 宽依赖：stage 划分的唯一依据</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E5%88%86%E5%8C%BA%E4%B8%8E%E7%AE%97%E5%AD%90%EF%BC%9A%E5%B9%B6%E8%A1%8C%E5%BA%A6%E7%9A%84%E7%89%A9%E7%90%86%E8%A1%A8%E8%BE%BE"><span class="toc-text">四、分区与算子：并行度的物理表达</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81lineage-%E9%87%8D%E7%AE%97%EF%BC%9A%E5%AE%B9%E9%94%99%E7%9A%84%E7%81%B5%E9%AD%82%EF%BC%8C%E4%B9%9F%E6%98%AF%E5%8F%8C%E5%88%83%E5%89%91"><span class="toc-text">五、lineage 重算：容错的灵魂，也是双刃剑</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81persist-cache-checkpoint%EF%BC%9A%E4%B8%89%E7%A7%8D%E5%9B%BA%E5%8C%96%E6%89%8B%E6%AE%B5%E7%9A%84%E5%8F%96%E8%88%8D"><span class="toc-text">六、persist &#x2F; cache &#x2F; checkpoint：三种固化手段的取舍</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E8%BF%AD%E4%BB%A3%E8%AE%A1%E7%AE%97%EF%BC%9Alineage-%E8%BF%87%E9%95%BF%E7%9A%84-OOM-%E4%B8%8E%E8%B0%83%E5%BA%A6%E6%A0%88%E9%A3%8E%E9%99%A9"><span class="toc-text">七、迭代计算：lineage 过长的 OOM 与调度栈风险</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81%E5%B0%8F%E7%BB%93"><span class="toc-text">八、小结</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

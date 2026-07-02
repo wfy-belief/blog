@@ -1,0 +1,426 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/spark-performance-tuning"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="从资源分配、序列化、广播、GC、partition 到 join 策略，分层复盘一次 Spark ETL 的性能治理。"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文以一次离线 ETL 任务从 4 小时压到 40 分钟的复盘为线索，系统梳理 Spark 性能调优全景：executor 资源木桶、堆内/堆外/overhead 内存切分、Kryo 序列化、广播与 broadcast hash join、G1 GC 调优、partition、数据本地性降级阶梯、join 策略、小文件治理与开发规范，给出可复用的分层定位方法论。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">30</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">31</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">31</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">40</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Spark/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Spark</span></a><a class="post-meta__tags" href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>性能调优</span></a></div></div></div></div><h1 class="post-title">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h2 id="引子：4-小时跑到-40-分钟的那次复盘"><a href="#引子：4-小时跑到-40-分钟的那次复盘" class="headerlink" title="引子：4 小时跑到 40 分钟的那次复盘"></a>引子：4 小时跑到 40 分钟的那次复盘</h2><p>去年接手一个离线数仓的 Spark 任务，跑一张大宽表 ETL，每天增量约 800GB，整个 DAG 跑下来要 4 小时出头<!-- 校准：请按真实经历核实/替换 -->。SLA 卡得死，下游报表等它出数，几次延迟直接被投诉。组里之前调过几轮，无非是把 executor memory 从 8G 加到 16G、parallelism 拉到 500 之类，没本质改善。</p>
+<p>我接手后没马上动参数，而是先把 Spark UI 的 Stage 时间线、Task 的 GC 时间、Shuffle Read&#x2F;Write、Skew 情况全部拉出来看了一遍。结论是：瓶颈不在内存大小，而在三个地方——executor 资源配比失衡导致 HDFS client 线程打满、Shuffle partition 过多引发小文件风暴、GC 占比高达 35% 把 Task 拖住。逐一治理后，整个任务压到 40 分钟<!-- 校准：请按真实经历核实/替换 -->。这篇文章把那次调优全过程拆开讲，顺带把 Spark 性能调优的方法论沉淀下来。</p>
+<p>调优方法论我坚持一条：<strong>先定位瓶颈层级，再动参数。</strong> 任何一个参数变更，都必须先有一个可量化的指标证明它需要改，改完之后这个指标能验证效果；如果只能说”好像快了”，那基本是无效调优。Spark 的性能问题可以归到资源分配、序列化、Shuffle 与 partition、内存与 GC、数据本地性、Join 策略这几大类，每一类都有典型的现象和定位手段：</p>
+<table>
+<thead>
+<tr>
+<th>层级</th>
+<th>典型瓶颈现象</th>
+<th>主要观察指标</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>资源分配</td>
+<td>Stage 拖尾、HDFS 读排队</td>
+<td>Spark UI Task 时间线、executor 用率</td>
+</tr>
+<tr>
+<td>序列化</td>
+<td>Shuffle 慢、cache 体积大</td>
+<td>Shuffle Write 字节、Storage 占用</td>
+</tr>
+<tr>
+<td>Shuffle&#x2F;partition</td>
+<td>小文件风暴、task 饿死</td>
+<td>partition 数、单 task 处理量</td>
+</tr>
+<tr>
+<td>内存与 GC</td>
+<td>Task GC 红条、Spill</td>
+<td>Task GC 时间、Spill(Memory&#x2F;Disk)</td>
+</tr>
+<tr>
+<td>数据本地性</td>
+<td>task 排队等本地节点</td>
+<td>Locality Level 分布</td>
+</tr>
+<tr>
+<td>Join 策略</td>
+<td>大表 shuffle 倾斜、BNLJ 出现</td>
+<td>EXPLAIN 物理计划</td>
+</tr>
+</tbody></table>
+<p>排查时从现象往层级压，再从参数往指标验。下面按这个顺序展开。</p>
+<h2 id="一、资源分配：executor-数量-cores-memory-的木桶理论"><a href="#一、资源分配：executor-数量-cores-memory-的木桶理论" class="headerlink" title="一、资源分配：executor 数量&#x2F;cores&#x2F;memory 的木桶理论"></a>一、资源分配：executor 数量&#x2F;cores&#x2F;memory 的木桶理论</h2><p>这是被问得最多也最容易配错的一层。很多人觉得”加机器就行”，但 executor 的三个维度——cores、memory、数量——是木桶关系，一根短板就拖垮整体。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">     Executor 资源木桶：三轴不能有一根短板</span><br><span class="line">┌──────────────────────────────────────────────┐</span><br><span class="line">│   cores(并发)      memory(吞吐)    数量(并行)  │</span><br><span class="line">│      │                │               │      │</span><br><span class="line">│   5 cores          20G heap       50 execs    │</span><br><span class="line">│      │                │               │      │</span><br><span class="line">│ 偏少→CPU闲置      偏小→Spill/OOM  偏少→拖尾    │</span><br><span class="line">│ 偏多→HDFS线程争用  偏大→GC停顿长  偏多→调度开销 │</span><br><span class="line">└──────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<p>几个我踩过的坑：</p>
+<p><strong>cores 不是越多越好。</strong> 早期我照着网上教程把 <code>--executor-cores 8</code> 甚至更高，结果发现 HDFS client 的线程池成了瓶颈。每个 executor 内部共享一组 HDFS client（<code>dfs.client.read.thread.pool.size</code> 默认 10），cores 太多时并发读请求排队，反而比 4 cores 慢。我的经验值是 HDFS 读密集场景 cores 给 4–5，纯计算可以到 5–6<!-- 校准：请按真实经历核实/替换 -->。另外 cores 太多还会放大 task 之间在 sort&#x2F;shuffle 阶段的竞争。</p>
+<p><strong>memory 不是越大越好。</strong> 堆一大，Full GC 一把就几秒甚至十几秒，直接把 Stage 时间线打出毛刺。我一般单 executor 堆控制在 16–24G，配合 G1 GC；超过 32G 还要考虑压缩指针失效的问题。</p>
+<p><strong>executor 数量要和 partition 数量匹配。</strong> 一个粗略公式：<code>executor 数 ≈ total cores / cores per executor</code>，partition 数 ≈ <code>executor 数 × cores × 2~3</code>。partition 太少 task 饿死，太多调度开销大。</p>
+<p>那次任务最终调成 5 cores × 20GB × 50 个 executor<!-- 校准：请按真实经历核实/替换 -->，整体并行度提上来，HDFS 读也不再排队。</p>
+<p>补充一点关于 driver 的资源。cluster 模式下 driver 也是个独立 container，<code>--driver-memory</code> 给小了 collect 大结果或 broadcast 大表时会 OOM，给大了又浪费。我的经验是常规 ETL 给 4–8G，带 collect 到 driver 的任务按 collect 量 × 1.5 留余量。另外<strong>动态资源分配</strong>（<code>spark.dynamicAllocation.enabled=true</code>）在长跑任务和流处理里很有用，它能根据 task 积压自动增减 executor，配合 external shuffle service 才能安全回收 executor——YARN 上要确保 <code>spark.shuffle.service.enabled=true</code>，否则回收会丢 shuffle 文件。但短任务别开，冷启动拉 executor 的开销比省下的还多。</p>
+<p>一个完整的 spark-submit 模板：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">spark-submit \</span><br><span class="line">  --master yarn \</span><br><span class="line">  --deploy-mode cluster \</span><br><span class="line">  --name dwd_etl_wide_table \</span><br><span class="line">  --queue production \</span><br><span class="line">  --num-executors 50 \</span><br><span class="line">  --executor-cores 5 \</span><br><span class="line">  --executor-memory 20G \</span><br><span class="line">  --executor-memory-overhead 4G \</span><br><span class="line">  --driver-memory 8G \</span><br><span class="line">  --driver-cores 4 \</span><br><span class="line">  --conf spark.sql.shuffle.partitions=800 \</span><br><span class="line">  --conf spark.default.parallelism=800 \</span><br><span class="line">  --conf spark.sql.adaptive.enabled=<span class="literal">true</span> \</span><br><span class="line">  --conf spark.sql.adaptive.coalescePartitions.enabled=<span class="literal">true</span> \</span><br><span class="line">  --conf spark.serializer=org.apache.spark.serializer.KryoSerializer \</span><br><span class="line">  --conf spark.kryo.registrationRequired=<span class="literal">true</span> \</span><br><span class="line">  --conf spark.sql.broadcastTimeout=1200 \</span><br><span class="line">  --conf spark.locality.wait=6s \</span><br><span class="line">  --conf spark.locality.wait.process=3s \</span><br><span class="line">  --conf spark.locality.wait.node=2s \</span><br><span class="line">  --conf spark.sql.autoBroadcastJoinThreshold=104857600 \</span><br><span class="line">  --conf spark.executor.extraJavaOptions=<span class="string">&quot;-XX:+UseG1GC -XX:G1HeapRegionSize=16m -XX:+PrintGCDetails -XX:+PrintGCTimeStamps&quot;</span> \</span><br><span class="line">  --conf spark.driver.extraJavaOptions=<span class="string">&quot;-XX:+UseG1GC&quot;</span> \</span><br><span class="line">  --class com.xxx.DwdEtlMain \</span><br><span class="line">  /opt/apps/dwd-etl-1.0.jar</span><br></pre></td></tr></table></figure>
+
+<p>这里有个细节：<code>executor-memory-overhead</code> 是堆外内存，默认是 executor-memory 的 10%，但开了堆外 shuffle 或 Python worker 时往往不够，要单独提。</p>
+<h2 id="二、Executor-内存切分：堆内、堆外、overhead"><a href="#二、Executor-内存切分：堆内、堆外、overhead" class="headerlink" title="二、Executor 内存切分：堆内、堆外、overhead"></a>二、Executor 内存切分：堆内、堆外、overhead</h2><p>很多人把 memory 理解成”一个堆”，其实 Spark executor 的内存空间是三块：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">┌─────────────────────────────────────────────────┐</span><br><span class="line">│            executor-memory (堆内 JVM Heap)        │</span><br><span class="line">│  ┌────────┬──────────────┬────────────────────┐  │</span><br><span class="line">│  │Reserved│  User Memory │  Unified(Exec/Stor)│  │</span><br><span class="line">│  └────────┴──────────────┴────────────────────┘  │</span><br><span class="line">├─────────────────────────────────────────────────┤</span><br><span class="line">│         memoryOverhead (堆外, 默认 10%)            │</span><br><span class="line">│   PySpark worker / 堆外 shuffle / NIO direct     │</span><br><span class="line">├─────────────────────────────────────────────────┤</span><br><span class="line">│  spark.memory.offHeap.size (启用 offHeap 时)      │</span><br><span class="line">└─────────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>堆内：受 <code>spark.memory.fraction</code>、<code>storageFraction</code> 控制（前一篇讲过，不重复）。</li>
+<li>overhead：默认 <code>max(executor-memory × 0.1, 384MB)</code>，开 Kryo 堆外或 Python 时要加到 4G 左右，否则容易 <code>Container killed by YARN for exceeding memory limits</code>。</li>
+<li>offHeap：<code>spark.memory.offHeap.enabled=true</code> + <code>spark.memory.offHeap.size</code>，绕过 JVM 堆，避免 GC 扫描大对象。代价是要手动管理，UDF 里别乱用。</li>
+</ul>
+<p>那次任务我把 overhead 从默认 2G 提到 4G，<code>Container killed</code> 的告警就消失了<!-- 校准：请按真实经历核实/替换 -->。</p>
+<p>这里再强调一下堆内两块的动态借用：Unified 里的 Storage 和 Execution 是可以互相借的——Shuffle 不紧张时 Storage 可以多占去缓存 RDD，Execution 紧张时又能把 Storage 挤出去。但有个铁律：<strong>Execution 内存不足时可以强制回收 Storage 借走的，Storage 不足却不能抢 Execution 的</strong>，只会把缓存块逐出（evict）。所以一次 OOM 复盘的根因往往是缓存了太多 broadcast&#x2F;RDD 把 Execution 挤到边角，Shuffle 一来就借不到钱。判断方法是看 Spark UI Storage 页面占用是否逼近 Storage 上限，是的话先 <code>unpersist</code> 掉用不上的缓存。</p>
+<h2 id="三、序列化：Kryo-几乎是无脑选"><a href="#三、序列化：Kryo-几乎是无脑选" class="headerlink" title="三、序列化：Kryo 几乎是无脑选"></a>三、序列化：Kryo 几乎是无脑选</h2><p>Spark 默认用 Java Serializer，兼容性好但慢、体积大。Kryo 速度快 5–10 倍，体积小 3–5 倍<!-- 校准：请按真实经历核实/替换 -->。两者对比：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Java Serializer</th>
+<th>Kryo</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>序列化速度</td>
+<td>慢，走反射</td>
+<td>快，基于字节码生成</td>
+</tr>
+<tr>
+<td>体积</td>
+<td>大，带完整类描述</td>
+<td>小，需注册类名</td>
+</tr>
+<tr>
+<td>兼容性</td>
+<td>任意 Serializable</td>
+<td>需注册，部分类要自定义</td>
+</tr>
+<tr>
+<td>适用</td>
+<td>兼容旧代码&#x2F;闭包</td>
+<td>生产首选</td>
+</tr>
+</tbody></table>
+<p>生产环境我一律切 Kryo：</p>
+<figure class="highlight scala"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">val</span> conf = <span class="keyword">new</span> <span class="type">SparkConf</span>()</span><br><span class="line">conf.set(<span class="string">&quot;spark.serializer&quot;</span>, <span class="string">&quot;org.apache.spark.serializer.KryoSerializer&quot;</span>)</span><br><span class="line">conf.set(<span class="string">&quot;spark.kryo.registrationRequired&quot;</span>, <span class="string">&quot;true&quot;</span>)</span><br><span class="line">conf.registerKryoClasses(<span class="type">Array</span>(</span><br><span class="line">  classOf[com.xxx.<span class="type">DwdRecord</span>],</span><br><span class="line">  classOf[com.xxx.<span class="type">DimensionKey</span>],</span><br><span class="line">  classOf[<span class="type">Array</span>[com.xxx.<span class="type">DwdRecord</span>]],</span><br><span class="line">  classOf[scala.<span class="type">Tuple2</span>[_, _]],</span><br><span class="line">  classOf[org.roaringbitmap.<span class="type">RoaringBitmap</span>]</span><br><span class="line">))</span><br></pre></td></tr></table></figure>
+
+<p>两个关键点：一是 <code>registrationRequired=true</code> 强制注册，否则遇到没注册的类 Kryo 会回退到全类名写入，性能反而更差；二是注册顺序要稳定，类注册 ID 一旦变化会导致已序列化数据反序列化失败（Streaming&#x2F;checkpoint 场景要注意）。RDD cache、Shuffle、Broadcast 全程都受益于 Kryo。</p>
+<h2 id="四、广播变量与-broadcast-hash-join"><a href="#四、广播变量与-broadcast-hash-join" class="headerlink" title="四、广播变量与 broadcast hash join"></a>四、广播变量与 broadcast hash join</h2><p>广播变量是把小数据在 driver 端打包后通过 BitTorrent 协议分发到每个 executor，避免每个 task 重复拉取。两个核心用途：</p>
+<ol>
+<li><strong>业务侧广播</strong>：维度表、配置字典、IP 库、RoaringBitmap 之类。阈值要控制，单个 broadcast 别超过 2GB（Spark 单个块上限），我一般控制在 500MB 以内。</li>
+<li><strong>引擎侧 broadcast hash join</strong>：Spark SQL 在小表小于 <code>spark.sql.autoBroadcastJoinThreshold</code>（默认 10MB）时自动走 broadcast hash join，把小表广播到所有 executor，大表走 map 端 join，省掉整个 shuffle。</li>
+</ol>
+<p>那次任务有个 fact 表 join 维度表的场景，维度表 80MB<!-- 校准：请按真实经历核实/替换 -->，默认阈值 10MB 走不了 broadcast，走了 sort merge join，shuffle write 几百 GB。我把阈值调到 100MB：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">--conf spark.sql.autoBroadcastJoinThreshold=104857600</span><br></pre></td></tr></table></figure>
+
+<p>整个 stage 的 shuffle 直接消失，时间从 25 分钟降到 6 分钟<!-- 校准：请按真实经历核实/替换 -->。代价是 driver 端要先把小表拉过来，<code>spark.sql.broadcastTimeout</code> 默认 300s，大表 broadcast 要适当调大。但维度表如果不能装进 driver 内存或频繁更新，别硬广播，会 OOM。</p>
+<p>广播分发的底层是 BitTorrent 协议：driver 把变量切成 4MB 的块，executor 之间互相拉块，而不是每个都从 driver 拉，所以几百个 executor 也不会把 driver 打爆。判断广播是否生效，看 Stage 详情里的 “Broadcast” 列和 <code>accumulator</code>。另外 AQE（自适应执行）开起来后，Spark 会根据运行时统计动态调整 broadcast，比静态阈值更稳——它能在运行时发现某个被估成大表的输入其实只有几十 MB，临时改走 BHJ。</p>
+<h2 id="五、GC-调优：从-ParallelGC-到-G1"><a href="#五、GC-调优：从-ParallelGC-到-G1" class="headerlink" title="五、GC 调优：从 ParallelGC 到 G1"></a>五、GC 调优：从 ParallelGC 到 G1</h2><p>那次任务 GC 时间占比 35%，Task 时间线一片红<!-- 校准：请按真实经历核实/替换 -->。默认 executor 用 ParallelGC，大堆下 Full GC 停顿几秒，直接卡死所有 task。我切到 G1：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">调优前 (ParallelGC, 20GB 堆):</span><br><span class="line">|==#####=====#####=====#####=====#####====|</span><br><span class="line">    ^    ^    ^    ^    ^    ^    ^</span><br><span class="line">   FGC  FGC  FGC  FGC  FGC  FGC  FGC</span><br><span class="line">GC 占比 35%, 单次 Full GC ≈ 1.2s, Stage 抖动严重</span><br><span class="line"></span><br><span class="line">调优后 (G1, 20GB 堆):</span><br><span class="line">|·--·--·--·--·--·--·--·--·--·--·--·--·--·|</span><br><span class="line"> YGC YGC YGC Mix Mix Mix Mix YGC YGC</span><br><span class="line">GC 占比 8%, 单次 Mixed GC ≈ 80ms, 无长停顿</span><br></pre></td></tr></table></figure>
+
+<p>G1 参数：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">-XX:+UseG1GC</span><br><span class="line">-XX:G1HeapRegionSize=16m</span><br><span class="line">-XX:InitiatingHeapOccupancyPercent=35</span><br><span class="line">-XX:MaxGCPauseMillis=200</span><br><span class="line">-XX:+ParallelRefProcEnabled</span><br><span class="line">-XX:+PrintGCDetails -XX:+PrintGCTimeStamps</span><br></pre></td></tr></table></figure>
+
+<p>几个经验值：</p>
+<ul>
+<li><code>G1HeapRegionSize</code>：堆 16–32G 给 16m，堆大于 32G 给 32m。region 太小 GC 频繁，太大浪费。</li>
+<li><code>InitiatingHeapOccupancyPercent</code>：默认 45，内存压力大时降到 35，让 mixed GC 提前启动避免 Full GC。</li>
+<li><code>MaxGCPauseMillis</code>：别设太小，100ms 以下 G1 会频繁回收反而拖累吞吐，我给 200ms。</li>
+<li><code>ParallelRefProcEnabled</code>：一定要开，否则 reference 处理是单线程，慢得离谱。</li>
+</ul>
+<p>切 G1 后 GC 占比从 35% 降到 8%<!-- 校准：请按真实经历核实/替换 -->。</p>
+<p>调 G1 不能只设参数，还得会读 GC 日志。关键看几个信号：<code>Pause</code> 后跟的 <code>young/mixed/full</code> 区分回收类型，<code>G1EvacuationPause</code> 里 <code>to-space exhausted</code> 说明 survivor 装不下、要扩 region 或降并行度，连续出现 <code>Full GC</code> 基本是 IHOP 没触发 mixed GC、堆碎片化严重。我一般把 GC 日志开起来后用 <code>jstat -gcutil</code> 或 GCEasy 之类工具画成图，看 young&#x2F;mixed&#x2F;full 的频率和停顿分布。还有一个常被忽略的点：executor 堆里大量短生命周期对象来自 shuffle 的序列化 buffer 和 Spark 内部的 <code>TaskMemoryManager</code> 页表，开 Kryo + offHeap 能直接砍掉这部分对象创建，从根上减轻 GC 压力——所以序列化、内存、GC 三者其实是联动的。</p>
+<p>但要提醒：G1 不是银弹，堆小于 8G 时 ParallelGC 吞吐反而更高；堆超 32G 又对延迟敏感，可以试 ZGC&#x2F;Shenandoah。</p>
+<h2 id="六、partition-数量：spark-sql-shuffle-partitions"><a href="#六、partition-数量：spark-sql-shuffle-partitions" class="headerlink" title="六、partition 数量：spark.sql.shuffle.partitions"></a>六、partition 数量：spark.sql.shuffle.partitions</h2><p>这参数默认 200，绝大多数场景都偏小。partition 太少 → 单 task 数据大、内存压力大、并行度低；太多 → 调度开销大、小文件多。经验值是单 partition 数据量 100–500MB<!-- 校准：请按真实经历核实/替换 -->。</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认</th>
+<th>建议</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>spark.sql.shuffle.partitions</code></td>
+<td>200</td>
+<td>800–2000</td>
+<td>SQL shuffle 后分区数</td>
+</tr>
+<tr>
+<td><code>spark.default.parallelism</code></td>
+<td>依赖</td>
+<td>cores × 2~3</td>
+<td>RDD 并行度</td>
+</tr>
+<tr>
+<td><code>spark.sql.adaptive.coalescePartitions.enabled</code></td>
+<td>false</td>
+<td>true</td>
+<td>AQE 自动合并小分区</td>
+</tr>
+<tr>
+<td><code>spark.sql.adaptive.advisoryPartitionSizeInBytes</code></td>
+<td>64MB</td>
+<td>128MB</td>
+<td>合并后目标分区大小</td>
+</tr>
+<tr>
+<td><code>spark.sql.adaptive.skewJoin.enabled</code></td>
+<td>false</td>
+<td>true</td>
+<td>倾斜 join 自动拆分</td>
+</tr>
+</tbody></table>
+<p>我那次直接把 shuffle partitions 拉到 800，再开 AQE 自动合并，既保证并行度又避免小文件。</p>
+<h2 id="七、数据本地性与-locality-wait-降级阶梯"><a href="#七、数据本地性与-locality-wait-降级阶梯" class="headerlink" title="七、数据本地性与 locality.wait 降级阶梯"></a>七、数据本地性与 locality.wait 降级阶梯</h2><p>Spark 调度会优先把 task 调度到数据所在节点（PROCESS_LOCAL），等不到就降级：PROCESS_LOCAL → NODE_LOCAL → RACK_LOCAL → ANY。每级等待 <code>spark.locality.wait</code>（默认 3s）。</p>
+<p>大集群里默认 3s 太长，task 排队等本地性反而拖慢。我一般缩短成阶梯递减：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">--conf spark.locality.wait=6s</span><br><span class="line">--conf spark.locality.wait.process=3s</span><br><span class="line">--conf spark.locality.wait.node=2s</span><br></pre></td></tr></table></figure>
+
+<p>让 task 快速降级到 ANY，避免饥饿。但反过来说，如果是 HDFS cache 命中场景，本地性收益大，可以适当拉长。这个参数要看数据源特性调，不能一刀切。</p>
+<p>还有一个本地性失效的常见坑：<strong>Shuffle 之后第一个 stage 没有数据本地性可言</strong>，因为 shuffle 输出的数据落在哪个 executor 是随机的，下游 task 只能按 <code>ANY</code> 调度。所以看到某 stage 全是 <code>ANY</code> 别急着调 <code>locality.wait</code>，那不是它的锅。真正能吃到本地性的是直接读 HDFS&#x2F;外部数据源的首个 stage，以及开了 external shuffle service 后复用同节点 shuffle 文件的情况。</p>
+<h2 id="八、Join-策略选择：别让引擎替你做所有决定"><a href="#八、Join-策略选择：别让引擎替你做所有决定" class="headerlink" title="八、Join 策略选择：别让引擎替你做所有决定"></a>八、Join 策略选择：别让引擎替你做所有决定</h2><p>Spark SQL 的 join 策略优先级：BroadcastHashJoin &gt; SortMergeJoin &gt; ShuffledHashJoin &gt; BroadcastNestedLoopJoin &gt; CartesianProduct。生产里 90% 是 SMJ 和 BHJ。几个判断点：</p>
+<ul>
+<li>小表 &lt; broadcast 阈值 → BHJ，最省。</li>
+<li>两表都大，有等值条件 → SMJ，稳定。</li>
+<li>一表大但分布均匀、另一表中等大小（&gt; 阈值但能进 executor 内存）→ 手动 broadcast 或 ShuffledHashJoin。</li>
+<li>非等值 join → 只能 BNLJ 或 Cartesian，能 avoid 就 avoid。</li>
+</ul>
+<p>那次任务里有个用户行为表 join 商品维表，维表 80MB，我把阈值调到 100MB 走 BHJ；另一个场景是两个超大 fact 表 join，走 SMJ 但开了 <code>spark.sql.adaptive.skewJoin.enabled=true</code> 处理倾斜，倾斜 key 自动拆分，从 OOM 边缘救回来<!-- 校准：请按真实经历核实/替换 -->。</p>
+<p>skew join 的拆分原理值得说一句：AQE 在 shuffle 阶段结束后会统计每个 partition 的数据量，发现某个 partition 远超中位数（默认 5 倍以上）就判定为倾斜，把这个 partition 按 <code>spark.sql.adaptive.skewJoin.skewedPartitionFactor</code> 拆成多个小 partition，与小表对应分区做多次 join 后再 union。这比开发侧手动 <code>salt + explode</code> 优雅得多，但前提是 join 两侧都得走 shuffle——也就是说 BHJ 是不会触发 skew 拆分的，这是很多人开了 AQE 仍倾斜的原因。</p>
+<h2 id="九、小文件治理与推测执行"><a href="#九、小文件治理与推测执行" class="headerlink" title="九、小文件治理与推测执行"></a>九、小文件治理与推测执行</h2><p><strong>小文件问题</strong>在 Spark SQL 输出尤其严重。shuffle partitions 太多、动态分区写入都会产生海量小文件，拖累下游 NameNode 和读取。治理手段：</p>
+<ol>
+<li><strong>AQE 合并</strong>：<code>spark.sql.adaptive.coalescePartitions.enabled=true</code>，shuffle 后自动合并。</li>
+<li><strong>写入前 repartition</strong>：<code>df.repartition(N)</code> 或 <code>coalesce(N)</code> 控制输出文件数，动态分区写入按分区键 repartition。动态分区写入有个隐藏的放大效应——每个 task 会为它接触到的每个分区单独落一个文件，task 多、分区多时文件数是 <code>task 数 × 分区数</code> 量级，很容易单 job 产出几十万小文件。治理上要么按分区键 <code>distribute by</code> 让每个分区落到少数 task，要么用 <code>spark.sql.sources.partitionOverwriteMode=dynamic</code> 配合控制。</li>
+<li><strong>Hive 端 compaction</strong>：对 ACID 表定期跑 <code>ALTER TABLE ... COMPACT</code>，合并小文件。</li>
+<li><strong>ANALYZE 统计</strong>：<code>ANALYZE TABLE t COMPUTE STATISTICS</code>，让 Cost Based Optimizer 拿到准确统计，避免错误走 broadcast 或 broadcast 超阈值。</li>
+</ol>
+<p><strong>推测执行</strong>（speculative execution）要谨慎。默认关闭，开起来后慢 task 会被复制重跑，长尾有奇效，但有两个坑：一是输出到外部存储（数据库、HBase）的 task 开推测执行会重复写，二是慢 task 可能是数据倾斜不是机器问题，复制一份还是慢。我的规矩是只对纯计算、幂等输出的任务开：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">--conf spark.speculation=true</span><br><span class="line">--conf spark.speculation.quantile=0.9</span><br><span class="line">--conf spark.speculation.multiplier=2</span><br></pre></td></tr></table></figure>
+
+<h2 id="十、与开发规范结合"><a href="#十、与开发规范结合" class="headerlink" title="十、与开发规范结合"></a>十、与开发规范结合</h2><p>调优不是 DBA 一个人能扛的，得落到开发规范里。我给团队定了几条铁律：</p>
+<ul>
+<li><strong>写 SQL 先看执行计划</strong>，<code>EXPLAIN</code> 里出现 CartesianProduct 或 BroadcastNestedLoop 的一律打回。</li>
+<li><strong>join 前过滤</strong>，谓词下推要养成习惯，别让引擎扫一堆再扔。</li>
+<li><strong>避免 group by 后立刻 join 同一 key</strong>，倾斜会放大。</li>
+<li><strong>cache 要有命名并显式 unpersist</strong>，<code>df.persist(StorageLevel.MEMORY_AND_DISK)</code> 配合 <code>unpersist</code>，别让 storage 内存被占死。</li>
+<li><strong>UDF 慎用</strong>，能用原生表达式就用，UDF 会打破 Catalyst 优化。</li>
+<li><strong>广播维度表用 <code>SparkContext.broadcast</code> 而不是 join</strong>，跨多个 transformation 复用。</li>
+<li><strong>上线前看一眼 Task 分布</strong>，最长 task 与中位数比值超过 3 基本就是倾斜，先治倾斜再谈别的，否则加再多资源也只是喂给那条长尾。</li>
+<li><strong>大表写入用列式 + 合理分区</strong>，Parquet 配合 <code>repartition</code> 控制文件数，既能压缩又能减少下游扫描量。</li>
+</ul>
+<p>规范一旦形成肌肉记忆，很多性能问题在开发阶段就被掐掉了，不用等到上线再救火。</p>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>这次 4 小时到 40 分钟的调优，本质上是在十个层面分别找短板：资源配比、内存切分、序列化、广播、GC、partition、本地性、join 策略、小文件、开发规范。没有银弹，只有分层定位 + 量化度量。每一项变更都对应 Spark UI 上一个可见的指标变化，这才叫调优，否则就是瞎改。</p>
+<p>写到这里，资源调优这一层基本覆盖了。但实际部署形态本身也会极大影响性能和资源利用率——同样的任务跑在 YARN 上和跑在 K8s 上，弹性扩缩、资源隔离、调度延迟、本地存储、shuffle service 完全是两套故事。下一篇我就来拆 Spark on K8s vs YARN 的选型与踩坑，看看云原生到底是噱头还是真香。</p>
+<!-- 总校准：本文所有具体数字（任务时长 4h→40min、executor 5core×20g×50、HDFS client 线程默认 10、GC 占比 35%→8%、单次 Full GC 1.2s/Mixed GC 80ms、维度表 80MB、shuffle partitions 800、各经验阈值等）均为示例性复盘数据，请按真实生产经历核实或替换后再发布。-->
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Spark/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Spark<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>性能调优<span class="tagsPageCount">2</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/spark-on-k8s-vs-yarn"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</div></div></a></div><div class="next-post pull-right"><a href="/posts/hadoop-hdfs-ops-troubleshooting"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">HDFS 运维与故障排查 SOP</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E5%AD%90%EF%BC%9A4-%E5%B0%8F%E6%97%B6%E8%B7%91%E5%88%B0-40-%E5%88%86%E9%92%9F%E7%9A%84%E9%82%A3%E6%AC%A1%E5%A4%8D%E7%9B%98"><span class="toc-text">引子：4 小时跑到 40 分钟的那次复盘</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E8%B5%84%E6%BA%90%E5%88%86%E9%85%8D%EF%BC%9Aexecutor-%E6%95%B0%E9%87%8F-cores-memory-%E7%9A%84%E6%9C%A8%E6%A1%B6%E7%90%86%E8%AE%BA"><span class="toc-text">一、资源分配：executor 数量&#x2F;cores&#x2F;memory 的木桶理论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81Executor-%E5%86%85%E5%AD%98%E5%88%87%E5%88%86%EF%BC%9A%E5%A0%86%E5%86%85%E3%80%81%E5%A0%86%E5%A4%96%E3%80%81overhead"><span class="toc-text">二、Executor 内存切分：堆内、堆外、overhead</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E5%BA%8F%E5%88%97%E5%8C%96%EF%BC%9AKryo-%E5%87%A0%E4%B9%8E%E6%98%AF%E6%97%A0%E8%84%91%E9%80%89"><span class="toc-text">三、序列化：Kryo 几乎是无脑选</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E5%B9%BF%E6%92%AD%E5%8F%98%E9%87%8F%E4%B8%8E-broadcast-hash-join"><span class="toc-text">四、广播变量与 broadcast hash join</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81GC-%E8%B0%83%E4%BC%98%EF%BC%9A%E4%BB%8E-ParallelGC-%E5%88%B0-G1"><span class="toc-text">五、GC 调优：从 ParallelGC 到 G1</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81partition-%E6%95%B0%E9%87%8F%EF%BC%9Aspark-sql-shuffle-partitions"><span class="toc-text">六、partition 数量：spark.sql.shuffle.partitions</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E6%95%B0%E6%8D%AE%E6%9C%AC%E5%9C%B0%E6%80%A7%E4%B8%8E-locality-wait-%E9%99%8D%E7%BA%A7%E9%98%B6%E6%A2%AF"><span class="toc-text">七、数据本地性与 locality.wait 降级阶梯</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81Join-%E7%AD%96%E7%95%A5%E9%80%89%E6%8B%A9%EF%BC%9A%E5%88%AB%E8%AE%A9%E5%BC%95%E6%93%8E%E6%9B%BF%E4%BD%A0%E5%81%9A%E6%89%80%E6%9C%89%E5%86%B3%E5%AE%9A"><span class="toc-text">八、Join 策略选择：别让引擎替你做所有决定</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B9%9D%E3%80%81%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86%E4%B8%8E%E6%8E%A8%E6%B5%8B%E6%89%A7%E8%A1%8C"><span class="toc-text">九、小文件治理与推测执行</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8D%81%E3%80%81%E4%B8%8E%E5%BC%80%E5%8F%91%E8%A7%84%E8%8C%83%E7%BB%93%E5%90%88"><span class="toc-text">十、与开发规范结合</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B0%8F%E7%BB%93"><span class="toc-text">小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

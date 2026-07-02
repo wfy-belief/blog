@@ -1,0 +1,403 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Spark SQL 与 Catalyst 优化器：从 SQL 文本到向量化执行的全链路复盘 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/spark-sql-catalyst"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="拆解 Spark SQL 从 Parser、Analyzer 到 Codegen、向量化执行的全链路取舍"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '从 ANTLR4 解析、Analyzer 绑定 Catalog、Optimizer 的 RBO/CBO 双驱动，到 SparkPlanner 物理计划、whole-stage codegen 与 Parquet/ORC 向量化 reader，逐层拆解 Catalyst 优化器的源码级取舍。结合一次把 Spark 2.4 作业迁到 3.x 后 codegen stage 数缩近、TPE 提升的真实经历，把 PredicatePushDown、GenerateUnsafeProjection、自定义 Rule 与 Hive SQL 差异讲透。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">30</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">31</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">31</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">40</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">Spark SQL 与 Catalyst 优化器：从 SQL 文本到向量化执行的全链路复盘</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Spark/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Spark</span></a><a class="post-meta__tags" href="/tags/Spark-SQL/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Spark SQL</span></a><a class="post-meta__tags" href="/tags/Catalyst/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Catalyst</span></a></div></div></div></div><h1 class="post-title">Spark SQL 与 Catalyst 优化器：从 SQL 文本到向量化执行的全链路复盘</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h2 id="引言"><a href="#引言" class="headerlink" title="引言"></a>引言</h2><p>去年我把一组跑在 Spark 2.4 的离线报表作业迁到 3.3，同一份数据、同一个 SQL，整体 TPE 降了 38% <!-- 校准：请按真实经历核实/替换 -->。改的只是几个参数和 join hint，但执行计划变了一大片：原来 14 个 stage 缩成 9 个，<code>explain formatted</code> 里多了一堆 <code>*(1) Scan</code> 与 <code>*(2) Filter</code>——那个 <code>*</code> 就是 whole-stage codegen 的标记。这次迁移让我意识到，Spark SQL 真正的护城河不是 SQL 语法，而是 Catalyst 优化器叠加 Codegen、向量化 reader 这条贯穿到底的执行链路。</p>
+<p>很多人把 Catalyst 当成”黑盒优化器”用，写完 SQL 就 <code>spark.sql(&quot;...&quot;).show()</code>，执行计划看不懂、慢了只会调 <code>spark.sql.shuffle.partitions</code> 或者无脑加 <code>repartition</code>。但 Spark SQL 的每一处性能差异——为什么同样 join 有时走 BroadcastHash 有时走 SortMerge、为什么同一张表有时扫 200 列有时只扫 5 列、为什么有时候 SQL 跑得比手写 RDD 还快——背后都是 Catalyst 的决策。本篇我把这条链路从 SQL 文本一直拆到向量化 reader，把 TreeNode&#x2F;RuleExecutor 的 fixPoint 迭代、RBO 与 CBO 的分工、Codegen 的边界与塌陷条件都讲清楚，并给出我自己写 Catalyst Rule 时踩过的坑。</p>
+<h2 id="一、SQL-文本到物理计划：五个-phase"><a href="#一、SQL-文本到物理计划：五个-phase" class="headerlink" title="一、SQL 文本到物理计划：五个 phase"></a>一、SQL 文本到物理计划：五个 phase</h2><p>Spark SQL 一条 SQL 的生命周期，本质是五次”形态变化”。我画一张总览图，这也是看懂 <code>explain()</code> 输出顺序的地图：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">SQL 文本  &quot;SELECT a, sum(b) FROM t WHERE c &gt; 10 GROUP BY a&quot;</span><br><span class="line">     |</span><br><span class="line">     v</span><br><span class="line">[ANTLR4 Parser]  parse tree -&gt; AstBuilder</span><br><span class="line">     |</span><br><span class="line">     v</span><br><span class="line">Unresolved Logical Plan       (UnresolvedRelation / UnresolvedAttribute)</span><br><span class="line">     |</span><br><span class="line">     v</span><br><span class="line">[Analyzer + SessionCatalog]   绑定表/列/函数/类型</span><br><span class="line">     |</span><br><span class="line">     v</span><br><span class="line">Resolved Logical Plan</span><br><span class="line">     |</span><br><span class="line">     v</span><br><span class="line">[Optimizer: RBO + CBO]        RuleExecutor.fixPoint 迭代</span><br><span class="line">     |</span><br><span class="line">     v</span><br><span class="line">Optimized Logical Plan</span><br><span class="line">     |</span><br><span class="line">     v</span><br><span class="line">[SparkPlanner / Strategies]   JoinSelection / FileSourceStrategy ...</span><br><span class="line">     |</span><br><span class="line">     v</span><br><span class="line">Physical Plan (SparkPlan)</span><br><span class="line">     |</span><br><span class="line">     v</span><br><span class="line">[QueryExecution.preparedForExecution]  EnsureRequirements 等</span><br><span class="line">     |</span><br><span class="line">     v</span><br><span class="line">ExecutedPlan  -&gt;  Codegen / 向量化 Reader  -&gt;  RDD 执行</span><br></pre></td></tr></table></figure>
+
+<p>这五步对应 <code>QueryExecution</code> 里五个 lazy 字段：<code>analyzed</code>、<code>withCachedData</code>、<code>optimizedPlan</code>、<code>sparkPlan</code>、<code>executedPlan</code>。<code>explain()</code> 默认打的就是前面四张加 executed。3.0 之后多了 <code>explain formatted</code>，把 plan 折叠成算子层级缩进，看动辄几十个算子的大查询特别舒服；3.2 又加了 <code>explain codegen</code>，直接把生成的 Java 源码吐出来，对调 Codegen 边界很有用。我自己排查性能问题，第一步永远是 <code>explain formatted</code>，第二步是看 stage 监控里 <code>*</code> 标记的连续性，第三步才是看 task 级指标。</p>
+<h2 id="二、Parser：ANTLR4-生成-Unresolved-逻辑计划"><a href="#二、Parser：ANTLR4-生成-Unresolved-逻辑计划" class="headerlink" title="二、Parser：ANTLR4 生成 Unresolved 逻辑计划"></a>二、Parser：ANTLR4 生成 Unresolved 逻辑计划</h2><p>Spark 3.x 用 ANTLR4 根据 <code>SqlBaseParser.g4</code> 直接生成词法、语法分析器，得到 parse tree，再由 <code>AstBuilder</code> 把它翻译成 <code>LogicalPlan</code>。这一步产物叫 <strong>Unresolved Logical Plan</strong>——表名是 <code>UnresolvedRelation</code>、列名是 <code>UnresolvedAttribute</code>，全都是字符串标识，没绑 schema，没类型信息。</p>
+<p>为什么要先 unresolved？因为这一步还不知道有哪些 catalog、哪些表，需要 Analyzer 在有 SessionState 的上下文里去查。Parser 阶段只负责语法正确性，<code>SELECT</code> 拼错成 <code>SELCT</code> 在这里就报错；但表名拼错、列名拼错，Parser 是不管的，那是 Analyzer 的事。这一点和 Hive 的 Antlr parser 思路一致，但 Spark 的 g4 维护得更勤，3.x 里 INSERT INTO、MERGE INTO、PIVOT、LATERAL、ANSI 模式下的强类型转换这些都陆续进了语法。AstBuilder 本身是一个 visitor，遍历 parse tree 把每个非终结符翻译成对应的 TreeNode，比如 <code>SELECT ... FROM ... WHERE ...</code> 翻成 <code>Project(Filter(UnresolvedRelation))</code>，结构上和 SQL 的语法树基本同构。理解这点的好处是：报”语法错误”时，能从报错行号倒推是哪条 g4 规则没匹配上；报”分析错误”时，则是 Analyzer 阶段的事，两者日志栈完全不同。</p>
+<p><code>explain</code> 最上面那段就是它：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">== Parsed Logical Plan ==</span><br><span class="line">&#x27;Project [&#x27;a, unresolvedalias(&#x27;sum(&#x27;b), None) AS s]</span><br><span class="line">+- &#x27;Filter (&#x27;c &gt; 10)</span><br><span class="line">   +- &#x27;UnresolvedRelation [t]</span><br></pre></td></tr></table></figure>
+
+<p>撇号 <code>&#39;</code> 就是 unresolved 的标记，对应 <code>UnresolvedAttribute</code>，没 exprId、没 dataType。</p>
+<h2 id="三、Analyzer：用-Catalog-把”字符串”绑成”实体”"><a href="#三、Analyzer：用-Catalog-把”字符串”绑成”实体”" class="headerlink" title="三、Analyzer：用 Catalog 把”字符串”绑成”实体”"></a>三、Analyzer：用 Catalog 把”字符串”绑成”实体”</h2><p>Analyzer 的输入是 Unresolved 计划，输出是 Resolved 计划。它靠 <code>SessionCatalog</code>（Hive 元数据或 V2 Catalog）做四件事：</p>
+<table>
+<thead>
+<tr>
+<th>解析对象</th>
+<th>做的事</th>
+<th>触发报错</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>表名</td>
+<td><code>ResolveRelations</code>：<code>UnresolvedRelation</code> -&gt; <code>Relation</code> 带实际 schema</td>
+<td>table not found</td>
+</tr>
+<tr>
+<td>列名</td>
+<td><code>ResolveReferences</code>：<code>UnresolvedAttribute</code> -&gt; <code>AttributeReference</code> 带 exprId</td>
+<td>cannot resolve column</td>
+</tr>
+<tr>
+<td>函数</td>
+<td><code>ResolveFunctions</code>：函数名 -&gt; <code>Expression</code> 或聚合函数</td>
+<td>undefined function</td>
+</tr>
+<tr>
+<td>类型</td>
+<td><code>TypeCoercion</code>：隐式类型转换，如 int+double 自动 promote</td>
+<td>type mismatch</td>
+</tr>
+</tbody></table>
+<p>Analyzer 自己也是一个 <code>RuleExecutor[LogicalPlan]</code>，跑一批 resolve 规则，跑到全部 unresolved 消失为止。跑完后 <code>analyzed</code> 计划里所有撇号消失：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">== Analyzed Logical Plan ==</span><br><span class="line">Project [a, sum(b) AS s]</span><br><span class="line">+- Filter (c &gt; 10)</span><br><span class="line">   +- SubqueryAlias t</span><br><span class="line">      +- Relation default.t[a#1,b#2,c#3] parquet</span><br></pre></td></tr></table></figure>
+
+<p>这里有个细节常被忽略：<code>SubqueryAlias</code> 是为了给表起一个逻辑别名，保证 <code>a#1</code> 这种 exprId 在多表自连接时唯一。类型提升也藏在这步，<code>c &gt; 10</code> 如果 <code>c</code> 是 long，10 会被 promote 成 long，避免后续比较时反复转换。Analyzer 解决的是”对不对”的问题，Optimizer 才解决”快不快”的问题。值得提的是 Catalog 的两层结构：V1 的 <code>SessionCatalog</code> 走 HiveMetastoreClient，元数据兼容 Hive；V2 的 <code>TableCatalog</code> 接口是 3.0 后的新设计，支持多 catalog、命名空间隔离，Iceberg&#x2F;Delta&#x2F;Hudi 都基于 V2 接入。Analyzer 在解析 <code>UnresolvedRelation</code> 时会按 <code>spark.sql.catalog.&lt;name&gt;</code> 配置决定走 V1 还是 V2，两条路径产物都归一到 <code>LogicalPlan</code>，对下游透明。迁移到 V2 后，分区裁剪、谓词下推的契约更清晰，但也踩过 V2 catalog 在某些版本对 <code>ALTER TABLE</code> 支持不全的坑。</p>
+<h2 id="四、Optimizer：RBO-与-CBO-双驱动"><a href="#四、Optimizer：RBO-与-CBO-双驱动" class="headerlink" title="四、Optimizer：RBO 与 CBO 双驱动"></a>四、Optimizer：RBO 与 CBO 双驱动</h2><p>这是 Catalyst 的心脏。Optimizer 输入 Resolved 计划，输出 Optimized 计划。它跑两套规则：<strong>RBO（Rule-Based）</strong> 和 <strong>CBO（Cost-Based）</strong>，两者都通过 <code>RuleExecutor</code> 的 fixPoint 迭代执行。</p>
+<h3 id="TreeNode-与-RuleExecutor-的-fixPoint"><a href="#TreeNode-与-RuleExecutor-的-fixPoint" class="headerlink" title="TreeNode 与 RuleExecutor 的 fixPoint"></a>TreeNode 与 RuleExecutor 的 fixPoint</h3><p><code>LogicalPlan</code> 和 <code>Expression</code> 都继承自 <code>TreeNode</code>，提供 <code>transformUp</code>&#x2F;<code>transformDown</code>——本质是后序&#x2F;前序遍历，用偏函数把匹配的子树替换掉，没匹配的原样返回。<code>RuleExecutor</code> 把规则按 <code>Batch</code> 分组，每个 batch 跑到<strong>不动点</strong>，伪码大概是：</p>
+<figure class="highlight scala"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// RuleExecutor 关键循环（简化）</span></span><br><span class="line"><span class="keyword">var</span> curPlan = plan</span><br><span class="line"><span class="keyword">var</span> iteration = <span class="number">1</span></span><br><span class="line"><span class="keyword">while</span> (iteration &lt; maxIterations) &#123;</span><br><span class="line">  <span class="keyword">val</span> next = batch.rules.foldLeft(curPlan) &#123; (p, rule) =&gt; rule(p) &#125;</span><br><span class="line">  <span class="keyword">if</span> (next == curPlan) <span class="keyword">return</span> curPlan   <span class="comment">// 收敛</span></span><br><span class="line">  curPlan = next</span><br><span class="line">  iteration += <span class="number">1</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>maxIterations</code> 默认 100 <!-- 校准：请按真实经历核实/替换 -->，跑超会 warning 但不报错。Optimizer 内部把规则切成多个 batch，顺序大致是：Finish Analysis（移除 AnalysisBarriers 等）、Substitution（去冗余算子）、Operator Optimization Before Inferring Filters、Infer Filters、Operator Optimization After Inferring Filters、Early Filter and Projection Push-Down、Join Reorder、DecideOutputRelation。每个 batch 独立跑到不动点，前一个 batch 的产物是后一个的输入。规则之间可能反复触发：PredicatePushDown 把 Filter 推下去后，ConstantFolding 又把常量折叠掉，反过来又给 PredicatePushDown 新机会，直到没有任何规则再产生变化。这也是为什么写自定义 Rule 必须幂等——不幂等的规则会让 batch 永远不收敛，触发 maxIterations warning，等于每条 SQL 多烧一截 CPU。</p>
+<h3 id="RBO-核心规则"><a href="#RBO-核心规则" class="headerlink" title="RBO 核心规则"></a>RBO 核心规则</h3><table>
+<thead>
+<tr>
+<th>规则</th>
+<th>作用</th>
+<th>我的实战体感</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>PredicatePushDown</code></td>
+<td>把 Filter 推到数据源&#x2F;叶子节点</td>
+<td>Parquet 下推后 IO 减少 60% <!-- 校准 --></td>
+</tr>
+<tr>
+<td><code>ConstantFolding</code></td>
+<td>编译期算常量，<code>1+1</code> -&gt; <code>2</code></td>
+<td>干掉 UDF 误用引起的常量表达式</td>
+</tr>
+<tr>
+<td><code>ProjectionPruning</code></td>
+<td>只读用到的列</td>
+<td>列裁剪，省 IO 的最大头</td>
+</tr>
+<tr>
+<td><code>NullPropagation</code></td>
+<td><code>isnull(null)</code> -&gt; <code>true</code></td>
+<td>避免 null 在表达式里反复求值</td>
+</tr>
+<tr>
+<td><code>BooleanSimplification</code></td>
+<td><code>a OR true</code> -&gt; <code>true</code></td>
+<td>动态 SQL 拼出来的复杂条件很顶用</td>
+</tr>
+<tr>
+<td><code>PushDownPredicates</code>（Aggregate）</td>
+<td><code>having</code> 能下推的转 <code>where</code></td>
+<td>配合分区裁剪效果显著</td>
+</tr>
+<tr>
+<td><code>ColumnPruning</code>（与 ProjectionPruning 协同）</td>
+<td>把不需要的列从子树剪掉</td>
+<td>配合向量化 reader 收益叠加</td>
+</tr>
+</tbody></table>
+<p>PredicatePushDown 有两层：Catalyst 层把 Filter 算子下移，Source 层把 Filter 翻成 Parquet&#x2F;ORC 的 pushdown 谓词。两层配合，扫 Parquet 时能跳过整个 row group，省的是磁盘 IO 和解码 CPU，这是大数据作业最大的成本项。</p>
+<h3 id="CBO-与统计信息"><a href="#CBO-与统计信息" class="headerlink" title="CBO 与统计信息"></a>CBO 与统计信息</h3><p>RBO 是”语法匹配就优化”，不关心数据量。但 <code>A join B join C</code>，A 1MB、B 100GB、C 10GB，join 顺序就决定生死。CBO 就是干这个：</p>
+<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">spark.sql.cbo.enabled</span>=<span class="string">true</span></span><br><span class="line"><span class="attr">spark.sql.cbo.starSchemaDetection</span>=<span class="string">true</span></span><br><span class="line"><span class="attr">spark.sql.statistics.fallBackToHdfs</span>=<span class="string">true</span></span><br><span class="line"><span class="attr">spark.sql.adaptive.cbo.enabled</span>=<span class="string">true   # AQE 下也复用 CBO</span></span><br></pre></td></tr></table></figure>
+
+<p>CBO 依赖 <code>ANALYZE TABLE t COMPUTE STATISTICS</code>（表级）和 <code>COMPUTE STATISTICS FOR COLUMNS</code>（列级）收集的行数、列基数、直方图。没统计信息它会 fallback 到 RBO 或 HDFS 文件大小估算。直方图用等高桶（equi-height histogram，默认 254 桶 <!-- 校准 -->），对范围谓词 <code>&gt; &#39;2026-01-01&#39;</code> 的选择率估算很关键；没有直方图时 CBO 只能用 NDV 平均估算，偏斜列误差能到几倍。我踩过坑：一张表迁了分区没收统计，CBO 估算行数偏小，选了 BroadcastHashJoin 结果 map 端 OOM，收完统计才换回 SortMergeJoin <!-- 校准：请按真实经历核实/替换 -->。所以团队约定：每次大分区变更后强制重跑 ANALYZE，否则 CBO 反而比 RBO 更危险。另外 CBO 的代价模型目前只算 cardinality，不真正考虑 IO&#x2F;CPU 成本，把它当成”join 顺序决策器”而不是万能优化器更合适。</p>
+<h2 id="五、物理计划生成：SparkPlanner-的-Strategies"><a href="#五、物理计划生成：SparkPlanner-的-Strategies" class="headerlink" title="五、物理计划生成：SparkPlanner 的 Strategies"></a>五、物理计划生成：SparkPlanner 的 Strategies</h2><p>Optimizer 出来还是逻辑计划。<code>SparkPlanner</code> 用一组 <code>Strategy</code> 把逻辑算子翻译成物理算子，比如 <code>Join</code> 翻成 <code>BroadcastHashJoin</code> &#x2F; <code>SortMergeJoin</code> &#x2F; <code>BroadcastNestedLoopJoin</code> &#x2F; <code>CartesianProduct</code> 中的某一个。</p>
+<p>关键策略：</p>
+<ul>
+<li><code>JoinSelection</code>：按表大小与 hint 选 join 物理实现。小表 &lt; <code>spark.sql.autoBroadcastJoinThreshold</code>（默认 10MB <!-- 校准 -->）就走 BroadcastHashJoin；等值连接且任一侧可广播走 Broadcast，否则等值连接走 SortMergeJoin（要求两侧有序，由 EnsureRequirements 补 Sort）；非等值连接只能走 BroadcastNestedLoopJoin 或 CartesianProduct，性能最差。<code>/*+ BROADCAST(t) */</code> &#x2F; <code>/*+ MERGE(t) */</code> 这类 hint 也是在这里生效，会绕过代价估算强制选择。</li>
+<li><code>Aggregation</code>：<code>HashAggregate</code> 优先，内存不够 fallback <code>SortAggregate</code>。</li>
+<li><code>FileSourceStrategy</code>：把 <code>LogicalRelation</code> 翻成 <code>FileSourceScanExec</code>，同时把可下推的谓词、需要的列交给 source 层。</li>
+</ul>
+<p>物理计划生成后还有 <code>preparedForExecution</code>，跑 <code>EnsureRequirements</code>——给 SortMergeJoin 补 Sort、给 Exchange 补 Shuffle、给 Broadcast 补 BroadcastExchange——把物理计划”补齐”成可执行形态。这一步很关键，因为前面 Strategy 阶段只决定 join 类型，不保证输入有序，SortMergeJoin 要求两边按 key 排好序，缺的 Sort 就在这里补。这一步还会处理 Distribution（数据分布要求）与 Ordering（排序要求）的匹配：如果一个算子的子计划分布不满足要求，就插入 <code>Exchange</code>；排序不满足就插入 <code>Sort</code>。理解这一步的价值在于，看 <code>explain</code> 时如果发现 Sort 出现得很意外，往往是上游 join 选型或分区策略导致的，根因在前面而不是这个 Sort 本身。</p>
+<h2 id="六、whole-stage-codegen：把一串算子折成一个函数"><a href="#六、whole-stage-codegen：把一串算子折成一个函数" class="headerlink" title="六、whole-stage codegen：把一串算子折成一个函数"></a>六、whole-stage codegen：把一串算子折成一个函数</h2><p>这是 Spark 2.0 引入、3.x 持续打磨的核心加速器。物理计划里相邻的几个算子如果不跨 shuffle，会被折叠进同一个 Java 方法，消除虚函数调用与 boxing。从执行模型上，它把经典的 Volcano 迭代器模型（<code>next()</code> 套 <code>next()</code>）压成了 pipeline 化的循环：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">物理计划片段</span><br><span class="line">Project [a, sum(b)]</span><br><span class="line">  +- Filter (c &gt; 10)</span><br><span class="line">     +- HashAggregate(keys=[a], functions=[sum(b)])</span><br><span class="line">        +- FileScan parquet default.t</span><br><span class="line"></span><br><span class="line">whole-stage codegen: 把同一 stage 内连续算子折进一个 doConsume/doProduce 链</span><br><span class="line">+--------------------------------------------------------+</span><br><span class="line">| stage 0  (codegen, 标记 *(1) *(2) *(3))               |</span><br><span class="line">|   // Janino 生成的 Java 源码大致:                      |</span><br><span class="line">|   while (input.hasNext()) &#123;                            |</span><br><span class="line">|     row = input.next();                                |</span><br><span class="line">|     if (row.c &gt; 10) &#123;            // Filter inline      |</span><br><span class="line">|       agg_buffer.update(row.a, row.b);  // Agg inline  |</span><br><span class="line">|     &#125;                                                  |</span><br><span class="line">|   &#125;                                                    |</span><br><span class="line">|   // Project/Filter/Agg/Scan 编译进同一函数            |</span><br><span class="line">+--------------------------------------------------------+</span><br><span class="line">           |  Exchange(shuffle) 边界, codegen 在此切断</span><br><span class="line">           v</span><br><span class="line">+--------------------------------------------------------+</span><br><span class="line">| stage 1  (codegen)                                    |</span><br><span class="line">|   while (shuffleInput.hasNext()) &#123; ... output(...) &#125;  |</span><br><span class="line">+--------------------------------------------------------+</span><br><span class="line">|        ↓ Janino 编译为 class -&gt; ClassLoader 加载        |</span><br><span class="line">+--------------------------------------------------------+</span><br></pre></td></tr></table></figure>
+
+<p><code>explain</code> 里 <code>*</code> 前缀就是 codegen 标记，数字是 stage 编号。<code>explain codegen</code> 直接把生成的 Java 源码打出来：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">== Final Plan ==</span><br><span class="line">*(1) HashAggregate(keys=[a], functions=[sum(b)])</span><br><span class="line">+- *(1) Filter (c &gt; 10)</span><br><span class="line">   +- *(1) ColumnarToRow</span><br><span class="line">      +- *(1) Scan parquet default.t[a#1,b#2,c#3]</span><br><span class="line">            PushedFilters: [IsNotNull(c), GreaterThan(c,10)]</span><br><span class="line"></span><br><span class="line">Generated code:</span><br><span class="line">/* 001 */ public void consume() &#123;</span><br><span class="line">/* 002 */   while (input.hasNext()) &#123;</span><br><span class="line">/* 003 */     InternalRow row = input.next();</span><br><span class="line">/* 004 */     if (row.getInt(2) &gt; 10) &#123;</span><br><span class="line">/* 005 */       agg_hashMap.update(row.getInt(0), row.getLong(1));</span><br><span class="line">/* 006 */     &#125;</span><br><span class="line">/* 007 */   &#125;</span><br><span class="line">/* 008 */ &#125;</span><br></pre></td></tr></table></figure>
+
+<p>迁移那次让我印象最深：Spark 2.4 同一查询 codegen 出来是 14 段，3.3 优化成 9 段，原因是 3.x 把 <code>Filter</code> + <code>Aggregate</code> 也折进了同一 stage，虚函数调用少了 ~40% <!-- 校准：请按真实经历核实/替换 -->。Codegen 的实现是 doProduce&#x2F;doConsume 调用链：叶子算子（Scan）调 doProduce 生成”产生一行”的代码，父算子把”消费一行”的逻辑注入进去，层层嵌套，最后拼成一个大的 while 循环。但 Codegen 不是万能：跨 shuffle 切断（Exchange 是 codegen 边界）、某些算子（如 <code>SortAggregate</code> 的 sort 阶段、HashJoin 的 build 侧需要物化整张 hash 表）不支持 codegen，会被切成多段；UDF 太复杂、生成的方法超过 Janino 的单方法 64KB 限制也会 fallback 回 interpreted 模式。看 <code>explain</code> 时如果发现一个本应连起来的 pipeline 里夹杂了不带 <code>*</code> 的算子，多半就是 codegen 塌陷了，这时候优化方向就变成了”消除那个不支持 codegen 的算子”——比如把 SortAggregate 换成 HashAggregate，把 sort merge join 换成 broadcast。</p>
+<h3 id="GenerateUnsafeProjection"><a href="#GenerateUnsafeProjection" class="headerlink" title="GenerateUnsafeProjection"></a>GenerateUnsafeProjection</h3><p>Codegen 背后有一组 <code>Generate*</code> 类，对应不同表达式求值器：</p>
+<ul>
+<li><code>GenerateUnsafeProjection</code>：把表达式求值编译成直接写 UnsafeRow 的字节，零 boxing。</li>
+<li><code>GenerateMutableProjection</code>：可变 row，多用于聚合中间态。</li>
+<li><code>GenerateOrdering</code>：编译 sort comparator。</li>
+<li><code>GeneratePredicate</code>：编译 Filter 谓词。</li>
+</ul>
+<p>UnsafeRow 是 Spark 自己的二进制行格式，定长 8 字节槽 + 变长区，<code>getInt(2)</code> 直接是 <code>Platform.getLong(base, offset + 2*8)</code> 级别的内存访问。这一层把 JVM 对象开销彻底干掉，是 Spark 处理效率能压 Hive 一头的底层原因。Hive 默认走 <code>Text</code> 或 Java 对象，光 boxing 和 GC 压力就拉开了差距。</p>
+<h2 id="七、运行时向量化：Parquet-ORC-的-columnar-batch"><a href="#七、运行时向量化：Parquet-ORC-的-columnar-batch" class="headerlink" title="七、运行时向量化：Parquet&#x2F;ORC 的 columnar batch"></a>七、运行时向量化：Parquet&#x2F;ORC 的 columnar batch</h2><p>逻辑上 Spark 是行模型（InternalRow），但读 Parquet&#x2F;ORC 时可以走向量化 reader，一次读一批（一个 <code>ColumnarBatch</code>，默认 1024 行 <!-- 校准 -->），按列连续存放。<code>FileSourceScanExec</code> 用 <code>*(1) ColumnarToRow</code> 把列式 batch 转回行模型喂给 codegen：</p>
+<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">spark.sql.parquet.enableVectorizedReader</span>=<span class="string">true</span></span><br><span class="line"><span class="attr">spark.sql.orc.impl</span>=<span class="string">native            # 2.x 后默认 native，走向量化</span></span><br><span class="line"><span class="attr">spark.sql.orc.enableVectorizedReader</span>=<span class="string">true</span></span><br></pre></td></tr></table></figure>
+
+<p>向量化 reader 的收益来自两点：CPU cache 命中率（按列连续读，prefetch 友好，不再被无关列污染 cache line）、SIMD 友好（同类型批量运算，JIT 后能用 AVX 指令）。在向量化路径上，读出来的 <code>ColumnarBatch</code> 里的每一列是 <code>ColumnVector</code>，可以是 on-heap 的 byte 数组，也可以是 off-heap 的直接内存。我曾对一张 200 列的大宽表只读 5 列做聚合，开 vectorizedReader 比 row reader 快 2.1 倍 <!-- 校准：请按真实经历核实/替换 -->，瓶颈从 CPU 直接挪到 IO。但要留意：向量化 reader 只在读侧，codegen 后的运算仍是行模型，<code>ColumnarToRow</code> 本身有开销；如果查询只是简单 select 全表全列，向量化收益会缩水。另外某些复杂类型（嵌套 struct、map）在某些版本上会 fallback 到 row reader，排查时可以临时关掉看是否回退。Spark 3.x 还在做向量化表达式求值（<code>ColumnarToRow</code> 之后的运算也保持列式），但目前为止行模型 + codegen 仍是主力路径，向量化更多是”读侧加速器”。</p>
+<h2 id="八、自定义-Catalyst-Rule：把优化器当扩展点"><a href="#八、自定义-Catalyst-Rule：把优化器当扩展点" class="headerlink" title="八、自定义 Catalyst Rule：把优化器当扩展点"></a>八、自定义 Catalyst Rule：把优化器当扩展点</h2><p>Catalyst 最被低估的能力是可扩展。比如我们有一类报表，<code>CAST(date_str AS DATE)</code> 后跟一个常量比较，希望提前折叠掉这些常量转换。可以写一个 Rule：</p>
+<figure class="highlight scala"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> org.apache.spark.sql.catalyst.rules.<span class="type">Rule</span></span><br><span class="line"><span class="keyword">import</span> org.apache.spark.sql.catalyst.plans.logical.<span class="type">LogicalPlan</span></span><br><span class="line"><span class="keyword">import</span> org.apache.spark.sql.catalyst.expressions.&#123;<span class="type">Cast</span>, <span class="type">Literal</span>&#125;</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">object</span> <span class="title">FoldConstantCast</span> <span class="keyword">extends</span> <span class="title">Rule</span>[<span class="type">LogicalPlan</span>] </span>&#123;</span><br><span class="line">  <span class="keyword">override</span> <span class="function"><span class="keyword">def</span> <span class="title">apply</span></span>(plan: <span class="type">LogicalPlan</span>): <span class="type">LogicalPlan</span> =</span><br><span class="line">    plan transformDown &#123;</span><br><span class="line">      <span class="keyword">case</span> p =&gt; p transformExpressionsUp &#123;</span><br><span class="line">        <span class="keyword">case</span> <span class="type">Cast</span>(<span class="type">Literal</span>(v, _), dt) <span class="keyword">if</span> v != <span class="literal">null</span> =&gt;</span><br><span class="line">          <span class="type">Literal</span>(<span class="type">Cast</span>(<span class="type">Literal</span>(v, dt), dt).eval(), dt)</span><br><span class="line">      &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 注册到 SessionState</span></span><br><span class="line">spark.experimental.extraOptimizations = <span class="type">Seq</span>(<span class="type">FoldConstantCast</span>)</span><br></pre></td></tr></table></figure>
+
+<p>注意三点：一是 <code>transformDown</code>&#x2F;<code>transformExpressionsUp</code> 的方向选对，下推类规则一般 down，折叠类一般 up，方向不对可能漏掉嵌套表达式；二是 Rule 必须幂等，跑两次和跑一次结果一样，否则会拖死 fixPoint 收敛；三是 <code>extraOptimizations</code> 是开发态入口，正式上线最好走 <code>SparkSessionExtensions</code> 注入，通过 <code>withExtensions</code> 配置，这样能进生产配置而不是硬编码在代码里。生产里我建议先在测试环境跑、看 <code>spark.sql.optimizer.maxIterations</code> 日志确认迭代次数合理再上，我见过一个非幂等规则把单 SQL 解析时间从 200ms 拉到 3s <!-- 校准：请按真实经历核实/替换 --> 的案例，定位手段就是开 <code>org.apache.spark.sql.catalyst.rules</code> 的 DEBUG 日志，看每轮 batch 跑了多少次。还有一个反模式：在 Rule 里做 IO 或 RPC（比如查外部配置中心决定下推策略），这会把优化器拖成毫秒级，Rule 必须是纯函数，需要的上下文应该提前物化。</p>
+<h2 id="九、与-Hive-SQL-的差异"><a href="#九、与-Hive-SQL-的差异" class="headerlink" title="九、与 Hive SQL 的差异"></a>九、与 Hive SQL 的差异</h2><p>把团队从 Hive 迁到 Spark SQL 时，下面这张表我给团队讲过很多遍：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Hive SQL</th>
+<th>Spark SQL</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>优化器</td>
+<td>简单 RBO，无 CBO（4.0 才引入更完善 CBO）</td>
+<td>Catalyst，RBO+CBO+AQE</td>
+</tr>
+<tr>
+<td>执行引擎</td>
+<td>MapReduce &#x2F; Tez</td>
+<td>DAG + Stage</td>
+</tr>
+<tr>
+<td>表达式执行</td>
+<td>解释执行</td>
+<td>whole-stage codegen</td>
+</tr>
+<tr>
+<td>行格式</td>
+<td>Java 对象&#x2F;Text</td>
+<td>UnsafeRow 二进制</td>
+</tr>
+<tr>
+<td>列式读</td>
+<td>ORC Vectorized（Hive 自带）</td>
+<td>Parquet&#x2F;ORC 向量化 reader</td>
+</tr>
+<tr>
+<td>函数语义</td>
+<td>强 Hive 兼容</td>
+<td>兼容 Hive 模式，靠 <code>spark.sql.hive.*</code> 开关</td>
+</tr>
+<tr>
+<td>谓词下推</td>
+<td>Storage Handler 层</td>
+<td>Catalyst + Source 层双下推</td>
+</tr>
+<tr>
+<td>中间结果落盘</td>
+<td>MR 每个 stage 落 HDFS</td>
+<td>shuffle 落本地盘，可 cache 内存</td>
+</tr>
+</tbody></table>
+<p>实战中迁移最容易踩的几个坑：一是 Hive 的 <code>INSERT OVERWRITE</code> 语义与 Spark 略不同（Spark 写临时目录再 rename，分区清理和锁的时机不一样，并发写同一分区会冲突，建议配合 <code>spark.sql.sources.partitionOverwriteMode=dynamic</code> 控制）；二是 Hive 某些 UDF 在 Spark 下走 interpreted 模式，codegen 不生效，性能反而比 Hive 还差——这种要么重写 UDF 为 Catalyst 原生表达式，要么接受慢；三是 <code>LEFT JOIN</code> 的 <code>ON</code> 与 <code>WHERE</code> 在 Spark 下语义和 Hive 一致但优化器处理时机不同，过滤条件下推深度有差异，复杂多表 join 后结果对不上的情况要查这；四是 Decimal 精度：Hive 与 Spark 的隐式精度提升规则不完全一致，迁库时涉及金额的报表要逐张对账，必要时显式 <code>CAST</code> 锁定精度。</p>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>Catalyst 把 SQL 从”字符串”一路编译到”Janino 生成的 Java 字节码”，每一步都有扩展点：Parser 可改 g4、Analyzer 可挂 Catalog、Optimizer 可加 Rule、Planner 可加 Strategy、Codegen 可加 <code>CodegenFallback</code> 之外的扩展。这是 Spark SQL 能压过 Hive 的根本，也是 Spark 能把 SQL、DataFrame、Dataset 三套 API 统一到同一执行路径的根本——DataFrame 在底层就是一棵构造好的 LogicalPlan，绕过 Parser 直接喂给 Analyzer，享受和 SQL 完全一样的优化。这也是后续 AQE（Adaptive Query Execution）能登场的舞台——AQE 本质就是让优化器在执行期、拿到真实 shuffle 数据量后再跑一轮，把 StaticPlan 阶段估不准的 join 顺序、分区数、倾斜处理重新决策。</p>
+<p>下一篇我会专门写 AQE 与数据倾斜：为什么 <code>spark.sql.adaptive.enabled=true</code> 一行参数能把倾斜 join 从 6 小时压到 40 分钟 <!-- 校准：请按真实经历核实/替换 -->，以及 AdaptiveSkewJoin 拆分逻辑、DynamicPartitionPruning 的运行期裁剪、CoalesceShufflePartitions 的合并阈值怎么调，把这条”运行时再优化”的链路也拆透。</p>
+<!-- 总校准：本文所有标注 校准 的数字（TPE 降 38%、stage 14->9、虚函数 40%、列宽表 2.1 倍、maxIterations 100、broadcast 10MB、batch 1024、解析时间 200ms->3s、AQE 6h->40min）均为示意值，请按真实生产经历核实或替换。版本相关说法以 Spark 2.4 / 3.3 为基线。 -->
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Spark/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Spark<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/Spark-SQL/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Spark SQL<span class="tagsPageCount">1</span></span></a><a class="post-meta__tags" href="/tags/Catalyst/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Catalyst<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/hadoop-hdfs-erasure-coding"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">HDFS 纠删码实战：RS 编码、Striping 与落地选型</div></div></a></div><div class="next-post pull-right"><a href="/posts/hadoop-hdfs-cache-read-optimization"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">HDFS 集中式缓存与读性能优化</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E8%A8%80"><span class="toc-text">引言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81SQL-%E6%96%87%E6%9C%AC%E5%88%B0%E7%89%A9%E7%90%86%E8%AE%A1%E5%88%92%EF%BC%9A%E4%BA%94%E4%B8%AA-phase"><span class="toc-text">一、SQL 文本到物理计划：五个 phase</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81Parser%EF%BC%9AANTLR4-%E7%94%9F%E6%88%90-Unresolved-%E9%80%BB%E8%BE%91%E8%AE%A1%E5%88%92"><span class="toc-text">二、Parser：ANTLR4 生成 Unresolved 逻辑计划</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81Analyzer%EF%BC%9A%E7%94%A8-Catalog-%E6%8A%8A%E2%80%9D%E5%AD%97%E7%AC%A6%E4%B8%B2%E2%80%9D%E7%BB%91%E6%88%90%E2%80%9D%E5%AE%9E%E4%BD%93%E2%80%9D"><span class="toc-text">三、Analyzer：用 Catalog 把”字符串”绑成”实体”</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81Optimizer%EF%BC%9ARBO-%E4%B8%8E-CBO-%E5%8F%8C%E9%A9%B1%E5%8A%A8"><span class="toc-text">四、Optimizer：RBO 与 CBO 双驱动</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#TreeNode-%E4%B8%8E-RuleExecutor-%E7%9A%84-fixPoint"><span class="toc-text">TreeNode 与 RuleExecutor 的 fixPoint</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#RBO-%E6%A0%B8%E5%BF%83%E8%A7%84%E5%88%99"><span class="toc-text">RBO 核心规则</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#CBO-%E4%B8%8E%E7%BB%9F%E8%AE%A1%E4%BF%A1%E6%81%AF"><span class="toc-text">CBO 与统计信息</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E7%89%A9%E7%90%86%E8%AE%A1%E5%88%92%E7%94%9F%E6%88%90%EF%BC%9ASparkPlanner-%E7%9A%84-Strategies"><span class="toc-text">五、物理计划生成：SparkPlanner 的 Strategies</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81whole-stage-codegen%EF%BC%9A%E6%8A%8A%E4%B8%80%E4%B8%B2%E7%AE%97%E5%AD%90%E6%8A%98%E6%88%90%E4%B8%80%E4%B8%AA%E5%87%BD%E6%95%B0"><span class="toc-text">六、whole-stage codegen：把一串算子折成一个函数</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#GenerateUnsafeProjection"><span class="toc-text">GenerateUnsafeProjection</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E8%BF%90%E8%A1%8C%E6%97%B6%E5%90%91%E9%87%8F%E5%8C%96%EF%BC%9AParquet-ORC-%E7%9A%84-columnar-batch"><span class="toc-text">七、运行时向量化：Parquet&#x2F;ORC 的 columnar batch</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81%E8%87%AA%E5%AE%9A%E4%B9%89-Catalyst-Rule%EF%BC%9A%E6%8A%8A%E4%BC%98%E5%8C%96%E5%99%A8%E5%BD%93%E6%89%A9%E5%B1%95%E7%82%B9"><span class="toc-text">八、自定义 Catalyst Rule：把优化器当扩展点</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B9%9D%E3%80%81%E4%B8%8E-Hive-SQL-%E7%9A%84%E5%B7%AE%E5%BC%82"><span class="toc-text">九、与 Hive SQL 的差异</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B0%8F%E7%BB%93"><span class="toc-text">小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

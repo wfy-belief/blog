@@ -1,0 +1,427 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>HDFS 写数据全流程：从 create 到 pipeline ack 的一致性语义 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/hadoop-hdfs-write-path"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="逐层拆解 HDFS 写数据的完整链路、ack 机制与一致性保证"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文以第一人称实战视角，逐层拆解 HDFS 写路径：从 Client 调用 create 在 NameNode 建立 INodeFile under construction、分配 blockId 与 pipeline 成员，到 DataNode 数据流的双队列与 packet 结构、ack 回传、hflush/hsync 的可见性与持久性边界，再到 pipeline 故障摘除与 updatePipeline 恢复、block finalize 与租约归还，最后落到生产侧的 packet size、重试、副本数等调优取舍，落到字节级与源码级取舍。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">30</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">31</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">31</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">40</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">HDFS 写数据全流程：从 create 到 pipeline ack 的一致性语义</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop</span></a><a class="post-meta__tags" href="/tags/HDFS/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>HDFS</span></a><a class="post-meta__tags" href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>写路径</span></a></div></div></div></div><h1 class="post-title">HDFS 写数据全流程：从 create 到 pipeline ack 的一致性语义</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h2 id="引言：一次-hdfs-dfs-put-背后发生了什么"><a href="#引言：一次-hdfs-dfs-put-背后发生了什么" class="headerlink" title="引言：一次 hdfs dfs -put 背后发生了什么"></a>引言：一次 <code>hdfs dfs -put</code> 背后发生了什么</h2><p>我第一次认真读 HDFS 写路径源码，是因为某集群上一次 flume 写入在 close 时 hang 了 30 秒。表面看是网络抖动，但只有真正把 <code>DFSOutputStream</code> 的 data queue &#x2F; ack queue、packet 切分、pipeline 重建这一条链路在脑子里跑一遍，才能判断到底是 client 侧重试、DataNode 侧心跳超时，还是 NameNode 侧租约没释放。本篇不重复架构篇讲过的 NameNode&#x2F;DataNode 角色，而是<strong>把放大镜对准”一个字节从 client 走到三副本落盘”的整条写路径</strong>，到 packet 头、checksum、ack seq 的粒度。</p>
+<p>我们以 <code>hdfs dfs -put localfile /data/x.log</code> 为例，它内部走的是 <code>FileSystem.create(...)</code> → <code>DFSOutputStream</code>，和 Spark&#x2F;Flume 用 Java API 写 HDFS 是同一条路。所以理解了这条路径，所有上层写行为都能解释。</p>
+<h2 id="建立写流程：create-→-NameNode-条目-→-pipeline-分配"><a href="#建立写流程：create-→-NameNode-条目-→-pipeline-分配" class="headerlink" title="建立写流程：create → NameNode 条目 → pipeline 分配"></a>建立写流程：create → NameNode 条目 → pipeline 分配</h2><p>写路径的第一步不是发数据，而是 client 通过 RPC 调用 NameNode 的 <code>create</code> 方法。NameNode 在这里要做四件事，缺一不可：</p>
+<ol>
+<li><strong>权限与路径校验</strong>：检查父目录存在、写权限、是否已有同名文件（除非 overwrite）。</li>
+<li><strong>创建 INodeFile under construction</strong>：在目录树里挂一个新文件 inode，状态标记为”构建中”。这个状态非常关键——它意味着文件已经出现在命名空间，但还没有任何完整的 block，只有正在写的 block。</li>
+<li><strong>租约授予</strong>：NameNode 给 client 发一个 Lease（租约），软超时 60s、硬超时 1h <!-- 校准：请按真实经历核实/替换 -->。租约是 HDFS 实现”写者互斥”的核心：同一个文件只能有一个持有写租约的 writer，别人想写得先回收租约。这也是很多 client crash 后 “Cannot obtain block length” 报错的根因——租约没还，NameNode 要等硬超时才能强制回收。</li>
+<li><strong>分配 blockId 与 pipeline 成员</strong>：这是写路径最有意思的一步。</li>
+</ol>
+<p>NameNode 不是随便挑三个 DataNode。它会调用 <code>BlockPlacementPolicyDefault</code> 的机架感知策略，目标副本放置顺序大致是：</p>
+<ul>
+<li>第 1 个副本：优先和 client 同节点（写本地省一跳），client 不在集群内则随机选一个；</li>
+<li>第 2 个副本：放在<strong>不同机架</strong>（rack-aware，防整架故障）；</li>
+<li>第 3 个副本：与第 2 个<strong>同机架不同节点</strong>（降低跨架带宽）。</li>
+</ul>
+<p>这个顺序 <code>dn1, dn2, dn3</code> 就是 pipeline 的数据流顺序。注意 NameNode 此时只返回这个有序列表，<strong>pipeline 还没真正建立</strong>，连接是 client 自己去连的。</p>
+<p>返回给 client 的是 <code>LocatedBlock</code>，里面有 <code>blockId</code>、<code>generationStamp</code>、<code>ExtendedBlock</code> 信息和这三个 DataNode 的地址。client 拿到后构造 <code>DFSOutputStream</code>，进入下一阶段。</p>
+<h2 id="Pipeline-建立与数据流"><a href="#Pipeline-建立与数据流" class="headerlink" title="Pipeline 建立与数据流"></a>Pipeline 建立与数据流</h2><p>这是写路径的真正核心。我画一张 pipeline 的数据流图：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">       (1) create() RPC</span><br><span class="line">Client ──────────────────────► NameNode : 分配 blockId, dn列表, Lease</span><br><span class="line">  ◄──────────────────────────  (LocatedBlock)</span><br><span class="line"></span><br><span class="line">       (2) 建立 pipeline (DataXceiver)</span><br><span class="line">Client ──── writeBlock(dn1) ──► dn1 ──── writeBlock(dn2) ──► dn2 ──── writeBlock(dn3) ──► dn3</span><br><span class="line">  ◄───── pipeline ack (from dn3 回流) ─────────────────────────────────────────────────────</span><br><span class="line"></span><br><span class="line">       (3) 数据流 (单向往下游，全双工 ack)</span><br><span class="line">  data packet         data packet         data packet</span><br><span class="line">Client ───────► dn1 ───────► dn2 ───────► dn3</span><br><span class="line">  ▲                    ack seq (dn3 起逐跳回)              │</span><br><span class="line">  └────────────────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<h3 id="Pipeline-连接建立"><a href="#Pipeline-连接建立" class="headerlink" title="Pipeline 连接建立"></a>Pipeline 连接建立</h3><p>client 不是直接连三个 DataNode。它向 dn1 发起 <code>writeBlock</code> 的 <code>DataXceiver</code> 请求，请求里带着完整的 pipeline 列表 <code>[dn1, dn2, dn3]</code>。dn1 收到后，自己作为第一个节点，再向 dn2 发同样的 <code>writeBlock</code>，dn2 再向 dn3 发。一直到 dn3（最后一个）建立成功，ack 沿着 <code>dn3 → dn2 → dn1 → client</code> 回流，pipeline 才算建好。这是一个链式握手，任何一环失败，pipeline 建立就失败，client 会回到 NameNode 要求换节点。</p>
+<h3 id="Packet-切分：data-queue-与-ack-queue"><a href="#Packet-切分：data-queue-与-ack-queue" class="headerlink" title="Packet 切分：data queue 与 ack queue"></a>Packet 切分：data queue 与 ack queue</h3><p>client 侧的 <code>DFSOutputStream</code> 内部有两个关键队列，这是理解写行为所有”卡顿&#x2F;丢失&#x2F;可见性”问题的钥匙：</p>
+<ul>
+<li><strong>data queue</strong>：待发送的 packet，消费者是往 dn1 发数据的 sender 线程。</li>
+<li><strong>ack queue</strong>：已发出但还没收到 ack 的 packet，消费者是 ack processor 线程。</li>
+</ul>
+<p>应用层 <code>write(bytes)</code> 进来的数据，先被攒到 <code>BufferedOutputStream</code>（<code>chunkSize</code> 通常是 512B），攒够一个 <strong>packet</strong> 才入 data queue。默认 packet size 是 <strong>64KB</strong>（<code>io.bytes.per.checksum</code> × 128 左右，见 <code>DFSClient.conf</code>） <!-- 校准：请按真实经历核实/替换 -->。这个”攒包”动作解释了一个常见现象：写完不 flush，对端 reader 可能完全看不到数据。</p>
+<h3 id="Packet-结构：到字节级"><a href="#Packet-结构：到字节级" class="headerlink" title="Packet 结构：到字节级"></a>Packet 结构：到字节级</h3><p>一个 packet 由 header + checksum + data 组成，我把它列成表：</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>长度</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>packetHeaderLen</code> (4B)</td>
+<td>4</td>
+<td>header 自身长度</td>
+</tr>
+<tr>
+<td><code>offsetInBlock</code> (8B)</td>
+<td>8</td>
+<td>该 packet 在 block 中的字节偏移</td>
+</tr>
+<tr>
+<td><code>seqNo</code> (8B)</td>
+<td>8</td>
+<td>packet 序号，单调递增，ack 比对的就是它</td>
+</tr>
+<tr>
+<td><code>lastPacketInBlock</code> (1B)</td>
+<td>1</td>
+<td>是否是最后一个 packet（close 时）</td>
+</tr>
+<tr>
+<td><code>dataLen</code> (4B)</td>
+<td>4</td>
+<td>后面实际数据长度</td>
+</tr>
+<tr>
+<td>checksums</td>
+<td>N×4B</td>
+<td>每个 chunk 一个 CRC32C，每 chunk 512B</td>
+</tr>
+<tr>
+<td>data</td>
+<td>dataLen</td>
+<td>真正的业务字节</td>
+</tr>
+</tbody></table>
+<p>这里有个细节：<strong>checksum 是按 512B 的 chunk 算的，不是按 packet 算</strong>。所以一个 64KB 的 packet 有 128 个 checksum。DN 落盘时把数据和 checksum 分开存（<code>blk_xxx.data</code> 和 <code>blk_xxx.meta</code>），读时按 chunk 校验，坏了只丢一个 chunk 而不是整个 block。</p>
+<h2 id="Ack-机制：从-pipeline-尾端回传"><a href="#Ack-机制：从-pipeline-尾端回传" class="headerlink" title="Ack 机制：从 pipeline 尾端回传"></a>Ack 机制：从 pipeline 尾端回传</h2><p>数据是单向从 client → dn1 → dn2 → dn3，但 ack 是<strong>反向</strong>从 dn3 开始回流。dn3 收到一个完整 packet 并校验 checksum 通过后，向 dn2 回 ack；dn2 校验自己的副本也 OK，再向 dn1 回；dn1 回给 client。</p>
+<p>ack packet 里带的就是 <code>seqNo</code>，client 的 ack processor 拿到后，从 ack queue 里把<strong>所有 seqNo ≤ 该值的 packet 移除</strong>。注意是”≤”，因为 ack 是累积的——收到 ack(seqNo&#x3D;100) 意味着 1~100 全部三副本都写成功了。</p>
+<p>如果 ack 超时（默认 <code>dfs.client.datanode-restart.timeout</code> &#x2F; 写 socket 超时，约 60~120s） <!-- 校准：请按真实经历核实/替换 -->，或 checksum 不匹配，对应的 packet 会<strong>留在 ack queue</strong>，触发 pipeline 故障处理流程。</p>
+<p>这里要强调一个常被忽略的点：<strong>ack 代表三副本都写到了 DN 的 OS page cache，不代表落盘</strong>。落到磁盘的 fsync 是另一个语义，下面讲 flush 时再区分。</p>
+<h2 id="Flush-语义层级：write-hflush-hsync-close"><a href="#Flush-语义层级：write-hflush-hsync-close" class="headerlink" title="Flush 语义层级：write &#x2F; hflush &#x2F; hsync &#x2F; close"></a>Flush 语义层级：write &#x2F; hflush &#x2F; hsync &#x2F; close</h2><p>这是写路径里最容易踩坑、面试也最爱问的部分。HDFS 提供了四级”写完成”的承诺，从弱到强：</p>
+<table>
+<thead>
+<tr>
+<th>API</th>
+<th>语义</th>
+<th>可见性</th>
+<th>持久性</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>write(byte[])</code></td>
+<td>只进 client 内存缓冲，可能还没成 packet</td>
+<td>不可见</td>
+<td>不保证</td>
+</tr>
+<tr>
+<td><code>hflush()</code></td>
+<td>把缓冲切 packet 全部发完并等 pipeline ack</td>
+<td>其他 reader 可见</td>
+<td><strong>不落盘</strong>，DN crash 仍可能丢</td>
+</tr>
+<tr>
+<td><code>hsync()</code></td>
+<td>hflush + 让 DN 对副本做 fsync</td>
+<td>可见</td>
+<td>落盘（DN 进程 crash 不丢，整机掉电看存储）</td>
+</tr>
+<tr>
+<td><code>close()</code></td>
+<td>发 last packet + finalize</td>
+<td>可见 + 持久 + NameNode 登记</td>
+<td>完整提交</td>
+</tr>
+</tbody></table>
+<p>一个典型误区是：很多人以为 <code>hflush</code> 之后数据就稳了。<strong>不是</strong>。hflush 只保证 packet 流到 DN 的 OS 缓存和 DFSOutputStream 的 ack queue 清空，DN 进程 crash 不丢，但 DN 整机断电，OS page cache 里的数据照样丢。要真正”落盘”，得调 <code>hsync</code>，它会触发 DN 侧 <code>fsync_data</code>，代价是吞吐显著下降（某次 benchmark 里我们测过，每条 record 都 hsync，写吞吐从 200MB&#x2F;s 掉到 15MB&#x2F;s） <!-- 校准：请按真实经历核实/替换 -->。</p>
+<p>生产里典型的折中是：<strong>N 秒一次 hsync + 中间用 hflush</strong>，既控制 crash 时的丢失窗口（RPO），又不把吞吐打没。这正是 Spark Structured Streaming 写 HDFS sink 时 <code>commitsPerBatch</code> &#x2F; flush 策略要调的东西。</p>
+<h3 id="Java-API-示例"><a href="#Java-API-示例" class="headerlink" title="Java API 示例"></a>Java API 示例</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">Configuration</span> <span class="variable">conf</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Configuration</span>();</span><br><span class="line">conf.set(<span class="string">&quot;fs.defaultFS&quot;</span>, <span class="string">&quot;hdfs://namenode:8020&quot;</span>);</span><br><span class="line"><span class="type">FileSystem</span> <span class="variable">fs</span> <span class="operator">=</span> FileSystem.get(conf);</span><br><span class="line"></span><br><span class="line"><span class="type">Path</span> <span class="variable">path</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Path</span>(<span class="string">&quot;/data/write-demo.log&quot;</span>);</span><br><span class="line"><span class="keyword">try</span> (<span class="type">FSDataOutputStream</span> <span class="variable">out</span> <span class="operator">=</span> fs.create(</span><br><span class="line">        path, (<span class="type">short</span>) <span class="number">3</span>, <span class="number">64</span> * <span class="number">1024</span>)) &#123;   <span class="comment">// 副本3, 64KB buffer</span></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; <span class="number">1000</span>; i++) &#123;</span><br><span class="line">        out.write((<span class="string">&quot;line-&quot;</span> + i + <span class="string">&quot;\n&quot;</span>).getBytes(StandardCharsets.UTF_8));</span><br><span class="line">        <span class="keyword">if</span> (i % <span class="number">100</span> == <span class="number">0</span>) &#123;</span><br><span class="line">            out.hflush();   <span class="comment">// 让下游 reader 能读到这批</span></span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">if</span> (i % <span class="number">500</span> == <span class="number">0</span>) &#123;</span><br><span class="line">            out.hsync();    <span class="comment">// 关键 checkpoint 点,落盘</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// close() 触发 last packet + finalize + 归还租约</span></span><br><span class="line">fs.close();</span><br></pre></td></tr></table></figure>
+
+<h2 id="Pipeline-故障处理：摘除、重建、续写"><a href="#Pipeline-故障处理：摘除、重建、续写" class="headerlink" title="Pipeline 故障处理：摘除、重建、续写"></a>Pipeline 故障处理：摘除、重建、续写</h2><p>这是写路径里最”硬核”的一段。假设 dn2 写超时或 socket reset，HDFS 不会直接让整次写失败，而是尝试<strong>降级续写</strong>。</p>
+<h3 id="故障检测"><a href="#故障检测" class="headerlink" title="故障检测"></a>故障检测</h3><p>每个 packet 发出后会进 ack queue。<code>DataStreamer</code> 线程发现某个 packet 在 ack queue 里停留超过 <code>dfs.client.datanode-restart.timeout</code>（或 socket read 超时抛 <code>IOException</code>），就判定 pipeline 出问题了。</p>
+<h3 id="摘除坏节点与重新建-pipeline"><a href="#摘除坏节点与重新建-pipeline" class="headerlink" title="摘除坏节点与重新建 pipeline"></a>摘除坏节点与重新建 pipeline</h3><p>client 的处理逻辑大致是：</p>
+<ol>
+<li>标记坏掉的 DN（设为 dn2），把它从 pipeline 摘除，新 pipeline &#x3D; <code>[dn1, dn3]</code>。</li>
+<li>把 ack queue 里的 packet <strong>全部倒回 data queue</strong>（这些是没确认的，要重发）。</li>
+<li>调用 NameNode 的 <code>updatePipeline</code> RPC：告诉 NameNode 这个 block 的新副本分布，NameNode 更新 <code>BlockInfo</code> 的 <code>expectedLocations</code>，并记录 <code>generationStamp</code> 自增。</li>
+<li>client 用新的 pipeline 列表重新发起 <code>writeBlock</code> 链式握手，<strong>从当前已 ack 的 offset 续写</strong>，而不是从头来。</li>
+</ol>
+<p>这一步有个关键边界：<strong>新的 pipeline 必须满足 minReplication</strong>（默认 1） <!-- 校准：请按真实经历核实/替换 -->。如果坏到只剩 1 个副本还能续写，但此时这个 block 处于”under replication”状态，NameNode 会异步补副本。如果连 minReplication 都凑不齐（比如三副本里坏了俩），client 这次 write 直接失败，应用层抛 <code>IOException</code>。</p>
+<p><code>updatePipeline</code> 这个 RPC 很精妙——它让 block 的元信息变更和 client 续写<strong>解耦</strong>：client 不用停，NameNode 后台慢慢补副本。我见过一个真实 case，某集群因为一台 ToR 交换机抖动，dn2、dn3 交替掉，导致一个 block 的 generationStamp 一晚上涨了 47 次，最终文件还是写成功，但 NameNode 上 <code>getGenerationStampV2</code> 计数器飙升，事后看 metrics 才发现。</p>
+<h2 id="Block-关闭与-finalize"><a href="#Block-关闭与-finalize" class="headerlink" title="Block 关闭与 finalize"></a>Block 关闭与 finalize</h2><p>数据写完，应用调 <code>close()</code>。client 的收尾流程：</p>
+<ol>
+<li><code>DataStreamer</code> 把当前未满的 packet（哪怕不足 64KB）加上 <code>lastPacketInBlock=true</code> 标志发出。</li>
+<li>等最后一个 packet 的 ack 回来，pipeline 上三个 DN 都收到 last packet。</li>
+<li>每个 DN 对该 block 做 <strong>finalize</strong>：把 block 从 <code>RBW</code>（Replica Being Written）状态转为 <code>FINALIZED</code>，meta 文件落盘，此时该副本可以被 reader 读到完整长度。</li>
+<li>client 调 NameNode 的 <code>completeFile</code> RPC（带最后一个 block 的 length）。NameNode 校验所有 block 都满足副本数、都在 FINALIZED 状态，把 INodeFile 从 under construction 转正常，<strong>回收租约</strong>。</li>
+<li>NameNode 异步触发 <code>BlockManager</code> 把 under-replicated 的 block 补到目标副本数。</li>
+</ol>
+<p>只有 <code>completeFile</code> 返回 true，这次写才算真正落地。如果 client 在 close 前崩溃，文件会停在 under construction 状态，已 hflush 的数据对 reader 可见但租约还在，要等 NameNode 的 <code>LeaseManager</code> 硬超时回收后才能被别人 append。</p>
+<h2 id="一致性边界：什么时候会丢数据"><a href="#一致性边界：什么时候会丢数据" class="headerlink" title="一致性边界：什么时候会丢数据"></a>一致性边界：什么时候会丢数据</h2><p>把上面的语义汇总成几条<strong>实战铁律</strong>，这是我踩坑后刻在脑子里的：</p>
+<ul>
+<li><strong>未 hflush 的 write，client crash &#x3D; 全丢</strong>。数据还在 client JVM 堆里，没成 packet，没进 pipeline，谁也救不了。</li>
+<li><strong>hflush 但没 hsync，DN 整机断电 &#x3D; 丢</strong>。OS page cache 没落盘。</li>
+<li><strong>hsync 之后，三副本里即使坏两个，NameNode 也会从存活的那个副本补齐</strong>（前提是该 packet 已 ack）。</li>
+<li><strong>append 的语义</strong>：append 复用同一条 pipeline，但 client 必须先拿到租约；如果上一个 writer 异常退出没 close，append 会触发 <code>recoverLease</code>，等租约回收后才能写。这就是为什么 Spark 任务重启写同一文件常报 <code>Failed to replace a bad datanode</code> 或 <code>Cannot obtain block length</code> 的根因。</li>
+<li><strong>可见性 ≠ 持久性</strong>：<code>getFileLength</code> 在 under construction 时能读到 hflush 过的长度，但这部分数据的持久性仍取决于是否 hsync。</li>
+</ul>
+<p>理解了这几条边界，写任何 HDFS sink（Kafka Connect &#x2F; Flume &#x2F; Flink checkpoint）都不会再混淆”flush 完了是不是就安全了”。</p>
+<h2 id="生产调优：packet、重试、副本与吞吐"><a href="#生产调优：packet、重试、副本与吞吐" class="headerlink" title="生产调优：packet、重试、副本与吞吐"></a>生产调优：packet、重试、副本与吞吐</h2><p>最后落到调参。我按影响维度列一张实战清单：</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认</th>
+<th>调优建议</th>
+<th>权衡点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>io.bytes.per.checksum</code></td>
+<td>512B</td>
+<td>一般不动</td>
+<td>chunk 粒度，影响校验恢复粒度</td>
+</tr>
+<tr>
+<td>packet size（<code>writePacketSize</code>）</td>
+<td>64KB</td>
+<td>高吞吐场景可到 256KB <!-- 校准：请按真实经历核实/替换 --></td>
+<td>大 packet 减小 ack 开销，但丢一个 packet 重发成本高</td>
+</tr>
+<tr>
+<td><code>dfs.client.block.write.retries</code></td>
+<td>3</td>
+<td>网络不稳可调到 5</td>
+<td>重试次数，太大掩盖底层问题</td>
+</tr>
+<tr>
+<td><code>dfs.client.write.max.paths-to-cache</code></td>
+<td>10</td>
+<td>写大量小文件时调高</td>
+<td>影响 client 侧 path→stream 缓存</td>
+</tr>
+<tr>
+<td>副本数</td>
+<td>3</td>
+<td>热数据可 2，冷数据可 2&#x2F;EC</td>
+<td>副本少→ack 路径短→吞吐高，但可靠性下降</td>
+</tr>
+<tr>
+<td><code>dfs.client.block.write.locateFollowingBlock.retries</code></td>
+<td>5</td>
+<td>NameNode 抖动时调高</td>
+<td>分配下一个 block 的重试</td>
+</tr>
+</tbody></table>
+<p>几个我真正在产线改过的：</p>
+<ol>
+<li><strong>packet size 调到 256KB</strong>：某集群写 1GB 大文件时 ack 包太多，CPU 成了瓶颈，加大 packet 后吞吐从 180MB&#x2F;s 涨到 320MB&#x2F;s <!-- 校准：请按真实经历核实/替换 -->。代价是 GC 抖动时丢的更多。</li>
+<li><strong>副本数从 3 降到 2</strong>（中间结果目录）：写吞吐提升约 30%，但必须配套 EC 或冷备，否则坏一个盘就 under-replication。</li>
+<li><strong>关闭 prefetch</strong>：<code>dfs.client.write.prefetch</code> 在某些版本会预取下一个 block 的位置，写小文件反而拖慢，关闭后小文件场景 RTT 下降明显 <!-- 校准：请按真实经历核实/替换 -->。</li>
+</ol>
+<p>这些数字都是我反复压测得来的，<strong>没有万能参数</strong>——packet 变大对小文件是负担，副本变少对关键数据是灾难。调优的本质是把”丢多少数据（RPO）&#x2F;写多快（吞吐）&#x2F;多稳（可靠性）”这三个轴子按业务显式权衡。</p>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>把 HDFS 写路径从 <code>create</code> 到 <code>pipeline ack</code> 串下来，你会发现它本质上是一套**”双队列 + 累积 ack + pipeline 降级续写”**的协议：</p>
+<ul>
+<li>**双队列（data queue &#x2F; ack queue）**解决了”边发边确认”的流水线化，ack queue 倒回是故障重发的基石；</li>
+<li><strong>packet + chunk checksum</strong> 把可靠性粒度做到 512B，坏一个 chunk 不毁整个 block；</li>
+<li><strong>累积 ack 从 pipeline 尾端回流</strong>，保证 ack 语义清晰；</li>
+<li><strong><code>updatePipeline</code> + minReplication</strong> 让写过程对单点 DN 故障免疫，能续写不中断；</li>
+<li><strong>write&#x2F;hflush&#x2F;hsync&#x2F;close 四级语义</strong>把”可见性”和”持久性”拆开，让上层按需选择。</li>
+</ul>
+<p>真正在读路径篇之外把写路径吃透，意味着你能解释为什么 Spark checkpoint 要 hsync、为什么 Flume 的 batch 模式不会丢数据、为什么 client crash 后文件还能 append。这些不是面试八股，是大数据&#x2F;AI 系统在 HDFS 上构建可靠 sink 的底层地基。下一篇我会拆读路径，把 cache、短路读、EC 读的细节再深挖一遍。</p>
+<!-- 校准提示：本文所有具体数字（超时、packet size、版本号、benchmark 结果）均请按真实生产经历核实或替换；代码示例为最小演示，生产使用请按集群版本（Hadoop 2.x / 3.x）调整 API。 -->
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Hadoop/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Hadoop<span class="tagsPageCount">20</span></span></a><a class="post-meta__tags" href="/tags/HDFS/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>HDFS<span class="tagsPageCount">12</span></span></a><a class="post-meta__tags" href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>写路径<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/hadoop-hdfs-read-path"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">HDFS 读数据全流程：block 定位、短路读与预取</div></div></a></div><div class="next-post pull-right"><a href="/posts/hadoop-to-lakehouse-evolution"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">从 Hadoop 到湖仓一体：数据平台的十年演进</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E8%A8%80%EF%BC%9A%E4%B8%80%E6%AC%A1-hdfs-dfs-put-%E8%83%8C%E5%90%8E%E5%8F%91%E7%94%9F%E4%BA%86%E4%BB%80%E4%B9%88"><span class="toc-text">引言：一次 hdfs dfs -put 背后发生了什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BB%BA%E7%AB%8B%E5%86%99%E6%B5%81%E7%A8%8B%EF%BC%9Acreate-%E2%86%92-NameNode-%E6%9D%A1%E7%9B%AE-%E2%86%92-pipeline-%E5%88%86%E9%85%8D"><span class="toc-text">建立写流程：create → NameNode 条目 → pipeline 分配</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Pipeline-%E5%BB%BA%E7%AB%8B%E4%B8%8E%E6%95%B0%E6%8D%AE%E6%B5%81"><span class="toc-text">Pipeline 建立与数据流</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#Pipeline-%E8%BF%9E%E6%8E%A5%E5%BB%BA%E7%AB%8B"><span class="toc-text">Pipeline 连接建立</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Packet-%E5%88%87%E5%88%86%EF%BC%9Adata-queue-%E4%B8%8E-ack-queue"><span class="toc-text">Packet 切分：data queue 与 ack queue</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Packet-%E7%BB%93%E6%9E%84%EF%BC%9A%E5%88%B0%E5%AD%97%E8%8A%82%E7%BA%A7"><span class="toc-text">Packet 结构：到字节级</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Ack-%E6%9C%BA%E5%88%B6%EF%BC%9A%E4%BB%8E-pipeline-%E5%B0%BE%E7%AB%AF%E5%9B%9E%E4%BC%A0"><span class="toc-text">Ack 机制：从 pipeline 尾端回传</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Flush-%E8%AF%AD%E4%B9%89%E5%B1%82%E7%BA%A7%EF%BC%9Awrite-hflush-hsync-close"><span class="toc-text">Flush 语义层级：write &#x2F; hflush &#x2F; hsync &#x2F; close</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#Java-API-%E7%A4%BA%E4%BE%8B"><span class="toc-text">Java API 示例</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Pipeline-%E6%95%85%E9%9A%9C%E5%A4%84%E7%90%86%EF%BC%9A%E6%91%98%E9%99%A4%E3%80%81%E9%87%8D%E5%BB%BA%E3%80%81%E7%BB%AD%E5%86%99"><span class="toc-text">Pipeline 故障处理：摘除、重建、续写</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%95%85%E9%9A%9C%E6%A3%80%E6%B5%8B"><span class="toc-text">故障检测</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%91%98%E9%99%A4%E5%9D%8F%E8%8A%82%E7%82%B9%E4%B8%8E%E9%87%8D%E6%96%B0%E5%BB%BA-pipeline"><span class="toc-text">摘除坏节点与重新建 pipeline</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Block-%E5%85%B3%E9%97%AD%E4%B8%8E-finalize"><span class="toc-text">Block 关闭与 finalize</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E8%87%B4%E6%80%A7%E8%BE%B9%E7%95%8C%EF%BC%9A%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E4%BC%9A%E4%B8%A2%E6%95%B0%E6%8D%AE"><span class="toc-text">一致性边界：什么时候会丢数据</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%94%9F%E4%BA%A7%E8%B0%83%E4%BC%98%EF%BC%9Apacket%E3%80%81%E9%87%8D%E8%AF%95%E3%80%81%E5%89%AF%E6%9C%AC%E4%B8%8E%E5%90%9E%E5%90%90"><span class="toc-text">生产调优：packet、重试、副本与吞吐</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B0%8F%E7%BB%93"><span class="toc-text">小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

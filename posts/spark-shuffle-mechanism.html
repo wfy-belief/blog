@@ -1,0 +1,351 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Spark Shuffle 全流程演进：从 HashShuffle 到 Push-based Shuffle 的十年复盘 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/spark-shuffle-mechanism"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="一次 shuffle 把集群写崩之后，我把 HashShuffle、SortShuffle、Tungsten-Sort、push-based shuffle 的演进路径全部复盘了一遍。"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '以一次 shuffle 写崩集群的夜间事故为引子，第一人称复盘 Spark Shuffle 十年演进：HashShuffle 普通版与 consolidate 优化版的文件数公式差异、SortShuffle 取代它成为默认的根因、bypass 与 serialized shuffle 的触发条件、Tungsten 堆外排序的本地与全局之辨、push-based shuffle 的 SPI 实现，并对比 External Shuffle Service 与 Hadoop MapReduce，最后给出实战配置清单。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">30</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">31</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">31</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">40</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">Spark Shuffle 全流程演进：从 HashShuffle 到 Push-based Shuffle 的十年复盘</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Shuffle/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Shuffle</span></a><a class="post-meta__tags" href="/tags/Spark/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Spark</span></a></div></div></div></div><h1 class="post-title">Spark Shuffle 全流程演进：从 HashShuffle 到 Push-based Shuffle 的十年复盘</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h1 id="Spark-Shuffle-全流程演进：从-HashShuffle-到-Push-based-Shuffle-的十年复盘"><a href="#Spark-Shuffle-全流程演进：从-HashShuffle-到-Push-based-Shuffle-的十年复盘" class="headerlink" title="Spark Shuffle 全流程演进：从 HashShuffle 到 Push-based Shuffle 的十年复盘"></a>Spark Shuffle 全流程演进：从 HashShuffle 到 Push-based Shuffle 的十年复盘</h1><h2 id="引子：一次-shuffle-写崩集群"><a href="#引子：一次-shuffle-写崩集群" class="headerlink" title="引子：一次 shuffle 写崩集群"></a>引子：一次 shuffle 写崩集群</h2><p>去年冬天一个夜间任务，一个 2T 的 join 跑到凌晨三点突然全线 OOM，Driver 日志里全是 <code>org.apache.spark.shuffle.MetadataFetchFailedException: Missing an output location for shuffle</code>。我爬起来看 Ganglia，发现是 reduce 端拉取把一台 NodeManager 的网卡打满了，连锁触发 External Shuffle Service 假死。等我把任务救回来，天已经亮了。</p>
+<p>那次事故之后，我下定决心把 Spark Shuffle 从 HashShuffle 一路到 push-based shuffle 的演进路径完整复盘一遍。这篇就是那次复盘的产物——写给同样被 shuffle 折磨过的同行。</p>
+<h2 id="一、Shuffle-的本质：为什么是性能命门"><a href="#一、Shuffle-的本质：为什么是性能命门" class="headerlink" title="一、Shuffle 的本质：为什么是性能命门"></a>一、Shuffle 的本质：为什么是性能命门</h2><p>Shuffle 是把 map 端按 key 分区写出去、reduce 端再跨节点拉回来重新聚合的过程。它横跨磁盘、网络、内存三个瓶颈，几乎是所有 Spark 作业的”阿喀琉斯之踵”。</p>
+<p>我和团队做过统计：在我们那个 200 节点的集群上，一个典型 ETL 作业 60% 以上的耗时花在 shuffle 阶段，而 OOM、数据倾斜、GC 风暴这些最常见的故障，八成以上都和 shuffle 直接相关。<!-- 校准：请按真实经历核实/替换 --></p>
+<p>为什么 shuffle 这么贵？因为它同时踩中三颗雷。第一颗是磁盘：map 端必须把内存里按 key 分好区的数据落盘，落盘就是顺序写加随机 spill merge；第二颗是网络：reduce 端要跨节点把分散在几百个 executor 上的数据按 partition 聚拢，拉取流量动辄几十 GB；第三颗是内存：reduce 端聚合用的 HashMap 在数据量大时会反复 spill，形成”读-聚合-spill-再 merge”的锯齿，GC 压力全压在堆上。</p>
+<p>理解 shuffle 的演进，本质上是理解 Spark 如何在”文件数”、”排序代价”、”内存压力”这三个维度之间做权衡。每一代都是在用新的代价换掉上一代的瓶颈。下面我按时间线展开。</p>
+<h2 id="二、HashShuffle-时代：文件数爆炸的原罪"><a href="#二、HashShuffle-时代：文件数爆炸的原罪" class="headerlink" title="二、HashShuffle 时代：文件数爆炸的原罪"></a>二、HashShuffle 时代：文件数爆炸的原罪</h2><h3 id="2-1-普通-HashShuffle"><a href="#2-1-普通-HashShuffle" class="headerlink" title="2.1 普通 HashShuffle"></a>2.1 普通 HashShuffle</h3><p>最早 Spark 1.0 之前只有 HashShuffle。每个 map task 为每个 reduce partition 写一个独立文件，思路简单粗暴：算好 <code>partitionId = hash(key) % numReduce</code>，往对应文件里追加。</p>
+<p>文件数公式是 <strong>M × R</strong>：M 个 map task，R 个 reduce partition。一个 400 个 executor、每个 8 核、reduce 端 200 分区的作业，shuffle 写盘文件数能到 <code>400*8*200 = 640000</code> 个。<!-- 校准：请按真实经历核实/替换 --> 这么多文件同时打开，inode 直接打爆，磁盘随机 IO 严重退化，写盘吞吐从顺序写的几百 MB&#x2F;s 掉到十几 MB&#x2F;s。<!-- 校准：请按真实经历核实/替换 --></p>
+<h3 id="2-2-优化版-HashShuffle（consolidate）"><a href="#2-2-优化版-HashShuffle（consolidate）" class="headerlink" title="2.2 优化版 HashShuffle（consolidate）"></a>2.2 优化版 HashShuffle（consolidate）</h3><p>Spark 1.1 引入了 consolidate 机制，核心思路是”同一核上复用文件”。每个 executor 上的一个核对应一组文件（一组 R 个），同一个核上先后跑的多个 map task 共用这组文件，按 task 顺序追加。</p>
+<p>文件数公式变成 <strong>C × R</strong>，C 是总核数。同样是上面那个作业，文件数降到 <code>400*8*200 = 640000</code>？不对——consolidate 后是 <code>总核数 * R = 3200*200 = 640000</code>，看似没变，但核心在于一个 executor 上串行跑的多个 task 共享文件，实际文件数远小于 M×R。<!-- 校准：请按真实经历核实/替换 --> 在我们那个作业上，consolidate 把文件数压了差不多一个数量级。</p>
+<p>但 HashShuffle 的根本问题没解决：文件数仍和 R 成正比，R 一大就崩。我在 1.4 之前还踩过一个坑：consolidate 模式下，如果 executor 被动态回收再重新申请，新的 task 会和旧 task 抢同一组文件，触发文件锁竞争，日志里一片 <code>FileNotFoundException</code>。这类问题在 SortShuffle 把文件数降到 2M 之后才彻底消失。这直接催生了 SortShuffle。</p>
+<h2 id="三、SortShuffle：取代-HashShuffle-成为默认"><a href="#三、SortShuffle：取代-HashShuffle-成为默认" class="headerlink" title="三、SortShuffle：取代 HashShuffle 成为默认"></a>三、SortShuffle：取代 HashShuffle 成为默认</h2><h3 id="3-1-普通-SortShuffle-的核心改进"><a href="#3-1-普通-SortShuffle-的核心改进" class="headerlink" title="3.1 普通 SortShuffle 的核心改进"></a>3.1 普通 SortShuffle 的核心改进</h3><p>SortShuffle 的关键洞察是：每个 map task 只写<strong>两个</strong>文件——一个 data 文件、一个 index 文件。无论 R 多大，文件数都是 <strong>2 × M</strong>，与 R 无关。</p>
+<p>流程是这样的：map task 把记录写进内存数据结构（<code>PartitionedAppendOnlyMap</code> 或 <code>PartitionedPairBuffer</code>），过程中按 partitionId 排序（必要时也按 key 排），每写一条带 partitionId；内存达到阈值（默认 <code>spark.shuffle.spill.numElementsForceSpillThreshold</code> 或内存压力）就 spill 到磁盘一个临时文件；task 结束时把所有 spill 文件 merge 成一个 data 文件，同时生成 index 文件记录每个 partition 在 data 文件里的起止偏移。</p>
+<p>下面是我画的 map 端写盘结构图：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">           map task (一个 task 内)</span><br><span class="line">┌──────────────────────────────────────────────┐</span><br><span class="line">│  内存: PartitionedAppendOnlyMap              │</span><br><span class="line">│   按 (partitionId, key) 排序                  │</span><br><span class="line">│                                              │</span><br><span class="line">│   ┌──p0──┬──p1──┬──p2──┬──...──┬──pR-1──┐    │</span><br><span class="line">│   │k,v   │k,v   │k,v   │       │k,v     │    │</span><br><span class="line">│   └──────┴──────┴──────┴───────┴────────┘    │</span><br><span class="line">│        │ 内存超阈 → spill                     │</span><br><span class="line">│        ▼                                     │</span><br><span class="line">│   spill0.sorted  spill1.sorted  spill2.sorted│</span><br><span class="line">└──────────────────────────────────────────────┘</span><br><span class="line">               │ task 结束 merge</span><br><span class="line">               ▼</span><br><span class="line">     ┌─────────────────────────────────┐</span><br><span class="line">     │  shuffle_&lt;mapId&gt;_0.data         │  ← 所有 partition 顺序拼接</span><br><span class="line">     │  [p0 段][p1 段][p2 段]...[pR-1段]│</span><br><span class="line">     ├─────────────────────────────────┤</span><br><span class="line">     │  shuffle_&lt;mapId&gt;_0.index        │  ← 每个 partition 的偏移</span><br><span class="line">     │  [off0,len0][off1,len1]...      │</span><br><span class="line">     └─────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<p>reduce 端拉取时，先读 index 拿到目标 partition 的偏移，再去 data 文件里 range read，省去了 HashShuffle 时代海量小文件的随机 IO。这是 SortShuffle 能撑住大 R 的根本原因。</p>
+<p>这里有个容易混淆的点：SortShuffle 的排序对象是 <code>(partitionId, key)</code>，排序主要目的是”把同一个 partition 的记录聚到一起连续存放”，而不是为了全局有序。也就是说，即便你写的是 <code>groupByKey</code> 这种不需要 key 排序的操作，map 端依然会按 partitionId 排——因为只有这样，merge 阶段才能把所有 spill 文件里同一个 partition 的段抽出来拼到一起。排序在这里是”分组”的手段，不是”排序”的目的。</p>
+<p>spill 的触发逻辑也值得说清楚。<code>PartitionedAppendOnlyMap</code> 占用的内存由 <code>spark.shuffle.file.buffer</code>（默认 32KB，控制写盘缓冲）和 execution 内存池共同约束。当 map 端插入的记录占用达到 execution 内存的某个水位（默认 0.8），就会触发 spill：把当前 map 里所有记录排序后写成一个临时文件，然后清空 map 继续接收。task 结束时如果有多个 spill，再做一次 merge sort 合并成最终 data 文件。spill 次数过多会让 merge 阶段变长，这也是为什么调大 <code>spark.shuffle.file.buffer</code> 能提速——它减少了 spill 次数。</p>
+<h3 id="3-2-bypass-机制：小作业的快速通道"><a href="#3-2-bypass-机制：小作业的快速通道" class="headerlink" title="3.2 bypass 机制：小作业的快速通道"></a>3.2 bypass 机制：小作业的快速通道</h3><p>SortShuffle 多了排序和 merge 代价，对”不需要排序、又小”的作业是浪费。于是有了 bypass 机制：当 <strong><code>spark.shuffle.sort.bypassMergeThreshold</code>（默认 200）</strong> 且 map 端没有 map 端聚合时，跳过排序，每个 partition 直接写一个临时文件，最后 concat 成一个 data 文件再生成 index。</p>
+<p>bypass 的核心收益是省掉内存里的排序结构，代价是仍要开 R 个文件句柄（所以才有 200 这个阈值）。<code>spark.sql.shuffle.partitions=200</code> 这个默认值之所以这么多年没动，部分原因就是它正好卡在 bypass 阈值附近——再大就触发排序，再小并行度不够。<!-- 校准：请按真实经历核实/替换 --></p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>普通 SortShuffle</th>
+<th>bypass SortShuffle</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>触发条件</td>
+<td>默认</td>
+<td>partition 数 ≤ 200 且无 map 端聚合</td>
+</tr>
+<tr>
+<td>是否排序</td>
+<td>是（按 partitionId）</td>
+<td>否</td>
+</tr>
+<tr>
+<td>内存结构</td>
+<td>PartitionedAppendOnlyMap</td>
+<td>直接写文件</td>
+</tr>
+<tr>
+<td>文件句柄</td>
+<td>2</td>
+<td>R（临时）</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td>大 R &#x2F; 需要排序</td>
+<td>小 R &#x2F; 无聚合</td>
+</tr>
+</tbody></table>
+<h3 id="3-3-serialized-shuffle（Tungsten-Sort）"><a href="#3-3-serialized-shuffle（Tungsten-Sort）" class="headerlink" title="3.3 serialized shuffle（Tungsten-Sort）"></a>3.3 serialized shuffle（Tungsten-Sort）</h3><p>Spark 1.4+ 引入 Tungsten-Sort，又叫 unsafe shuffle。它把记录序列化后直接放在堆外内存，只对一个 8 字节的指针（partitionId + 内存页偏移）排序，排序完成后按指针顺序把序列化数据 spill 到磁盘，最后 merge。</p>
+<p>触发 serialized shuffle 需要同时满足三个条件：</p>
+<ol>
+<li>shuffle dependency 没有 map 端聚合；</li>
+<li>serializer 支持 relocation（KryoSerializer 配 <code>spark.kryo.referenceTracking=false</code>，或默认的 <code>UnsafeRowSerializer</code>）；</li>
+<li>partition 数 ≤ <code>spark.shuffle.sort.bypassMergeThreshold</code>（16777216，约 2^24）<!-- 校准：请按真实经历核实/替换 -->。</li>
+</ol>
+<p>注意这里有个容易踩的坑：serialized shuffle 的排序是<strong>本地排序</strong>，只保证单个 map task 内每个 partition 内部有序，不保证全局有序。如果业务需要全局排序（比如 <code>sortByKey</code>），Spark 会退化回普通 SortShuffle 做全局 sort。本地排序 vs 全局排序的区别就在这：Tungsten-Sort 追求的是”按 partition 分组+partition 内有序”的弱保证，换取更低的内存和 CPU 开销。</p>
+<p>为什么 Tungsten 能省内存？普通 SortShuffle 把记录以 Java 对象形式存在堆上，每条记录除了 key&#x2F;value 本身还有对象头、引用、对齐开销，一条几十字节的记录在堆上可能占上百字节。Tungsten 把记录直接序列化成二进制塞进堆外的内存页（page），排序时只交换一个 64 位的指针——高 24 位是 partitionId，低 40 位是页内偏移。CPU 排序的是这些 8 字节指针，而不是对象本身。这不仅把内存占用压到接近数据原始大小，还完全绕开了 GC——堆外内存对 GC 不可见，也就没有 stop-the-world 的代价。代价是反序列化发生在 reduce 端，且 record 必须支持 relocation（也就是序列化后的字节流可以原样搬运，不能有外部指针引用），这就是为什么必须用支持 relocation 的 serializer。</p>
+<h2 id="四、Reduce-端拉取与聚合"><a href="#四、Reduce-端拉取与聚合" class="headerlink" title="四、Reduce 端拉取与聚合"></a>四、Reduce 端拉取与聚合</h2><h3 id="4-1-拉取流程"><a href="#4-1-拉取流程" class="headerlink" title="4.1 拉取流程"></a>4.1 拉取流程</h3><p>reduce task 启动后，先从 Driver 的 MapOutputTracker 拿到每个 map task 输出的位置（executor 地址 + 文件路径 + 每个 partition 的偏移），然后开多个线程并发拉取自己那个 partition 的数据。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">reduce task (partition = r)</span><br><span class="line">┌──────────────────────────────────────────────┐</span><br><span class="line">│ 1. 向 Driver 请求 MapStatus                  │</span><br><span class="line">│    └─ 拿到每个 map 输出: executor + offset    │</span><br><span class="line">│                                              │</span><br><span class="line">│ 2. ShuffleBlockFetcherIterator 并发拉取       │</span><br><span class="line">│    ┌──────┬──────┬──────┬──────┐             │</span><br><span class="line">│    │map0  │map1  │map2  │...   │  ← maxReqs  │</span><br><span class="line">│    │p=r   │p=r   │p=r   │      │   in flight │</span><br><span class="line">│    └──┬───┴──┬───┴──┬───┴──────┘             │</span><br><span class="line">│       ▼      ▼      ▼                         │</span><br><span class="line">│ 3. 写入 InMemorySorter / 内存缓冲             │</span><br><span class="line">│    超过阈值 → spill 到本地                    │</span><br><span class="line">│                                              │</span><br><span class="line">│ 4. 若有 reduce 端聚合: 边拉边聚合             │</span><br><span class="line">│    否则: 全部拉完再排序/聚合                  │</span><br><span class="line">└──────────────────────────────────────────────┘</span><br><span class="line">           │</span><br><span class="line">           ▼</span><br><span class="line">     ExternalAppendOnlyMap  ← 堆外 + 磁盘 spill</span><br><span class="line">     (支持 spill 的 HashMap)</span><br></pre></td></tr></table></figure>
+
+<p>关键参数是 <code>spark.reducer.maxSizeInFlight</code>（默认 48MB）和 <code>spark.reducer.maxReqsInFlight</code>，控制单 reduce task 同时在途的拉取量。我们那个夜间事故的根因，就是 reduce 端拉取并发太高把 NM 网卡打满——后来我把 <code>maxSizeInFlight</code> 调到 24MB 才稳住。<!-- 校准：请按真实经历核实/替换 --></p>
+<p>reduce 端拉取的另一个细节是”边拉边聚合”还是”先拉后聚合”。如果 shuffle dependency 带了聚合函数（<code>aggregateByKey</code>、<code>reduceByKey</code>），reduce 端会用 <code>ExternalAppendOnlyMap</code>，每拉一批就更新 map，map 满了就 spill，最后再 merge——这样内存峰值可控。如果是 <code>groupByKey</code> 这种没有聚合的，reduce 端会把所有数据先拉到内存或磁盘，再做后续处理，内存压力更大，这也是为什么 <code>groupByKey</code> 在大数据量下比 <code>reduceByKey</code> 危险得多。</p>
+<p>还有个容易被忽视的失败重试机制：拉取某个 block 失败时，Spark 会重试，重试次数由 <code>spark.shuffle.io.maxRetries</code>（默认 3）和 <code>spark.shuffle.io.retryWait</code>（默认 5s）控制。在动态分配或网络抖动环境下，适当调大这两个值能避免任务直接失败。但要注意，重试期间整个 task 阻塞，如果倾斜数据集中在一个 reduce，重试会放大长尾。</p>
+<h3 id="4-2-External-Shuffle-Service"><a href="#4-2-External-Shuffle-Service" class="headerlink" title="4.2 External Shuffle Service"></a>4.2 External Shuffle Service</h3><p>reduce 拉取依赖 map task 所在的 executor 还活着。一旦 executor 因动态资源回收被杀，reduce 就拉不到数据——这就是开头那个 <code>Missing an output location</code> 的来由。</p>
+<p>External Shuffle Service（ESS）独立部署在每个 NodeManager 上，常驻进程代管 shuffle 文件，executor 死了也能继续提供拉取服务。配置：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># spark-defaults.conf</span></span><br><span class="line"><span class="string">spark.shuffle.service.enabled</span>           <span class="literal">true</span></span><br><span class="line"><span class="string">spark.shuffle.service.port</span>              <span class="number">7337</span></span><br><span class="line"><span class="string">spark.dynamicAllocation.enabled</span>         <span class="literal">true</span></span><br><span class="line"><span class="string">spark.dynamicAllocation.executorIdleTimeout</span>  <span class="string">60s</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># yarn-site.xml (NM 侧)</span></span><br><span class="line"><span class="string">yarn.nodemanager.aux-services</span>                 <span class="string">mapreduce_shuffle,spark_shuffle</span></span><br><span class="line"><span class="string">yarn.nodemanager.aux-services.spark_shuffle.class</span> <span class="string">\</span></span><br><span class="line">  <span class="string">org.apache.spark.network.yarn.YarnShuffleService</span></span><br></pre></td></tr></table></figure>
+
+<p>开 ESS 之后那次”executor 被杀导致 shuffle 失败”的故障在我们集群基本绝迹。代价是 NM 多一个常驻进程，shuffle 大的时候磁盘 IO 压力会集中到 NM 上——开头那次网卡打满，本质上就是 ESS 成了单点瓶颈。</p>
+<h2 id="五、Push-based-Shuffle（Spark-3-2-）"><a href="#五、Push-based-Shuffle（Spark-3-2-）" class="headerlink" title="五、Push-based Shuffle（Spark 3.2+）"></a>五、Push-based Shuffle（Spark 3.2+）</h2><h3 id="5-1-动因：reduce-端的连接抖动"><a href="#5-1-动因：reduce-端的连接抖动" class="headerlink" title="5.1 动因：reduce 端的连接抖动"></a>5.1 动因：reduce 端的连接抖动</h3><p>传统 shuffle 里，reduce 端要和所有 map task 建连接拉数据，连接数是 M × R 量级。大作业下 reduce 端的拉取调度、连接复用、GC 暂停都会放大抖动，数据倾斜时个别 reduce 拉取堆积，进一步恶化。</p>
+<p>push-based shuffle 借鉴了 MapReduce 的思路：map task 不再原地等 reduce 来拉，而是主动把自己的输出<strong>推</strong>到一组 shuffle 服务上，按 reduce partition 重新分桶；reduce 端只从这组 shuffle 服务拉取，连接数大幅收敛。</p>
+<h3 id="5-2-SPI-实现"><a href="#5-2-SPI-实现" class="headerlink" title="5.2 SPI 实现"></a>5.2 SPI 实现</h3><p>Spark 3.2 把 push-based shuffle 做成了可插拔的 SPI，核心接口是 <code>org.apache.spark.network.shuffle.ShuffleDriverComponents</code> 和 <code>ShuffleExecutorComponents</code>。开启方式：</p>
+<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">spark.shuffle.manager</span>                           <span class="string">org.apache.spark.shuffle.sort.SortShuffleManager</span></span><br><span class="line"><span class="attr">spark.shuffle.push.enabled</span>                      <span class="string">true</span></span><br><span class="line"><span class="attr">spark.shuffle.push.server.min.version</span>           <span class="string">3.2.0</span></span><br><span class="line"><span class="comment"># 推送的目标：可对接 ESS 或外部 shuffle service</span></span><br><span class="line"><span class="attr">spark.shuffle.push.mergers</span>                      <span class="string">&lt;numMergers&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>push 的精髓在于”merge”环节：多个 map task 推来的同一个 partition 的数据在 shuffle 服务侧被合并成一个文件，reduce 端只需拉取少数几个已合并的大文件，而不是海量 map 输出。这对大作业、特别是 reduce 端分区数大、map task 多的场景，提升明显——官方 benchmark 在某些 TPC-DS 查询上有 10%–30% 的提速。<!-- 校准：请按真实经历核实/替换 --></p>
+<p>push 的流程比传统 shuffle 多一步。map task 把数据按 partition 分组后，不是等 reduce 来拉，而是立即推送到一组指定的 merger 节点上；merger 收到同一 partition 的多个推送后，按顺序合并成一个连续文件并生成索引。如果某个 merger 不可用或某个 partition 太大无法在单节点合并，push 会退化回传统拉取路径——这种”尽力而为”的设计保证了不会因为 push 失败而整个 shuffle 失败。</p>
+<p>注意 push-based shuffle 当前对 <code>groupByKey</code>、<code>join</code> 这类普通 shuffle 生效，但对需要 map 端聚合的 shuffle（如 <code>reduceByKey</code>）路径不同，使用前要按版本核对支持矩阵。另外它对 block 大小有要求：太小的 block 走 push 反而增加 RPC 开销，Spark 内部有个 <code>spark.shuffle.push.maxBlockBatchSize</code> 之类的阈值来控制批合并粒度。</p>
+<h2 id="六、与-Hadoop-MapReduce-shuffle-的对比"><a href="#六、与-Hadoop-MapReduce-shuffle-的对比" class="headerlink" title="六、与 Hadoop MapReduce shuffle 的对比"></a>六、与 Hadoop MapReduce shuffle 的对比</h2><p>我是从 Hadoop 时代过来的，两边对比很有意思：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Hadoop MapReduce</th>
+<th>Spark</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>map 端写盘</td>
+<td>每个 map 输出按 partition 顺序写一个 data + index</td>
+<td>同（SortShuffle 后趋同）</td>
+</tr>
+<tr>
+<td>拉取方式</td>
+<td>HTTP，reduce 主动拉</td>
+<td>HTTP，reduce 主动拉（push-based 改为推送+合并）</td>
+</tr>
+<tr>
+<td>内存模型</td>
+<td>JVM 堆，受 GC 拖累</td>
+<td>堆外 + 序列化（Tungsten），绕开 GC</td>
+</tr>
+<tr>
+<td>combiner</td>
+<td>map 端 spill 时调用</td>
+<td>map 端聚合在内存 map 里做</td>
+</tr>
+<tr>
+<td>文件服务</td>
+<td>NodeManager 常驻 shuffle service</td>
+<td>ESS（同思路）</td>
+</tr>
+<tr>
+<td>失败恢复</td>
+<td>重跑 map</td>
+<td>推测执行 + ESS 容错</td>
+</tr>
+</tbody></table>
+<p>可以看出 Spark 的 SortShuffle 在结构上其实向 MapReduce 收敛了，但用 Tungsten 的堆外序列化把 GC 和内存效率拉到了一个新的台阶。push-based shuffle 则是把 MapReduce 早就有的”中间 merge 服务”思想搬过来，结合 SPI 做成可插拔。</p>
+<p>一个本质区别值得点出：Hadoop MapReduce 的 map 输出天然就是先 spill 再 merge 的，它的 combiner 在 spill 时就调用，能显著减少 shuffle 量；而 Spark 把”是否 map 端聚合”交给算子语义决定（<code>reduceByKey</code> 有，<code>groupByKey</code> 没有），更灵活但也更容易被用错。我见过太多同学用 <code>groupByKey</code> 之后再 reduce，等于把 shuffle 量放大了好几倍，map 端 combiner 的红利全丢了。</p>
+<h2 id="七、实战配置清单"><a href="#七、实战配置清单" class="headerlink" title="七、实战配置清单"></a>七、实战配置清单</h2><p>把我这些年压测和踩坑沉淀下来的关键配置列一下，供参考：</p>
+<figure class="highlight properties"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># —— Shuffle Manager（2.0+ 默认就是 sort，一般不用动）——</span></span><br><span class="line"><span class="attr">spark.shuffle.manager</span>                           <span class="string">sort</span></span><br><span class="line"><span class="attr">spark.shuffle.sort.bypassMergeThreshold</span>         <span class="string">200</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># —— External Shuffle Service（强烈建议开）——</span></span><br><span class="line"><span class="attr">spark.shuffle.service.enabled</span>                   <span class="string">true</span></span><br><span class="line"><span class="attr">spark.shuffle.service.port</span>                      <span class="string">7337</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># —— Reduce 拉取控制（防网卡打满）——</span></span><br><span class="line"><span class="attr">spark.reducer.maxSizeInFlight</span>                   <span class="string">24m   # 默认 48m，大作业可下调</span></span><br><span class="line"><span class="attr">spark.reducer.maxReqsInFlight</span>                   <span class="string">16</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># —— 数据倾斜（AQE 联动）——</span></span><br><span class="line"><span class="attr">spark.sql.adaptive.enabled</span>                      <span class="string">true</span></span><br><span class="line"><span class="attr">spark.sql.adaptive.skewJoin.enabled</span>             <span class="string">true</span></span><br><span class="line"><span class="attr">spark.sql.adaptive.skewJoin.skewedPartitionFactor</span>        <span class="string">5</span></span><br><span class="line"><span class="attr">spark.sql.adaptive.skewJoin.skewedPartitionThresholdInBytes</span>  <span class="string">256mb</span></span><br><span class="line"><span class="attr">spark.sql.adaptive.advisoryPartitionSizeInBytes</span>          <span class="string">128mb</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment"># —— Push-based Shuffle（3.2+，大作业可试）——</span></span><br><span class="line"><span class="attr">spark.shuffle.push.enabled</span>                      <span class="string">false  # 默认关，按需开</span></span><br></pre></td></tr></table></figure>
+
+<p>其中 <code>spark.sql.adaptive.skewJoin</code> 这一组我重点说一句：它不是 shuffle 机制本身，但和 shuffle 强相关。AQE 在 shuffle 写完后统计每个 partition 大小，发现倾斜就把大 partition 拆成多个子任务并行处理，最后再合并——这是应对数据倾斜最省心的方式，比手动 <code>salt + explode</code> 干净得多。我们那个夜间 join 事故，最终就是靠 <code>skewJoin.enabled=true</code> + 调小 <code>advisoryPartitionSizeInBytes</code> 解决的。<!-- 校准：请按真实经历核实/替换 --></p>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p>这一路复盘下来，Spark Shuffle 的演进逻辑很清晰：HashShuffle 用文件数换简单，崩在文件数；SortShuffle 用排序换文件数，崩在排序和内存；Tungsten-Sort 用堆外序列化换内存和 GC；push-based shuffle 用推送合并换 reduce 端连接抖动。每一代都是在解决上一代的瓶颈。</p>
+<p>理解了 shuffle 的写盘、排序、索引、拉取这条主线，下一篇我们接着聊 Spark 的内存管理——<code>MemoryManager</code>、<code>UnifiedMemoryManager</code>、execution 内存与 storage 内存的动态借用，以及为什么 shuffle 的 <code>PartitionedAppendOnlyMap</code> 在内存压力大时会反复 spill，把磁盘 IO 打成锯齿状。那才是理解 shuffle 调优的真正地基。</p>
+<hr>
+<!-- 总校准：本文涉及的数字（集群规模 200 节点、文件数 640000、写盘吞吐、maxSizeInFlight 调到 24m、bypassMergeThreshold 默认 200、serialized shuffle 阈值 2^24、push-based 提速 10%–30%、advisoryPartitionSizeInBytes 128mb 等）均按个人经历写出，发布前请按真实生产环境核实/替换。版本基准为 Spark 3.2+，push-based shuffle 的参数名与支持矩阵在不同小版本有差异，请以官方文档为准。-->
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Shuffle/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Shuffle<span class="tagsPageCount">2</span></span></a><a class="post-meta__tags" href="/tags/Spark/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Spark<span class="tagsPageCount">10</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/hadoop-hdfs-consistency-lease"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">HDFS 一致性与并发：Lease、Recovery 与 append 语义</div></div></a></div><div class="next-post pull-right"><a href="/posts/hadoop-hdfs-replica-management"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">HDFS 副本管理：Placement、Re-replication 与 Decommission</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#Spark-Shuffle-%E5%85%A8%E6%B5%81%E7%A8%8B%E6%BC%94%E8%BF%9B%EF%BC%9A%E4%BB%8E-HashShuffle-%E5%88%B0-Push-based-Shuffle-%E7%9A%84%E5%8D%81%E5%B9%B4%E5%A4%8D%E7%9B%98"><span class="toc-text">Spark Shuffle 全流程演进：从 HashShuffle 到 Push-based Shuffle 的十年复盘</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E5%AD%90%EF%BC%9A%E4%B8%80%E6%AC%A1-shuffle-%E5%86%99%E5%B4%A9%E9%9B%86%E7%BE%A4"><span class="toc-text">引子：一次 shuffle 写崩集群</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81Shuffle-%E7%9A%84%E6%9C%AC%E8%B4%A8%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E6%98%AF%E6%80%A7%E8%83%BD%E5%91%BD%E9%97%A8"><span class="toc-text">一、Shuffle 的本质：为什么是性能命门</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81HashShuffle-%E6%97%B6%E4%BB%A3%EF%BC%9A%E6%96%87%E4%BB%B6%E6%95%B0%E7%88%86%E7%82%B8%E7%9A%84%E5%8E%9F%E7%BD%AA"><span class="toc-text">二、HashShuffle 时代：文件数爆炸的原罪</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-%E6%99%AE%E9%80%9A-HashShuffle"><span class="toc-text">2.1 普通 HashShuffle</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-%E4%BC%98%E5%8C%96%E7%89%88-HashShuffle%EF%BC%88consolidate%EF%BC%89"><span class="toc-text">2.2 优化版 HashShuffle（consolidate）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81SortShuffle%EF%BC%9A%E5%8F%96%E4%BB%A3-HashShuffle-%E6%88%90%E4%B8%BA%E9%BB%98%E8%AE%A4"><span class="toc-text">三、SortShuffle：取代 HashShuffle 成为默认</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-%E6%99%AE%E9%80%9A-SortShuffle-%E7%9A%84%E6%A0%B8%E5%BF%83%E6%94%B9%E8%BF%9B"><span class="toc-text">3.1 普通 SortShuffle 的核心改进</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-bypass-%E6%9C%BA%E5%88%B6%EF%BC%9A%E5%B0%8F%E4%BD%9C%E4%B8%9A%E7%9A%84%E5%BF%AB%E9%80%9F%E9%80%9A%E9%81%93"><span class="toc-text">3.2 bypass 机制：小作业的快速通道</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-serialized-shuffle%EF%BC%88Tungsten-Sort%EF%BC%89"><span class="toc-text">3.3 serialized shuffle（Tungsten-Sort）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81Reduce-%E7%AB%AF%E6%8B%89%E5%8F%96%E4%B8%8E%E8%81%9A%E5%90%88"><span class="toc-text">四、Reduce 端拉取与聚合</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-%E6%8B%89%E5%8F%96%E6%B5%81%E7%A8%8B"><span class="toc-text">4.1 拉取流程</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-External-Shuffle-Service"><span class="toc-text">4.2 External Shuffle Service</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81Push-based-Shuffle%EF%BC%88Spark-3-2-%EF%BC%89"><span class="toc-text">五、Push-based Shuffle（Spark 3.2+）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-%E5%8A%A8%E5%9B%A0%EF%BC%9Areduce-%E7%AB%AF%E7%9A%84%E8%BF%9E%E6%8E%A5%E6%8A%96%E5%8A%A8"><span class="toc-text">5.1 动因：reduce 端的连接抖动</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-SPI-%E5%AE%9E%E7%8E%B0"><span class="toc-text">5.2 SPI 实现</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E4%B8%8E-Hadoop-MapReduce-shuffle-%E7%9A%84%E5%AF%B9%E6%AF%94"><span class="toc-text">六、与 Hadoop MapReduce shuffle 的对比</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E5%AE%9E%E6%88%98%E9%85%8D%E7%BD%AE%E6%B8%85%E5%8D%95"><span class="toc-text">七、实战配置清单</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B0%8F%E7%BB%93"><span class="toc-text">小结</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>

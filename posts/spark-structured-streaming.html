@@ -1,0 +1,381 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相 | 蒲公英</title><noscript>开启JavaScript才能访问本站哦~</noscript><link rel="icon" href="/img/dandelion.svg"><link rel="stylesheet" href="/css/index.css?v=3.0.21"><link rel="canonical" href="https://acitrus.cn/posts/spark-structured-streaming"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"><!-- Feature-specific CSS--><!-- aplayer--><!-- swiper--><!-- fancybox ui--><!-- katex--><!-- Open Graph--><meta name="description" content="从 StreamExecution 源码层面复盘 Structured Streaming 如何用事件时间、水位线和 checkpoint 实现端到端 exactly-once，以及生产环境里踩过的那些坑。"><!-- pwa--><meta name="apple-mobile-web-app-capable" content="蒲公英"><meta name="theme-color" content="var(--efu-main)"><meta name="apple-mobile-web-app-status-bar-style" content="var(--efu-main)"><link rel="bookmark" href="/img/dandelion.svg"><link rel="apple-touch-icon" href="/img/dandelion.svg" sizes="180x180"><script>console.log(' %c Solitude %c ' + '3.0.21' + ' %c https://github.com/everfu/hexo-theme-solitude',
+    'background:#35495e ; padding: 1px; border-radius: 3px 0 0 3px;  color: #fff',
+    'background:#ff9a9a ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff',
+    'background:unset ; padding: 1px; border-radius: 0 3px 3px 0;  color: #fff')
+</script><link rel="stylesheet" href="/css/custom.css"><script>(()=>{
+        const saveToLocal = {
+            set: function setWithExpiry(key, value, ttl) {
+                if (ttl === 0)
+                    return
+                const now = new Date()
+                const expiryDay = ttl * 86400000
+                const item = {
+                    value: value,
+                    expiry: now.getTime() + expiryDay
+                }
+                localStorage.setItem(key, JSON.stringify(item))
+            },
+            get: function getWithExpiry(key) {
+                const itemStr = localStorage.getItem(key)
+
+                if (!itemStr) {
+                    return undefined
+                }
+                const item = JSON.parse(itemStr)
+                const now = new Date()
+
+                if (now.getTime() > item.expiry) {
+                    localStorage.removeItem(key)
+                    return undefined
+                }
+                return item.value
+            }
+        };
+        window.utils = {
+            saveToLocal: saveToLocal,
+            getCSS: (url, id = false) => new Promise((resolve, reject) => {
+              const link = document.createElement('link')
+              link.rel = 'stylesheet'
+              link.href = url
+              if (id) link.id = id
+              link.onerror = reject
+              link.onload = link.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                link.onload = link.onreadystatechange = null
+                resolve()
+              }
+              document.head.appendChild(link)
+            }),
+            getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+              const script = document.createElement('script')
+              script.src = url
+              script.async = true
+              script.onerror = reject
+              script.onload = script.onreadystatechange = function() {
+                const loadState = this.readyState
+                if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+                script.onload = script.onreadystatechange = null
+                resolve()
+              }
+
+              Object.keys(attr).forEach(key => {
+                script.setAttribute(key, attr[key])
+              })
+
+              document.head.appendChild(script)
+            }),
+            addGlobalFn: (key, fn, name = false, parent = window) => {
+                const globalFn = parent.globalFn || {}
+                const keyObj = globalFn[key] || {}
+
+                if (name && keyObj[name]) return
+
+                name = name || Object.keys(keyObj).length
+                keyObj[name] = fn
+                globalFn[key] = keyObj
+                parent.globalFn = globalFn
+            },
+            addEventListenerPjax: (ele, event, fn, option = false) => {
+              ele.addEventListener(event, fn, option)
+              utils.addGlobalFn('pjax', () => {
+                  ele.removeEventListener(event, fn, option)
+              })
+            },
+            diffDateFormat: (selector) => {
+                selector.forEach(item => {
+                    const date = new Date(item.getAttribute('datetime') || item.textContent);
+                    item.textContent = (date.getMonth() + 1).toString()+'/'+date.getDate().toString();
+                });
+            },
+        }
+    })()</script><!-- theme--><script>initTheme = () => {
+    let isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const cachedMode = utils.saveToLocal.get('theme');
+    if (cachedMode === undefined) {
+        const nowMode =
+            isDarkMode ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', nowMode);
+    } else {
+        document.documentElement.setAttribute('data-theme', cachedMode);
+    }
+    typeof rm === 'object' && rm.mode(cachedMode === 'dark' && isDarkMode)
+}
+initTheme()</script><script>const GLOBAL_CONFIG = {
+    root: '/',
+    algolia: undefined,
+    localsearch: undefined,
+    runtime: '2026-04-07 00:00:00',
+    lazyload: {
+        enable: false,
+        error: '/img/error_load.avif'
+    },
+    copyright: false,
+    highlight: {"limit":200,"expand":true,"copy":true,"syntax":"highlight.js"},
+    randomlink: false,
+    lang: {"theme":{"dark":"已切换至深色模式","light":"已切换至浅色模式"},"copy":{"success":"复制成功","error":"复制失败"},"backtop":"返回顶部","time":{"day":"天前","hour":"小时前","just":"刚刚","min":"分钟前","month":"个月前"},"day":" 天","f12":"开发者模式已打开，请遵循GPL协议。","totalk":"无需删除空行，直接输入评论即可"},
+    aside: {
+        state: {
+            morning: "✨ 早上好，新的一天开始了",
+            noon: "🍲 午餐时间",
+            afternoon: "🌞 下午好",
+            night: "早点休息",
+            goodnight: "晚安 😴",
+        },
+        witty_words: [],
+        witty_comment: {
+            prefix: '好久不见，',
+            back: '欢迎再次回来，',
+        },
+    },
+    covercolor: {
+        enable: false
+    },
+    comment: false,
+    lightbox: 'null',
+    right_menu: false,
+    translate: {"translateDelay":0,"defaultEncoding":2},
+    lure: false,
+    expire: false,
+};</script><script id="config-diff">var PAGE_CONFIG = {
+    is_post: true,
+    is_page: false,
+    is_home: false,
+    page: '',
+    toc: true,
+    comment: false,
+    ai_text: '本文以复盘口吻拆解 Structured Streaming 的内核：micro-batch 循环、事件时间窗口与水位线、三种输出模式的语义边界、offset/commit 日志的原子提交、StateStore 的 WAL 与 RocksDB 实现，以及 Continuous 模式与 Flink 的差异。结合 Kafka source 到 HDFS/Kafka sink 的 Scala 实战代码，给出小文件、延迟、重复消费等生产踩坑的根因与解法。',
+    color: false,
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body id="body"><div id="console"><div class="close-btn" onclick="sco.hideConsole()"><i class="solitude fas fa-xmark"></i></div><div class="console-card-group"><div class="console-card-group-right"><div class="console-card tags" onclick="sco.hideConsole()"><div class="card-content"><div class="author-content-item-tips">标签</div><div class="author-content-item-title">寻找感兴趣的领域</div></div><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div><div class="console-card history" onclick="sco.hideConsole()"><ul class="card-archive-list"><li class="item"><a href="/archives/2026/07/"><span class="date">2026/07</span><div class="count-group"><span class="count">30</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/2026/04/"><span class="date">2026/04</span><div class="count-group"><span class="count">1</span><span class="unit">篇</span></div></a></li><li class="item"><a href="/archives/"><span class="date">全部文章</span><div class="count-group"><span class="count">31</span><span class="unit">篇</span></div></a></li></ul></div></div></div><div class="button-group"><div class="console-btn-item"><span class="darkmode_switchbutton" onclick="sco.switchDarkMode()" title="昼夜切换"><i class="solitude fas fa-circle-half-stroke"></i></span></div><div class="console-btn-item" id="consoleHideAside"><span class="asideSwitch" onclick="sco.switchHideAside()" title="边栏显示控制"><i class="solitude fas fa-arrows-left-right-to-line"></i></span></div></div><div class="console-mask" onclick="sco.hideConsole()"></div></div><div id="sidebar" style="zoom: 1;"><div id="menu-mask" style="display: none;"></div><div id="sidebar-menus"><div class="site-data"><div class="data-item is-center"><div class="data-item-link"><a href="/archives/"><div class="headline">文章</div><div class="length-num">31</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/categories/"><div class="headline">分类</div><div class="length-num">2</div></a></div></div><div class="data-item is-center"><div class="data-item-link"><a href="/tags/"><div class="headline">标签</div><div class="length-num">40</div></a></div></div></div><span class="sidebar-menu-item-title">功能</span><div class="sidebar-menu-item"><span class="darkmode_switchbutton menu-child" onclick="sco.switchDarkMode()"><i class="solitude fas fa-circle-half-stroke"></i><span>显示模式</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div><span class="sidebar-menu-item-title">标签</span><div class="card-tags"><div class="card-tag-cloud"><a href="/tags/%E5%85%AC%E5%8F%B8/">公司<sup>1</sup></a><a href="/tags/%E6%80%BB%E7%BB%93/">总结<sup>1</sup></a><a href="/tags/Hadoop/">Hadoop<sup>20</sup></a><a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/">高可用<sup>1</sup></a><a href="/tags/Federation/">Federation<sup>1</sup></a><a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/">容量规划<sup>1</sup></a><a href="/tags/%E8%BF%90%E7%BB%B4/">运维<sup>2</sup></a><a href="/tags/HDFS/">HDFS<sup>12</sup></a><a href="/tags/%E7%BC%93%E5%AD%98/">缓存<sup>1</sup></a><a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7/">一致性<sup>1</sup></a><a href="/tags/NameNode/">NameNode<sup>1</sup></a><a href="/tags/%E8%AF%BB%E8%B7%AF%E5%BE%84/">读路径<sup>1</sup></a><a href="/tags/%E5%B0%8F%E6%96%87%E4%BB%B6%E6%B2%BB%E7%90%86/">小文件治理<sup>1</sup></a><a href="/tags/%E5%89%AF%E6%9C%AC%E7%AE%A1%E7%90%86/">副本管理<sup>1</sup></a><a href="/tags/%E7%BA%A0%E5%88%A0%E7%A0%81/">纠删码<sup>2</sup></a><a href="/tags/%E6%B2%BB%E7%90%86/">治理<sup>1</sup></a><a href="/tags/%E5%88%86%E5%B1%82%E5%AD%98%E5%82%A8/">分层存储<sup>1</sup></a><a href="/tags/%E5%86%99%E8%B7%AF%E5%BE%84/">写路径<sup>1</sup></a><a href="/tags/MapReduce/">MapReduce<sup>1</sup></a><a href="/tags/Shuffle/">Shuffle<sup>2</sup></a><a href="/tags/%E5%AE%89%E5%85%A8/">安全<sup>1</sup></a><a href="/tags/Kerberos/">Kerberos<sup>1</sup></a><a href="/tags/YARN/">YARN<sup>2</sup></a><a href="/tags/%E8%B5%84%E6%BA%90%E8%B0%83%E5%BA%A6/">资源调度<sup>1</sup></a><a href="/tags/%E6%B9%96%E4%BB%93%E4%B8%80%E4%BD%93/">湖仓一体<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84%E6%BC%94%E8%BF%9B/">架构演进<sup>1</sup></a><a href="/tags/Hadoop3/">Hadoop3<sup>1</sup></a><a href="/tags/Spark/">Spark<sup>10</sup></a><a href="/tags/AQE/">AQE<sup>1</sup></a><a href="/tags/%E6%9E%B6%E6%9E%84/">架构<sup>1</sup></a><a href="/tags/%E6%95%B0%E6%8D%AE%E5%80%BE%E6%96%9C/">数据倾斜<sup>1</sup></a><a href="/tags/%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98/">性能调优<sup>2</sup></a><a href="/tags/JVM/">JVM<sup>1</sup></a><a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/">内存管理<sup>1</sup></a><a href="/tags/Kubernetes/">Kubernetes<sup>1</sup></a><a href="/tags/RDD/">RDD<sup>1</sup></a><a href="/tags/Spark-SQL/">Spark SQL<sup>1</sup></a><a href="/tags/Catalyst/">Catalyst<sup>1</sup></a><a href="/tags/Structured-Streaming/">Structured Streaming<sup>1</sup></a><a href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/">流计算<sup>1</sup></a></div></div></div></div><div><div class="needEndHide" id="rightside"><div class="rs_hide"><button class="translate" type="button" title="简繁转换">简</button><button class="mode" type="button" title="显示模式切换" onclick="sco.switchDarkMode()"><i class="fas fa-circle-half-stroke"></i></button></div><div class="rs_show"><button class="config" type="button" title="扩展" onclick="document.querySelector(&quot;.rs_hide&quot;).classList.toggle(&quot;show&quot;)"><i class="fas fa-gear fa-spin"></i></button><button class="mobile toc" type="button" title="目录" onclick="document.querySelector('#card-toc').classList.toggle('open')"><i class="fas fa-list"></i></button><button class="top" type="button" title="返回顶部" onclick="sco.toTop()"><i class="fas fa-arrow-up"></i><span id="percent">0</span></button></div></div></div><div class="post" id="body-wrap"><header class="not-top-img" id="page-header"><nav class="show" id="nav"><div id="nav-group"><div id="blog_name"><a href="/" title="返回博客主页" id="site-name"><span class="title">Dandelion</span><i class="solitude fas fa-home"></i></a></div><div id="page-name-mask"><div id="page-name"><a id="page-name-text" onclick="sco.toTop()">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</a></div></div><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><span>首页</span></a></div><div class="menus_item"><a class="site-page" href="javascript:void(0);"><span>我的</span></a><ul class="menus_item_child"><li><a class="site-page child" href="/about/"><i class="solitude  fas fa-user"></i><span>关于</span></a></li></ul></div></div></div><div id="nav-left"></div><div id="nav-right"><div id="toggle-menu"><a class="site-page"><i class="solitude fas fa-bars"></i></a></div></div></div></nav></header><main class="layout" id="content-inner"><div id="post"><div id="post-info"><div id="post-firstinfo"><div class="meta-firstline"><a class="post-meta-original" title="该文章为原创文章，注意版权协议">原创</a><span class="post-meta-categories"><a class="post-meta-categories" href="/categories/%E6%8A%80%E6%9C%AF/">技术</a></span><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Spark/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Spark</span></a><a class="post-meta__tags" href="/tags/Structured-Streaming/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>Structured Streaming</span></a><a class="post-meta__tags" href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/"><span class="tags-name tags-punctuation"><i class="solitude fas fa-hashtag"></i>流计算</span></a></div></div></div></div><h1 class="post-title">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</h1><div id="post-meta"><div class="meta-secondline"></div></div></div><div class="post-radius-bottom"></div><article class="post-content article-container"><div class="post-ai"><div class="ai-title"><div class="ai-title-left"><i class="ai-title-icon solitude fas fa-newspaper"></i><div class="ai-title-text">文章摘要</div></div><div class="ai-tag" id="ai-tag">飞宇 GPT</div></div><div class="ai-explanation" style="display: block;"></div></div><h1 id="Spark-Structured-Streaming-深度复盘：事件时间、水位线与-exactly-once-的工程真相"><a href="#Spark-Structured-Streaming-深度复盘：事件时间、水位线与-exactly-once-的工程真相" class="headerlink" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"></a>Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</h1><p>做实时数仓这几年，Spark Structured Streaming 我用得不少，踩的坑也足够写满一本。它在 2.0 提出”流是表的增量”这个模型时，社区一片叫好，但真正上生产后你会发现，”模型优雅”和”工程稳定”之间隔着十万八千里。这篇把我这些年攒下来的认知——尤其是事件时间、水位线、输出模式、checkpoint 原子性、StateStore 实现——一次讲透，并把它和 Flink 的差异摊开来比。</p>
+<h2 id="一、为什么是-Structured-Streaming：模型与执行"><a href="#一、为什么是-Structured-Streaming：模型与执行" class="headerlink" title="一、为什么是 Structured Streaming：模型与执行"></a>一、为什么是 Structured Streaming：模型与执行</h2><p>老 Spark Streaming（DStream）的核心痛点有两个：API 是 RDD 级别的，跟批处理割裂；反压、延迟、状态管理都靠手工调。Structured Streaming 的解法是把流抽象成一张”无界不断追加的表”——你对这张表写的 SQL &#x2F; DataFrame 算子，跟批作业是同一份逻辑，引擎负责把这个逻辑翻译成增量执行的 micro-batch（或 Continuous）。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">无界输入表  →  逻辑查询  →  增量结果表  →  Sink</span><br><span class="line">Kafka/Rate     window/agg     append/update    HDFS/Kafka</span><br></pre></td></tr></table></figure>
+
+<p>这套抽象的好处是：批流统一、端到端 exactly-once 由引擎兜底，你不再需要自己写 offset 管理。但代价是——你必须理解它内部那套 micro-batch 循环和 offset 日志，否则一旦出问题就是黑盒。</p>
+<h2 id="二、事件时间与水位线：流处理的灵魂"><a href="#二、事件时间与水位线：流处理的灵魂" class="headerlink" title="二、事件时间与水位线：流处理的灵魂"></a>二、事件时间与水位线：流处理的灵魂</h2><p>事件时间（event time）是数据本身携带的时间戳，而非处理时间（processing time）。这是流计算能否产出正确结果的根基——窗口聚合必须在事件时间上算，否则乱序和延迟会让结果失真。</p>
+<p>水位线（watermark）是引擎用来回答”这个窗口还能不能再等”的机制。它的定义是：<code>watermark = 当前已观察到的最大事件时间 − 允许的最大延迟</code>。超过水位线的事件会被丢弃，未关窗的窗口一旦越过水位线就会被 finalize。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">事件时间轴 (event-time) ─────────────────────────────────────►</span><br><span class="line">   t1    t2      t3        t4 (max event-time seen)    t5 (迟到的)</span><br><span class="line">   ●     ●       ●         ●                           ● (迟到 &gt; delay, drop)</span><br><span class="line">                                 │</span><br><span class="line">                    watermark = t4 - delay(30s)</span><br><span class="line">                                 │</span><br><span class="line">        窗口 [00:00,00:10)  ─────┼──►  watermark 越过窗口 end → finalize &amp; output</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-1-watermark-的两种语义"><a href="#2-1-watermark-的两种语义" class="headerlink" title="2.1 watermark 的两种语义"></a>2.1 watermark 的两种语义</h3><p>这里要特别强调一个被反复误解的点：watermark 的 <code>withWatermark</code> 只控制”何时输出”，不控制”何时丢弃”。在 append 模式下，丢弃语义是 <strong>窗口结束后再延迟 watermark delay</strong>；而在 update 模式下，迟到但未过水位线的事件会继续更新已有窗口。社区文档里那段”late data is dropped”说的只是过了水位线之后的行为。</p>
+<p>更深一层看，watermark 在引擎内部由 <code>EventTimeWatermarkExec</code> 算子维护。每个 batch 它扫描输入的 event-time 列，统计当前最大值减去 delay 得到新 watermark，再跟旧 watermark 取 max（保证单调不回退）。这个值通过 <code>WatermarkPropagator</code> 在查询计划里向上传播，聚合算子拿到后用它判断哪些窗口可以 finalize、哪些 state 可以清理。理解这条传播链，调试 watermark 不推进这类问题就有抓手了——多半是上游 event-time 列里有脏数据（null 或 1970 年的时间戳），把 max 拉歪了。</p>
+<h3 id="2-2-延迟数据的处理策略"><a href="#2-2-延迟数据的处理策略" class="headerlink" title="2.2 延迟数据的处理策略"></a>2.2 延迟数据的处理策略</h3><p>我在生产里见过三种典型情况：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>事件特征</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>正常延迟</td>
+<td>0–30s</td>
+<td>落在 watermark 内，正常聚合</td>
+</tr>
+<tr>
+<td>边界延迟</td>
+<td>接近 watermark</td>
+<td>append 模式会等到窗口 finalize</td>
+</tr>
+<tr>
+<td>极端延迟</td>
+<td>远超 watermark</td>
+<td>被静默 drop，落到 sink 时无任何报错</td>
+</tr>
+</tbody></table>
+<p>极端延迟被静默 drop 是最坑的——线上经常是上游 Kafka 出问题，积压半小时后追上来，所有 watermark 外的事件全部消失，指标莫名变小。我的做法是另起一个监控作业，统计 <code>numDroppedRecords</code> 指标，超阈值就报警。</p>
+<h2 id="三、输出模式：append-update-complete"><a href="#三、输出模式：append-update-complete" class="headerlink" title="三、输出模式：append &#x2F; update &#x2F; complete"></a>三、输出模式：append &#x2F; update &#x2F; complete</h2><p>输出模式决定了”结果表什么时候写出去、写哪些行”。这是 Structured Streaming 最容易配错的地方。</p>
+<ul>
+<li><strong>append</strong>：只输出<strong>新增</strong>的行（永远不会更新已输出行）。窗口聚合场景下，必须等窗口 finalize（即越过 watermark）才输出，端到端延迟最大。</li>
+<li><strong>update</strong>：只输出<strong>自上次 trigger 后有变化</strong>的行。窗口未关也会持续输出最新聚合值，适合写 Kafka 这种可更新 sink。</li>
+<li><strong>complete</strong>：每次 trigger 输出<strong>整张结果表</strong>。只适合结果集小的场景（如聚合维度少），否则内存和写入成本爆炸。</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">trigger #1   ──►   结果表: &#123;A:1, B:2&#125;           ── append 输出 A,B | update 输出 A,B | complete 输出 A,B</span><br><span class="line">trigger #2   ──►   结果表: &#123;A:3, B:2, C:5&#125;      ── append 输出 C     | update 输出 A,C | complete 输出 A,B,C</span><br></pre></td></tr></table></figure>
+
+<p>选错输出模式会直接导致延迟或成本问题。我的经验法则是：写文件类 sink（HDFS&#x2F;S3）用 append，写 Kafka 这类可更新 sink 用 update，维度极小的全局聚合才用 complete。</p>
+<h2 id="四、micro-batch-执行与-checkpoint-的原子性"><a href="#四、micro-batch-执行与-checkpoint-的原子性" class="headerlink" title="四、micro-batch 执行与 checkpoint 的原子性"></a>四、micro-batch 执行与 checkpoint 的原子性</h2><p>这是整个 exactly-once 的命门所在。<code>StreamExecution</code> 是 Structured Streaming 的执行核心，它的 micro-batch 循环大致是：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">┌─────────────────────────────────────────────────────────────┐</span><br><span class="line">│                    StreamExecution 主循环                    │</span><br><span class="line">│                                                              │</span><br><span class="line">│  1. 从 Source 拉取 offset 范围 (available offsets)           │</span><br><span class="line">│  2. 用 currentBatchId 构造 batch, 提交 Job                   │</span><br><span class="line">│  ┌────────────────────────────────────────────┐             │</span><br><span class="line">│  │  3. Job 执行                                │             │</span><br><span class="line">│  │   ├─ 读 source[batchId, offsets]            │             │</span><br><span class="line">│  │   ├─ 计算并写 sink (含 WAL, 见下)           │             │</span><br><span class="line">│  │   └─ 更新 StateStore                       │             │</span><br><span class="line">│  └────────────────────────────────────────────┘             │</span><br><span class="line">│  4. commit: 写 offset 到 offsets/ 目录 (batchId 文件)        │</span><br><span class="line">│  5. 写 commit 日志到 commits/ 目录                           │</span><br><span class="line">│  6. batchId++ , 回到 1                                       │</span><br><span class="line">└─────────────────────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<h3 id="4-1-两阶段提交的简化版"><a href="#4-1-两阶段提交的简化版" class="headerlink" title="4.1 两阶段提交的简化版"></a>4.1 两阶段提交的简化版</h3><p>关键点在步骤 4 和 5：offset 写入和 commit 日志写入都是<strong>写到 checkpoint 目录的文件</strong>，靠 HDFS rename 原子性来保证。重启时引擎读取 <code>commits/</code> 目录下最大的 batchId，再读 <code>offsets/&lt;batchId+1&gt;</code> 拿到下一起点——这就实现了 “已 commit 的 batch 不会重放，未 commit 的 batch 会被重算”。</p>
+<p>但这里有个微妙之处：sink 必须是<strong>幂等</strong>或<strong>支持事务性写入</strong>，才能在”Job 重试”和”offset 已写”之间不留痕迹。HDFS sink 用的是 “写临时目录 + rename”，Kafka sink 用的是事务 producer，foreach sink 则完全靠你自己实现幂等。</p>
+<h3 id="4-2-offset-日志与-commit-日志的原子性细节"><a href="#4-2-offset-日志与-commit-日志的原子性细节" class="headerlink" title="4.2 offset 日志与 commit 日志的原子性细节"></a>4.2 offset 日志与 commit 日志的原子性细节</h3><p>展开讲下这套机制为什么能保证 exactly-once。checkpoint 目录下有三个关键子目录：<code>offsets/</code>、<code>commits/</code>、<code>state/</code>。<code>offsets/&lt;batchId&gt;</code> 文件记录的是”这个 batch 要消费的起始 offset”，<code>commits/&lt;batchId&gt;</code> 是空文件，只用于标记”这个 batch 已成功提交”。两者都靠 HDFS rename 原子性。</p>
+<p>执行顺序刻意设计成：<strong>先写 sink 和 state，再写 commit 日志</strong>。这样即使 sink 写完、commit 没写就崩了，重启时引擎看到 commits 里没有这个 batchId，就会从 <code>offsets/&lt;batchId&gt;</code> 重新执行——这就要求 sink 是幂等的，否则就会重复。换句话说，引擎保证的是”offset 不丢、不跳”，sink 保证的是”重复写无害”，两者合起来才是端到端 exactly-once。foreach sink 出问题，往往就是开发者只做了”写”，没做”幂等”。</p>
+<h3 id="4-3-WAL：write-ahead-log-在-sink-侧的角色"><a href="#4-3-WAL：write-ahead-log-在-sink-侧的角色" class="headerlink" title="4.3 WAL：write-ahead log 在 sink 侧的角色"></a>4.3 WAL：write-ahead log 在 sink 侧的角色</h3><p>HDFS sink 内部还有一层 WAL：每个 batch 先写 <code>_temporary/&lt;batchId&gt;</code> 临时目录，commit 时 rename 到最终目录，并写一个空的 <code>_SUCCESS</code> 标记。这套 rename 链确保”要么全见、要么全不见”。Kafka sink 则用 Kafka 0.11+ 的事务 producer：开事务 → 写数据 → 写 offset marker → commit 事务，下游用 <code>read_committed</code> 隔离级别读，就能正好读到已提交的 batch 边界。</p>
+<h3 id="4-4-写入耗时与-batch-间隔的权衡"><a href="#4-4-写入耗时与-batch-间隔的权衡" class="headerlink" title="4.4 写入耗时与 batch 间隔的权衡"></a>4.4 写入耗时与 batch 间隔的权衡</h3><p>我测过一组数据（仅作参考，请按实际核实）：checkpoint 落 HDFS 单 batch 写入耗时 200–800ms，batch 间隔 30s，单 batch 计算耗时 5–15s。这意味着 checkpoint 开销占总耗时的 2%–5%，看起来不大，但在高吞吐场景下会成为瓶颈——尤其是 StateStore 做 checkpoint 的时候。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&lt;!-- 校准：请按真实经历核实/替换 --&gt;</span><br><span class="line">checkpoint 写入耗时: 200–800ms (HDFS, 小 state)</span><br><span class="line">batch 间隔: 30s</span><br><span class="line">单 batch 计算耗时: 5–15s</span><br><span class="line">端到端延迟 (append 模式): watermark delay(30s) + 窗口对齐(10s) + batch间隔 ≈ 70–90s</span><br></pre></td></tr></table></figure>
+
+<h2 id="五、StateStore-的实现：RocksDB-与-WAL"><a href="#五、StateStore-的实现：RocksDB-与-WAL" class="headerlink" title="五、StateStore 的实现：RocksDB 与 WAL"></a>五、StateStore 的实现：RocksDB 与 WAL</h2><p>状态存储是带状态算子（窗口聚合、join、去重）的根基。Structured Streaming 的 StateStore 抽象在 Spark 3.x 后默认支持 RocksDB（<code>spark.sql.streaming.stateStore.providerImpl=rocksDB</code>），相比老的 HDFSBackend 内存版，RocksDB 把热数据放内存、冷数据落本地磁盘，定期 checkpoint 到 HDFS。</p>
+<p>每个 state partition 对应一个 RocksDB 实例，每个 batch 内的更新先写 WAL（write-ahead log），batch 结束时 <code>commit</code> 会 flush 到 SST 文件并上传一份快照到 checkpoint 目录。这套机制让内存占用从”全量 state”降到”热数据 working set”，对大状态作业（几十 GB state）是救命稻草。</p>
+<p>每个 state partition 对应一个 RocksDB 实例，每个 batch 内的更新先写 WAL（write-ahead log），batch 结束时 <code>commit</code> 会 flush 到 SST 文件并上传一份快照到 checkpoint 目录。这套机制让内存占用从”全量 state”降到”热数据 working set”，对大状态作业（几十 GB state）是救命稻草。</p>
+<p>WAL 的写入路径是顺序追加，速度很快；真正慢的是 commit 阶段的 SST flush 和 HDFS 快照上传。Spark 3.2 引入了 changelog checkpointing（<code>spark.sql.streaming.stateStore.rocksdb.changelogCheckpointingInterval</code>），把”全量快照”改成”增量 changelog + 周期性全量”，对大 state 的 checkpoint 耗时改善明显。但这个特性有版本兼容性问题，3.2 写的 checkpoint 在 3.1 上读不了，升级时要排好顺序。</p>
+<p>我踩过一个坑：RocksDB 的 block cache 默认太小（几十 MB），在 heavy state + 高并发 partition 下频繁 read amplification，导致单 batch 从 5s 涨到 40s。调大 <code>spark.sql.streaming.stateStore.rocksdb.changelogCheckpointingInterval</code> 和 block cache 后恢复。另一个坑是 state schema 变更——加字段还行，改字段类型（如 Long → Double）直接报反序列化失败，只能新建 checkpoint 重跑，旧 state 全丢。我的应对是：状态算子的 schema 一开始就设计宽一点，预留字段；真要改类型就做版本切换，新作业新 checkpoint，老作业保留一段时间灰度。</p>
+<h2 id="六、实战代码：Kafka-→-窗口聚合-→-HDFS-Kafka"><a href="#六、实战代码：Kafka-→-窗口聚合-→-HDFS-Kafka" class="headerlink" title="六、实战代码：Kafka → 窗口聚合 → HDFS&#x2F;Kafka"></a>六、实战代码：Kafka → 窗口聚合 → HDFS&#x2F;Kafka</h2><p>下面是我线上真实作业的精简版，watermark 配 30s，append 模式写 HDFS。</p>
+<figure class="highlight scala"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> org.apache.spark.sql.<span class="type">SparkSession</span></span><br><span class="line"><span class="keyword">import</span> org.apache.spark.sql.functions._</span><br><span class="line"><span class="keyword">import</span> org.apache.spark.sql.streaming.<span class="type">OutputMode</span></span><br><span class="line"><span class="keyword">import</span> org.apache.spark.sql.types._</span><br><span class="line"></span><br><span class="line"><span class="keyword">val</span> spark = <span class="type">SparkSession</span>.builder()</span><br><span class="line">  .appName(<span class="string">&quot;order-realtime-agg&quot;</span>)</span><br><span class="line">  .config(<span class="string">&quot;spark.sql.streaming.stateStore.providerImpl&quot;</span>, <span class="string">&quot;rocksDB&quot;</span>)</span><br><span class="line">  .getOrCreate()</span><br><span class="line"></span><br><span class="line"><span class="keyword">val</span> kafkaSource = spark.readStream</span><br><span class="line">  .format(<span class="string">&quot;kafka&quot;</span>)</span><br><span class="line">  .option(<span class="string">&quot;kafka.bootstrap.servers&quot;</span>, <span class="string">&quot;kafka-1:9092,kafka-2:9092&quot;</span>)</span><br><span class="line">  .option(<span class="string">&quot;subscribe&quot;</span>, <span class="string">&quot;orders&quot;</span>)</span><br><span class="line">  .option(<span class="string">&quot;failOnDataLoss&quot;</span>, <span class="string">&quot;true&quot;</span>)          <span class="comment">// 数据丢失直接 fail, 别静默</span></span><br><span class="line">  .option(<span class="string">&quot;startingOffsets&quot;</span>, <span class="string">&quot;latest&quot;</span>)</span><br><span class="line">  .load()</span><br><span class="line"></span><br><span class="line"><span class="keyword">val</span> parsed = kafkaSource</span><br><span class="line">  .selectExpr(<span class="string">&quot;CAST(value AS STRING) AS json&quot;</span>)</span><br><span class="line">  .select(</span><br><span class="line">    from_json($<span class="string">&quot;json&quot;</span>, <span class="type">StructType</span>(<span class="type">Seq</span>(</span><br><span class="line">      <span class="type">StructField</span>(<span class="string">&quot;orderId&quot;</span>, <span class="type">StringType</span>),</span><br><span class="line">      <span class="type">StructField</span>(<span class="string">&quot;amount&quot;</span>, <span class="type">DoubleType</span>),</span><br><span class="line">      <span class="type">StructField</span>(<span class="string">&quot;eventTime&quot;</span>, <span class="type">TimestampType</span>)</span><br><span class="line">    ))).as(<span class="string">&quot;e&quot;</span>)</span><br><span class="line">  )</span><br><span class="line">  .select(<span class="string">&quot;e.*&quot;</span>)</span><br><span class="line">  <span class="comment">// 事件时间水位线: 允许 30s 延迟</span></span><br><span class="line">  .withWatermark(<span class="string">&quot;eventTime&quot;</span>, <span class="string">&quot;30 seconds&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="keyword">val</span> agg = parsed</span><br><span class="line">  .groupBy(</span><br><span class="line">    window($<span class="string">&quot;eventTime&quot;</span>, <span class="string">&quot;10 minutes&quot;</span>, <span class="string">&quot;5 minutes&quot;</span>),  <span class="comment">// 10min 窗口, 5min slide</span></span><br><span class="line">    $<span class="string">&quot;orderId&quot;</span></span><br><span class="line">  )</span><br><span class="line">  .agg(sum(<span class="string">&quot;amount&quot;</span>).as(<span class="string">&quot;totalAmount&quot;</span>))</span><br><span class="line">  .select($<span class="string">&quot;window.start&quot;</span>, $<span class="string">&quot;window.end&quot;</span>, $<span class="string">&quot;orderId&quot;</span>, $<span class="string">&quot;totalAmount&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment">// sink 1: HDFS (append 模式, 必须配合 watermark)</span></span><br><span class="line"><span class="keyword">val</span> hdfsQuery = agg.writeStream</span><br><span class="line">  .outputMode(<span class="type">OutputMode</span>.<span class="type">Append</span>())</span><br><span class="line">  .format(<span class="string">&quot;parquet&quot;</span>)</span><br><span class="line">  .option(<span class="string">&quot;path&quot;</span>, <span class="string">&quot;hdfs:///warehouse/orders_agg&quot;</span>)</span><br><span class="line">  .option(<span class="string">&quot;checkpointLocation&quot;</span>, <span class="string">&quot;hdfs:///ckpt/orders_agg&quot;</span>)</span><br><span class="line">  .trigger(<span class="type">Trigger</span>.<span class="type">ProcessingTime</span>(<span class="string">&quot;30 seconds&quot;</span>))</span><br><span class="line">  .partitionBy(<span class="string">&quot;start&quot;</span>)</span><br><span class="line">  .start()</span><br><span class="line"></span><br><span class="line"><span class="comment">// sink 2: Kafka (update 模式, 写可更新结果)</span></span><br><span class="line"><span class="keyword">val</span> kafkaQuery = agg</span><br><span class="line">  .selectExpr(<span class="string">&quot;CAST(orderId AS STRING) AS key&quot;</span>, <span class="string">&quot;to_json(struct(*)) AS value&quot;</span>)</span><br><span class="line">  .writeStream</span><br><span class="line">  .outputMode(<span class="type">OutputMode</span>.<span class="type">Update</span>())</span><br><span class="line">  .format(<span class="string">&quot;kafka&quot;</span>)</span><br><span class="line">  .option(<span class="string">&quot;kafka.bootstrap.servers&quot;</span>, <span class="string">&quot;kafka-1:9092&quot;</span>)</span><br><span class="line">  .option(<span class="string">&quot;topic&quot;</span>, <span class="string">&quot;orders_agg_rt&quot;</span>)</span><br><span class="line">  .option(<span class="string">&quot;checkpointLocation&quot;</span>, <span class="string">&quot;hdfs:///ckpt/orders_agg_kafka&quot;</span>)</span><br><span class="line">  .start()</span><br><span class="line"></span><br><span class="line">spark.streams.awaitAnyTermination()</span><br></pre></td></tr></table></figure>
+
+<p>几个细节值得说：<code>failOnDataLoss=true</code> 是我吃过亏后的默认配置；Kafka sink 用 update 模式会把每次更新的 key 重写一遍，下游消费者必须按 key 幂等合并；partitionBy 写 HDFS 会加剧小文件问题（见下）。</p>
+<h2 id="七、source-sink-的容错契约"><a href="#七、source-sink-的容错契约" class="headerlink" title="七、source &#x2F; sink 的容错契约"></a>七、source &#x2F; sink 的容错契约</h2><p>不同 source&#x2F;sink 的 exactly-once 能力是<strong>不均等</strong>的，下面这张表是我反复核实过的契约清单：</p>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>容错能力</th>
+<th>关键配置</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Kafka</td>
+<td>at-least-once 拉取 + offset 日志保证幂等重放</td>
+<td><code>failOnDataLoss</code>、<code>startingOffsets</code></td>
+</tr>
+<tr>
+<td>Rate</td>
+<td>仅测试用，无持久化</td>
+<td>—</td>
+</tr>
+<tr>
+<td>File</td>
+<td>directory listing + metadata log，exactly-once</td>
+<td><code>latestFirst</code>、<code>maxFilesPerTrigger</code></td>
+</tr>
+</tbody></table>
+<table>
+<thead>
+<tr>
+<th>Sink</th>
+<th>容错能力</th>
+<th>注意事项</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>HDFS&#x2F;File</td>
+<td>rename 原子性 → exactly-once</td>
+<td>小文件爆炸、partition 倾斜</td>
+</tr>
+<tr>
+<td>Kafka</td>
+<td>事务 producer → exactly-once（同事务隔离级别）</td>
+<td>跨 batch 事务超时、下游 read_committed</td>
+</tr>
+<tr>
+<td>foreach &#x2F; foreachBatch</td>
+<td><strong>完全取决于你的实现</strong></td>
+<td>必须幂等或自己两阶段提交</td>
+</tr>
+</tbody></table>
+<p><code>foreachBatch</code> 是个特别灵活的口子，我经常用它写多 sink 场景或对接外部系统（ClickHouse、Redis），但每次都必须显式做幂等——比如用主键 upsert，而不是 insert。</p>
+<h2 id="八、与-Flink-流处理的差异"><a href="#八、与-Flink-流处理的差异" class="headerlink" title="八、与 Flink 流处理的差异"></a>八、与 Flink 流处理的差异</h2><p>这俩我都在生产跑过，差异不止”引擎不同”，是模型层面的：</p>
+<ol>
+<li><strong>执行模型</strong>：Spark 默认是 micro-batch（Continuous 模式实验性），Flink 是真正的逐条 streaming，端到端延迟 Flink 更低（百毫秒级 vs Spark 的秒到分钟级）。</li>
+<li><strong>状态后端</strong>：Flink 有 RocksDB + 增量 checkpoint（只传 diff），Spark StateStore 目前是全量快照，大状态场景 Flink 更省资源。</li>
+<li><strong>水位线语义</strong>：Flink 的 watermark 是事件级、跨算子传播；Spark 的 watermark 只在带 <code>event-time</code> 的聚合算子里生效，传播模型更受限。</li>
+<li><strong>API 成熟度</strong>：Flink 的 Table&#x2F;SQL 流批一体更彻底；Spark 的 DataFrame 在流上有些算子不支持（如某些 join），需要降级到 foreachBatch 手撸。</li>
+<li><strong>生态与运维</strong>：Spark 复用现有批作业代码成本低，YARN 调度、checkpoint 管理对运维更友好；Flink 的 JM&#x2F;TM 模型和 savepoint 机制对状态管理更精细。</li>
+</ol>
+<p>我的选型原则：延迟要求 &lt;1s 或状态大（&gt;100GB）选 Flink；复用批逻辑、延迟秒级可接受、团队更熟 Spark，就 Structured Streaming。</p>
+<h2 id="九、Continuous-模式-vs-micro-batch"><a href="#九、Continuous-模式-vs-micro-batch" class="headerlink" title="九、Continuous 模式 vs micro-batch"></a>九、Continuous 模式 vs micro-batch</h2><p>Spark 2.3 引入 Continuous 模式，号称能做到亚毫秒延迟。原理是用一个长驻 task 在每个 executor 上持续读数据、异步 checkpoint offset，而不是等 trigger。</p>
+<p>但 Continuous 模式限制多：不支持窗口聚合的状态算子（实际上只支持简单的 map&#x2F;filter&#x2F;mapPartitions 类操作）、不支持状态、生态不成熟。我在生产里没用起来过——它更适合”纯 ETL、无状态、低延迟”的窄场景。对绝大多数业务，micro-batch 的 30s 间隔已经够用。</p>
+<h2 id="十、生产踩坑清单"><a href="#十、生产踩坑清单" class="headerlink" title="十、生产踩坑清单"></a>十、生产踩坑清单</h2><p>这部分是我用真金白银换来的教训。</p>
+<h3 id="10-1-小文件爆炸"><a href="#10-1-小文件爆炸" class="headerlink" title="10.1 小文件爆炸"></a>10.1 小文件爆炸</h3><p>HDFS sink + append 模式 + 高频 trigger + partitionBy，几乎必然产生海量小文件。我见过一个作业每天生成 80 万个小文件，NN 内存告急。</p>
+<p>解法：</p>
+<ul>
+<li>trigger 间隔从 30s 拉到 2–5 分钟；</li>
+<li>关掉无意义的 partitionBy，或合并 partition 维度；</li>
+<li>跑一个离线 compaction &#x2F; <code>OPTIMIZE</code> 作业定期合并；</li>
+<li>Spark 3.x 起支持 <code>spark.sql.files.maxRecordsPerFile</code> 控制单文件行数。</li>
+</ul>
+<h3 id="10-2-append-模式下的高延迟"><a href="#10-2-append-模式下的高延迟" class="headerlink" title="10.2 append 模式下的高延迟"></a>10.2 append 模式下的高延迟</h3><p>append 模式要等窗口越过 watermark 才输出，对实时看板来说延迟太致命。我有个监控看板要求 &lt;30s 延迟，append 根本扛不住。</p>
+<p>解法：sink 改 Kafka + update 模式，下游用 Flink 或 clickhouse 物化视图消费，延迟压到 5–10s。</p>
+<h3 id="10-3-重复消费-数据丢失"><a href="#10-3-重复消费-数据丢失" class="headerlink" title="10.3 重复消费 &#x2F; 数据丢失"></a>10.3 重复消费 &#x2F; 数据丢失</h3><p>两个根因：</p>
+<ul>
+<li><code>failOnDataLoss=false</code>（默认）：上游 Kafka 日志被清理或 leader 切换，source 静默跳过丢失段，结果数量莫名减少。<strong>生产必须 <code>true</code></strong>。</li>
+<li>foreach sink 不幂等：Job retry 时已写的部分会重写，造成重复。必须按业务主键 upsert。</li>
+</ul>
+<h3 id="10-4-checkpoint-损坏与升级"><a href="#10-4-checkpoint-损坏与升级" class="headerlink" title="10.4 checkpoint 损坏与升级"></a>10.4 checkpoint 损坏与升级</h3><p>checkpoint 目录里存了序列化后的 LogicalPlan、state schema、offset，跨大版本升级（如 3.2 → 3.4）经常反序列化失败。我的做法是：</p>
+<ul>
+<li>升级前先做一次 graceful shutdown；</li>
+<li>新版本启动时准备一份”全新 checkpoint + 起始 offset 指定”，旧 checkpoint 保留 7 天做回滚兜底；</li>
+<li>涉及 state schema 变更（加字段、改类型）必须用 foreachBatch 自己做兼容层。</li>
+</ul>
+<h3 id="10-5-StateStore-膨胀"><a href="#10-5-StateStore-膨胀" class="headerlink" title="10.5 StateStore 膨胀"></a>10.5 StateStore 膨胀</h3><p>窗口聚合的 state 在 watermark 内不会清理，长窗口（如 24h）+ 高基数 key 会让 state 涨到几十 GB。监控 <code>stateUsedBytes</code> 和 RocksDB 的 <code>numBytesWritten</code>，超阈值就调小窗口或拆作业。</p>
+<h3 id="10-6-倾斜与反压"><a href="#10-6-倾斜与反压" class="headerlink" title="10.6 倾斜与反压"></a>10.6 倾斜与反压</h3><p>streaming 作业的倾斜比批更难发现——batch 里能看到 task 耗时分布，streaming 里只能从端到端延迟曲线间接推断。我的排查套路：开 Spark UI 看 task deserialization time 和 shuffle read，某个 partition 长期是其他几倍的耗时，基本就是 key 倾斜。解法跟批一样：salting 加随机前缀打散，聚合后再二次汇总。反压方面，Structured Streaming 没有 DStream 那套显式反压，靠 trigger 间隔和 <code>maxOffsetsPerTrigger</code> 间接控速，上游积压严重时调小这个值能稳住延迟。</p>
+<h3 id="10-7-升级时的状态迁移"><a href="#10-7-升级时的状态迁移" class="headerlink" title="10.7 升级时的状态迁移"></a>10.7 升级时的状态迁移</h3><p>业务迭代难免改聚合逻辑——加维度、改窗口大小、改 watermark delay。这些改动都不能复用老 checkpoint，硬启会直接报 schema 不匹配或逻辑计划不一致。稳妥做法是：新作业起新 checkpoint，从指定 offset（<code>startingOffsets</code> 指到老作业停止位点）开始追，老作业观察一段时间无异常后下线。这个切换窗口里会有双倍资源消耗，提前在容量规划里留好余量。</p>
+<h2 id="十一、小结"><a href="#十一、小结" class="headerlink" title="十一、小结"></a>十一、小结</h2><p>Structured Streaming 的精髓在于：用”无界表 + 增量执行”统一批流，用”checkpoint + offset&#x2F;commit 日志”实现端到端 exactly-once，用”事件时间 + 水位线”处理乱序。它的工程真相是——这套契约成立的前提是你正确选择了 source&#x2F;sink、配置了 failOnDataLoss、做对了幂等、压住了小文件。</p>
+<p>下一篇我会把 Spark 性能调优的全景图摊开来讲：从 Catalyst 优化器、AQE 自适应执行、shuffle partition 调参、data skew 处理，到内存模型与 GC 调优，把”作业跑得快”这件事讲透。</p>
+<hr>
+<!-- 总校准注释：
+本文涉及的所有具体数字均为经验值，请按你的真实生产环境核实并替换：
+- watermark delay 30s、batch 间隔 30s：典型配置，需根据业务 SLA 调整
+- checkpoint 写入耗时 200–800ms：HDFS + 小 state 场景，大 state 会显著上升
+- 单 batch 计算耗时 5–15s、端到端延迟 70–90s：取决于数据量、并发、sink 类型
+- 小文件 80 万/天、RocksDB block cache 默认值：来源于一次具体事故，环境不同请重新测量
+- Continuous 模式不支持窗口聚合：基于 Spark 3.4 之前的认知，后续版本可能放宽，请核对当前版本 release notes
+-->
+</article><div class="post-copyright"><div class="post-copyright__author_group"><div class="post-copyright__author_img"><img class="post-copyright__author_img_front" src="/img/logo.jpeg"></div><div class="post-copyright__author_name">王飞宇</div><div class="post-copyright__author_desc">Dandelion</div></div><div class="post-tools" id="post-tools"><div class="post-tools-left"><div id="quit-box" onclick="RemoveRewardMask()"></div></div></div><div class="post-copyright__notice"><span class="post-copyright-info">本文是原创文章，采用<a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans">CC BY-NC-SA 4.0</a>协议，完整转载请注明来自<a href="/">蒲公英</a></span></div></div><div class="post-tools-right"><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Spark/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Spark<span class="tagsPageCount">10</span></span></a><a class="post-meta__tags" href="/tags/Structured-Streaming/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>Structured Streaming<span class="tagsPageCount">1</span></span></a><a class="post-meta__tags" href="/tags/%E6%B5%81%E8%AE%A1%E7%AE%97/"><span class="tags-punctuation"><i class="solitude fas fa-hashtag"></i>流计算<span class="tagsPageCount">1</span></span></a></div></div></div><nav class="needEndHide pagination-post" id="pagination"><div class="prev-post pull-left"><a href="/posts/hadoop-hdfs-ops-troubleshooting"><div class="pagination-info"><div class="label">上一篇</div><div class="prev_info">HDFS 运维与故障排查 SOP</div></div></a></div><div class="next-post pull-right"><a href="/posts/hadoop-hdfs-storage-tiering"><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">HDFS 存储策略与分层存储</div></div></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="card-content"><div class="card-info-avatar is-center"><div class="top-group"><div class="sayhi" id="sayhi" onclick="sco.changeWittyWord()"></div></div></div><div class="avatar"><img alt="头像" src="/img/logo.jpeg"></div><div class="description"></div><div class="bottom-group"><span class="left"><div class="name">王飞宇</div><div class="desc">此情可待成追忆，只是当时已惘然。</div></span><div class="social-icons is-center"></div></div></div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="solitude fas fa-bars"></i><span>文章目录</span></div><div class="toc-content" id="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#Spark-Structured-Streaming-%E6%B7%B1%E5%BA%A6%E5%A4%8D%E7%9B%98%EF%BC%9A%E4%BA%8B%E4%BB%B6%E6%97%B6%E9%97%B4%E3%80%81%E6%B0%B4%E4%BD%8D%E7%BA%BF%E4%B8%8E-exactly-once-%E7%9A%84%E5%B7%A5%E7%A8%8B%E7%9C%9F%E7%9B%B8"><span class="toc-text">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E4%B8%BA%E4%BB%80%E4%B9%88%E6%98%AF-Structured-Streaming%EF%BC%9A%E6%A8%A1%E5%9E%8B%E4%B8%8E%E6%89%A7%E8%A1%8C"><span class="toc-text">一、为什么是 Structured Streaming：模型与执行</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E4%BA%8B%E4%BB%B6%E6%97%B6%E9%97%B4%E4%B8%8E%E6%B0%B4%E4%BD%8D%E7%BA%BF%EF%BC%9A%E6%B5%81%E5%A4%84%E7%90%86%E7%9A%84%E7%81%B5%E9%AD%82"><span class="toc-text">二、事件时间与水位线：流处理的灵魂</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-watermark-%E7%9A%84%E4%B8%A4%E7%A7%8D%E8%AF%AD%E4%B9%89"><span class="toc-text">2.1 watermark 的两种语义</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-%E5%BB%B6%E8%BF%9F%E6%95%B0%E6%8D%AE%E7%9A%84%E5%A4%84%E7%90%86%E7%AD%96%E7%95%A5"><span class="toc-text">2.2 延迟数据的处理策略</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E8%BE%93%E5%87%BA%E6%A8%A1%E5%BC%8F%EF%BC%9Aappend-update-complete"><span class="toc-text">三、输出模式：append &#x2F; update &#x2F; complete</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81micro-batch-%E6%89%A7%E8%A1%8C%E4%B8%8E-checkpoint-%E7%9A%84%E5%8E%9F%E5%AD%90%E6%80%A7"><span class="toc-text">四、micro-batch 执行与 checkpoint 的原子性</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-%E4%B8%A4%E9%98%B6%E6%AE%B5%E6%8F%90%E4%BA%A4%E7%9A%84%E7%AE%80%E5%8C%96%E7%89%88"><span class="toc-text">4.1 两阶段提交的简化版</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-offset-%E6%97%A5%E5%BF%97%E4%B8%8E-commit-%E6%97%A5%E5%BF%97%E7%9A%84%E5%8E%9F%E5%AD%90%E6%80%A7%E7%BB%86%E8%8A%82"><span class="toc-text">4.2 offset 日志与 commit 日志的原子性细节</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-WAL%EF%BC%9Awrite-ahead-log-%E5%9C%A8-sink-%E4%BE%A7%E7%9A%84%E8%A7%92%E8%89%B2"><span class="toc-text">4.3 WAL：write-ahead log 在 sink 侧的角色</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-4-%E5%86%99%E5%85%A5%E8%80%97%E6%97%B6%E4%B8%8E-batch-%E9%97%B4%E9%9A%94%E7%9A%84%E6%9D%83%E8%A1%A1"><span class="toc-text">4.4 写入耗时与 batch 间隔的权衡</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81StateStore-%E7%9A%84%E5%AE%9E%E7%8E%B0%EF%BC%9ARocksDB-%E4%B8%8E-WAL"><span class="toc-text">五、StateStore 的实现：RocksDB 与 WAL</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E5%AE%9E%E6%88%98%E4%BB%A3%E7%A0%81%EF%BC%9AKafka-%E2%86%92-%E7%AA%97%E5%8F%A3%E8%81%9A%E5%90%88-%E2%86%92-HDFS-Kafka"><span class="toc-text">六、实战代码：Kafka → 窗口聚合 → HDFS&#x2F;Kafka</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81source-sink-%E7%9A%84%E5%AE%B9%E9%94%99%E5%A5%91%E7%BA%A6"><span class="toc-text">七、source &#x2F; sink 的容错契约</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81%E4%B8%8E-Flink-%E6%B5%81%E5%A4%84%E7%90%86%E7%9A%84%E5%B7%AE%E5%BC%82"><span class="toc-text">八、与 Flink 流处理的差异</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B9%9D%E3%80%81Continuous-%E6%A8%A1%E5%BC%8F-vs-micro-batch"><span class="toc-text">九、Continuous 模式 vs micro-batch</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8D%81%E3%80%81%E7%94%9F%E4%BA%A7%E8%B8%A9%E5%9D%91%E6%B8%85%E5%8D%95"><span class="toc-text">十、生产踩坑清单</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#10-1-%E5%B0%8F%E6%96%87%E4%BB%B6%E7%88%86%E7%82%B8"><span class="toc-text">10.1 小文件爆炸</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-2-append-%E6%A8%A1%E5%BC%8F%E4%B8%8B%E7%9A%84%E9%AB%98%E5%BB%B6%E8%BF%9F"><span class="toc-text">10.2 append 模式下的高延迟</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-3-%E9%87%8D%E5%A4%8D%E6%B6%88%E8%B4%B9-%E6%95%B0%E6%8D%AE%E4%B8%A2%E5%A4%B1"><span class="toc-text">10.3 重复消费 &#x2F; 数据丢失</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-4-checkpoint-%E6%8D%9F%E5%9D%8F%E4%B8%8E%E5%8D%87%E7%BA%A7"><span class="toc-text">10.4 checkpoint 损坏与升级</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-5-StateStore-%E8%86%A8%E8%83%80"><span class="toc-text">10.5 StateStore 膨胀</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-6-%E5%80%BE%E6%96%9C%E4%B8%8E%E5%8F%8D%E5%8E%8B"><span class="toc-text">10.6 倾斜与反压</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-7-%E5%8D%87%E7%BA%A7%E6%97%B6%E7%9A%84%E7%8A%B6%E6%80%81%E8%BF%81%E7%A7%BB"><span class="toc-text">10.7 升级时的状态迁移</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8D%81%E4%B8%80%E3%80%81%E5%B0%8F%E7%BB%93"><span class="toc-text">十一、小结</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="solitude fas fa-map"></i><span>最近发布</span></div><div class="aside-list"><a class="aside-list-item" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解"><div class="content"><span class="title" href="/posts/spark-on-k8s-vs-yarn" title="Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解">Spark on Kubernetes vs YARN：两种部署模式的选型复盘与深度拆解</span><span class="categories" href="/posts/spark-on-k8s-vs-yarn">技术</span></div></a><a class="aside-list-item" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘"><div class="content"><span class="title" href="/posts/spark-performance-tuning" title="Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘">Spark 性能调优全景：把一个 4 小时任务压到 40 分钟的复盘</span><span class="categories" href="/posts/spark-performance-tuning">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP"><div class="content"><span class="title" href="/posts/hadoop-hdfs-ops-troubleshooting" title="HDFS 运维与故障排查 SOP">HDFS 运维与故障排查 SOP</span><span class="categories" href="/posts/hadoop-hdfs-ops-troubleshooting">技术</span></div></a><a class="aside-list-item" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相"><div class="content"><span class="title" href="/posts/spark-structured-streaming" title="Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相">Spark Structured Streaming 深度复盘：事件时间、水位线与 exactly-once 的工程真相</span><span class="categories" href="/posts/spark-structured-streaming">技术</span></div></a><a class="aside-list-item" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储"><div class="content"><span class="title" href="/posts/hadoop-hdfs-storage-tiering" title="HDFS 存储策略与分层存储">HDFS 存储策略与分层存储</span><span class="categories" href="/posts/hadoop-hdfs-storage-tiering">技术</span></div></a></div></div></div></div></main><footer id="footer"><div id="st-footer"></div><div id="footer-bar"><div class="footer-bar-links"><div class="footer-bar-left"><div class="copyright">© 2026 By<a class="footer-bar-link" href="/" title="王飞宇">王飞宇</a></div><div class="beian-group"><a class="footer-bar-link" target="_blank" rel="noopener" href="https://hexo.io/" title="框架：Hexo">框架：Hexo</a><a class="footer-bar-link" target="_blank" rel="noopener" href="https://github.com/everfu/hexo-theme-solitude" title="主题：Solitude">主题：Solitude</a></div></div><div class="footer-bar-right"></div></div></div><div class="comment-barrage needEndHide"></div></footer></div><div><!-- Critical scripts loaded synchronously--><script src="/js/utils.js?v=3.0.21"></script><script src="/js/main.js?v=3.0.21"></script><!-- Non-critical scripts loaded asynchronously--><script async src="/js/third_party/waterfall.min.js?v=3.0.21"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js"></script><!-- Feature-specific scripts loaded asynchronously--><script defer src="https://cdn.jsdelivr.net/npm/typeit@8.8.7/dist/index.umd.min.js"></script><script defer src="/js/tw_cn.js?v=3.0.21"></script><!-- UI enhancement scripts--><script defer src="https://cdn.jsdelivr.net/npm/node-snackbar@0.1.16/dist/snackbar.min.js"></script><script defer src="/js/post_ai.js?v=3.0.21"></script><!-- Music player scripts--><!-- Cover color processing scripts--><script>window.paceOptions = {
+  restartOnPushState: false
+}
+
+utils.addGlobalFn('pjaxSend', () => {
+  Pace.restart()
+}, 'pace_restart')
+</script><script src="https://cdn.jsdelivr.net/npm/pace-js@1.2.4/pace.min.js"></script><!-- Search functionality--><!-- Right menu functionality--><div class="js-pjax"></div></div><!-- pjax--><script>let pjax = null;
+
+function initPjax() {
+    if (typeof Pjax === 'undefined') {
+        console.warn('Pjax is not loaded yet, retrying...');
+        setTimeout(initPjax, 100);
+        return;
+    }
+
+    pjax = new Pjax({
+        elements: 'a:not([target="_blank"])',
+        selectors: ["title","#body-wrap","#site-config","meta[name=\"description\"]",".js-pjax","meta[property^=\"og:\"]","#config-diff",".rs_show",".rs_hide"],
+        cacheBust: false,
+        analytics: false,
+        scrollRestoration: false
+    })
+
+    // 将 pjax 实例挂载到全局
+    window.pjax = pjax;
+
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+        const newScript = document.createElement('script')
+        const content = item.text || item.textContent || item.innerHTML || ""
+        Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+        newScript.appendChild(document.createTextNode(content))
+        item.parentNode.replaceChild(newScript, item)
+    })
+
+    document.addEventListener('pjax:complete', () => {
+        window.refreshFn()
+
+        document.querySelectorAll('script[data-pjax]').forEach(item => {
+            const newScript = document.createElement('script')
+            const content = item.text || item.textContent || item.innerHTML || ""
+            Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+            newScript.appendChild(document.createTextNode(content))
+            item.parentNode.replaceChild(newScript, item)
+        })
+
+        GLOBAL_CONFIG.islazyload && window.lazyLoadInstance.update()
+
+    })
+
+    document.addEventListener('pjax:error', (e) => {
+        if (e.request.status === 404) {
+            pjax.loadUrl('/404.html')
+        }
+    })
+}
+
+// 初始化 Pjax
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPjax);
+} else {
+    initPjax();
+}</script><!-- google adsense--></body></html>
+        <script>
+            const posts = ["posts/spark-on-k8s-vs-yarn.html","posts/spark-performance-tuning.html","posts/hadoop-hdfs-ops-troubleshooting.html","posts/spark-structured-streaming.html","posts/hadoop-hdfs-storage-tiering.html","posts/spark-aqe.html","posts/hadoop-hdfs-snapshot-encryption-quota.html","posts/spark-data-skew.html","posts/hadoop-hdfs-erasure-coding.html","posts/spark-sql-catalyst.html","posts/hadoop-hdfs-cache-read-optimization.html","posts/spark-memory-management.html","posts/hadoop-hdfs-consistency-lease.html","posts/spark-shuffle-mechanism.html","posts/hadoop-hdfs-replica-management.html","posts/spark-rdd-lineage.html","posts/hadoop-hdfs-namenode-metadata.html","posts/spark-core-architecture.html","posts/hadoop-hdfs-read-path.html","posts/hadoop-hdfs-write-path.html","posts/hadoop-to-lakehouse-evolution.html","posts/hadoop-cluster-planning-deployment.html","posts/hadoop3-new-features.html","posts/hadoop-performance-tuning.html","posts/hadoop-security-kerberos-ranger.html","posts/hadoop-ha-federation.html","posts/hadoop-mapreduce-shuffle.html","posts/hadoop-yarn-scheduler.html","posts/hadoop-hdfs-small-files.html","posts/hadoop-hdfs-architecture.html","posts/mingyuanyun.html"];
+            function toRandomPost() {
+                const randomPost = posts[Math.floor(Math.random() * posts.length)];
+                pjax.loadUrl(GLOBAL_CONFIG.root + randomPost);
+            }
+        </script>
